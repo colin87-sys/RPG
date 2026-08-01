@@ -40,6 +40,14 @@ const SCENARIOS = {
     { hook: ['poseCamera', 'hero-closeup'], wait: 1500, shot: 'cast-closeup' },
     { hook: ['poseCamera', 'silhouette'], wait: 1500, shot: 'cast-silhouette' },
   ],
+  // The painted face textures, shown flat and full-screen. The face is the
+  // highest-value asset in the game and judging it through the 3D pipeline
+  // conflates texture problems with shading and camera problems.
+  faces: [
+    { hook: ['showFaceSheet'], wait: 2500, shot: 'face-sheet' },
+    { hook: ['showFaceSheet', 0], wait: 1200, shot: 'face-0' },
+    { hook: ['showFaceSheet', 1], wait: 1200, shot: 'face-1' },
+  ],
   daycycle: [
     { hook: ['gotoLookdev'], wait: 4000 },
     { hook: ['poseCamera', 'horizon'], wait: 800 },
