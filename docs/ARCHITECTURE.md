@@ -255,8 +255,14 @@ window.__AW__ = {
 
 ## Art direction (binding on every visual module)
 
-The target is late-PS4-era stylised JRPG: **physically-grounded lighting,
-stylised albedo.** Not photoreal, not cel-shaded. Specifics:
+> **`docs/REFERENCE_TARGET.md` is authoritative and overrides this section
+> wherever they disagree.** It records the actual reference frames supplied by
+> the user: chibi / super-deformed characters (3.0–3.5 heads tall) staged in a
+> fixed side-view battle camera, inside full-3D painterly environments with
+> heavy mist and depth of field. Read it first.
+
+Environments are physically-grounded; characters are toon-shaded with a
+mandatory rim light. Not photoreal. Specifics:
 
 - **Palette**: deep teal-and-amber base. Cool shadows (never neutral grey —
   shadow tint is always toward the sky colour), warm key light, saturated

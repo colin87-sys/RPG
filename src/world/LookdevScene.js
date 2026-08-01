@@ -21,7 +21,7 @@ import { Lighting } from '../render/Lighting.js';
 const CAMERA_POSES = {
   wide: { pos: [9, 4.2, 13], look: [0, 1.4, 0], fov: 42 },
   'sphere-grid': { pos: [0, 2.1, 7.2], look: [0, 2.0, 0], fov: 34 },
-  'hero-closeup': { pos: [2.1, 1.75, 3.4], look: [0.2, 1.35, 0], fov: 38 },
+  'hero-closeup': { pos: [1.4, 1.15, 2.2], look: [0.2, 0.75, 0], fov: 38 },
   materials: { pos: [-4.5, 1.6, 5.0], look: [-4.2, 0.9, 0], fov: 40 },
   horizon: { pos: [0, 1.7, 10], look: [0, 3.2, -60], fov: 55 },
 };
@@ -104,15 +104,20 @@ export class LookdevScene extends Scene {
     this.scene.add(group);
   }
 
-  /** 1.75 m proxy: reads scale, contact shadow quality and shadow softness. */
+  /**
+   * Chibi scale proxy — 3.25 heads tall, matching REFERENCE_TARGET.md.
+   * A realistic 1.75 m capsule would calibrate shadow softness and camera
+   * framing against proportions the game does not actually use.
+   */
   _buildScaleProxy(forge) {
     const group = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: 0x9aa4ae, roughness: 0.6 });
     this.track(mat);
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.9, 8, 24), mat);
-    body.position.y = 1.06;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.135, 24, 18), mat);
-    head.position.y = 1.68;
+    // Head is ~38% of a 1.15 m total height; body is a short compact mass.
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.18, 0.26, 8, 24), mat);
+    body.position.y = 0.35;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.225, 32, 24), mat);
+    head.position.y = 0.9;
     for (const m of [body, head]) {
       m.castShadow = true;
       m.receiveShadow = true;
