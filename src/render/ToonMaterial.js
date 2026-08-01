@@ -1,76 +1,70 @@
 /**
  * ToonMaterial — the character shading model.
  *
- * REFERENCE_TARGET §8.4 is the whole brief: "Character shading uses a custom
- * toon-ish material with rim light, not stock `MeshStandardMaterial`.
- * Environments may stay physically based." The *contrast* between the two is
- * load-bearing — it is a large part of why a 3.2-head chibi at eighty pixels
- * tall reads as a character rather than as another prop in the diorama — so
- * this module's job is not merely "make it flat", it is to hold the characters
- * in a different, legible shading language while they stand in, and are lit by,
- * the same physical rig as everything else.
+ * ## What this is, and what it replaced
  *
- * ## What this is, mechanically
+ * The first cast was rejected as "AI slop [that] looks nothing like anime", and
+ * `docs/ANIME_PIPELINE.md` diagnoses why: the characters were lit by a smooth,
+ * PBR-ish falloff with procedural noise smeared over hair and cloth. This module
+ * is the shading half of the correction. It implements ANIME_PIPELINE §2
+ * literally:
+ *
+ *  1. **Two bands.** One `smoothstep( t - w, t + w, N·L )` with `t ≈ 0.5` and
+ *     `w ≈ 0.03–0.06`. No ramp texture, no core-shadow subdivisions, no
+ *     subsurface wrap across the terminator — every one of those softens the one
+ *     edge the style depends on, and their sum is a soft ramp, which is the
+ *     failure mode. A third band is available *above* the terminator, for hair
+ *     and metal only, because that is the one extra band the idiom uses.
+ *  2. **The shadow is a hue shift with rising saturation**, applied to the
+ *     albedo before it is lit — never a darkened copy. See `awToonShadowAlbedo`
+ *     in `shaders/toonCommon.js`; the trap it guards is documented there.
+ *  3. **Specular is a thresholded blob**, isotropic or Kajiya-Kay across a
+ *     strand axis, gated by the cel band, and compiled out of the classes that
+ *     must not have one.
+ *  4. **The face resists shadowing.** `shadowFloor` (0.75 on the `skin` preset)
+ *     clamps the banded light term from below and pays the deficit back at the
+ *     rig's own key radiance, so neither a form shadow nor a *cast* fringe
+ *     shadow can carve a face into darkness.
+ *
+ * The rim from REFERENCE_TARGET §1 survives all of that unchanged: it is the one
+ * term the reference frames never omit.
+ *
+ * **No noise touches a character.** ANIME_PIPELINE's absolute rule. The presets
+ * that describe character surfaces carry `flat: true`, and a flat preset drops
+ * incoming `normalMap` / `roughnessMap` / `aoMap` — in this project those come
+ * from `AssetForge`'s fBm generators, and on a character they read as dirt.
+ * Props and monsters (`generic`, `leather`, `crystal`) keep theirs, and any
+ * caller that genuinely wants detail on a flat class can pass
+ * `{ detailMaps: true }`. A base colour `map` is never dropped: the painted face
+ * texture arrives that way, and nothing in this material multiplies anything
+ * into it.
+ *
+ * ## Mechanically
  *
  * A `MeshStandardMaterial` whose direct BRDF has been replaced through
- * `onBeforeCompile`, and nothing else touched. The reasoning is written out at
- * the top of `shaders/toonSurface.js`; the short version is that the character
- * must inherit cascaded shadows from `render/Lighting.js` (which drives CSM and
- * therefore rewrites the lighting chunks globally), skinning, morph targets,
- * `FogExp2`, PMREM environment maps and ACES tone mapping — and each of those,
- * hand-rolled in a `ShaderMaterial`, is one more place the character can
- * silently drift out of agreement with the world it is standing in.
- *
- * `Lighting.registerMaterial` explicitly captures and chains a material's own
- * `onBeforeCompile` before installing CSM's, which is what makes this legal:
- * CSM's hook runs first, ours second, and neither depends on the other having
- * left a particular chunk in place.
- *
- * ## The six terms, and why each one exists
- *
- *  1. **A cel ramp with an explicit terminator.** N·L is not sliced into equal
- *     bands — the terminator is placed by position (default just above 0), so
- *     the lit side is one broad flat plateau at full key and the band count
- *     subdivides the *shadow* only. That is the difference between a cel look
- *     and a soft Lambert falloff with contours in it; see `toonCommon.js`.
- *  2. **A shadow albedo.** Inside the shadow band the surface colour itself
- *     shifts toward `SHADOW_TINT`, at `shadowMix` (~0.55 by default), with
- *     ART_BIBLE §2.1's saturation floor enforced on the result. A shadow built
- *     purely out of light terms can only travel toward black along the albedo's
- *     own hue line, which is exactly the "darkened desaturated albedo" the look
- *     must not have.
- *  3. **A tinted shadow fill**, layered over that: a warm-to-cool gradient
- *     covering the light deficit, including the deficit caused by a cast shadow,
- *     so form shadow and cast shadow land in the same coloured mass.
- *  4. **Rim.** Fresnel weighted by the rim light's direction so it concentrates
- *     on the back-lit edge, over a floor so the whole silhouette still separates
- *     from the background. REFERENCE_TARGET §1 makes this mandatory in every
- *     frame; ART_BIBLE §5.6 sizes it.
- *  5. **One highlight band**, compiled out entirely on the classes that must not
- *     have one (skin), and Kajiya-Kay anisotropic where the surface has a sweep
- *     direction (hair, blades) so it reads as a stripe following the sculpt
- *     rather than as a round plastic dot. The environment probe reaches
- *     dielectrics as irradiance only — never as a reflection-vector lookup,
- *     which is what produces the sliding mirror hotspot that reads as PBR.
- *  6. **Subsurface wrap**, so faces do not go dead on their shadow side — the
- *     single most common way an oversized chibi head stops reading.
+ * `onBeforeCompile`, and nothing else touched — so the characters keep cascaded
+ * shadows from `render/Lighting.js`, skinning, morph targets, `FogExp2`, the
+ * PMREM probe, ACES tone mapping and the HDR post chain. `Lighting.registerMaterial`
+ * captures and chains a material's own `onBeforeCompile` before installing CSM's,
+ * which is what makes this legal: CSM's hook runs first, ours second, and neither
+ * depends on the other having left a particular chunk in place.
  *
  * ## Contract for consumers
  *
- *   createToonMaterial({ preset, lighting, forge, ... }) -> THREE.MeshStandardMaterial
+ *   createToonMaterial({ preset, lighting, ... })         -> THREE.MeshStandardMaterial
  *   updateToonUniforms(material, { time, rimColor, ... }) -> material
- *   createToonOutline(sourceMesh, { width, color, ... })  -> THREE.Mesh | THREE.SkinnedMesh
+ *   createToonOutlineMaterial({ width, ... })             -> THREE.MeshBasicMaterial
+ *   createToonOutline(sourceMesh, { material })           -> THREE.Mesh | THREE.SkinnedMesh
  *
- * Pass `{ lighting }` (the `Lighting` service) and the rig's key/rim uniforms
- * are *aliased*, not copied: the character's rim tracks the rim light that
- * casts it, every frame, at zero per-frame cost and with no possibility of the
- * two disagreeing. Pass `{ forge }` and the shadow gradient comes from
- * `Palette.toonRamp` via `AssetForge`.
+ * Pass `{ lighting }` (the `Lighting` service) and the rig's key/rim uniforms are
+ * *aliased*, not copied: the character's rim tracks the rim light that casts it,
+ * every frame, at zero per-frame cost and with no possibility of the two
+ * disagreeing. It is also how the face-flattening fill knows the key's colour, so
+ * a face without it is flattened by a fixed white light instead of by the sun.
  *
- * Nothing here allocates a GPU resource. Ramp textures belong to `AssetForge`
- * and are disposed with it; the materials and geometries this module returns
- * are the caller's to `dispose()`, and `createToonOutline` shares the source
- * geometry rather than cloning it, so the outline must never dispose it.
+ * Nothing here allocates a GPU resource; the materials and geometries this module
+ * returns are the caller's to `dispose()`, and `createToonOutline` shares the
+ * source geometry rather than cloning it, so the outline must never dispose it.
  *
  * OWNED BY: render/ToonMaterial.js.
  */
@@ -81,7 +75,12 @@ import {
   TOON_SURFACE_INIT,
   TOON_SURFACE_COMPOSITE,
 } from './shaders/toonSurface.js';
-import { TOON_OUTLINE_PARS, TOON_OUTLINE_PROJECT } from './shaders/toonOutline.js';
+import {
+  TOON_OUTLINE_PARS,
+  TOON_OUTLINE_PROJECT,
+  TOON_OUTLINE_FRAGMENT_PARS,
+  TOON_OUTLINE_TINT,
+} from './shaders/toonOutline.js';
 
 /* -------------------------------------------------------------------------- */
 /* Colour helpers                                                             */
@@ -91,14 +90,12 @@ import { TOON_OUTLINE_PARS, TOON_OUTLINE_PROJECT } from './shaders/toonOutline.j
  * A palette hex reduced to pure chromaticity and re-scaled to a chosen
  * luminance.
  *
- * Every "tint" uniform in this material is a *radiance*, not a swatch, and the
+ * Every "fill" uniform in this material is a *radiance*, not a swatch, and the
  * two are not interchangeable: `SHADOW_TINT #2E4A5F` has a linear luminance of
- * 0.063, so using it raw as a shadow radiance would make the shadow term's
- * strength an accident of how dark the designer happened to pick the swatch.
- * Separating hue from level means the art bible's hex stays authoritative for
- * *colour* while the level stays a tunable number — and it is the same move
- * `Palette.toonRamp` and `Lighting.mixChroma` make, for the same reason, so all
- * three agree about what a shadow looks like.
+ * 0.063, so using it raw as a shadow radiance would make the shadow's strength
+ * an accident of how dark the designer happened to pick the swatch. Separating
+ * hue from level means the art bible's hex stays authoritative for *colour*
+ * while the level stays a tunable number.
  */
 function chromaAt(hex, level) {
   const c = hex instanceof THREE.Color ? hex.clone() : new THREE.Color(hex);
@@ -111,12 +108,11 @@ function chromaAt(hex, level) {
  * channel is 1.
  *
  * Distinct from `chromaAt`, and the distinction matters. `chromaAt` produces a
- * *radiance* — something that is added to a light term, so it wants a luminance.
- * This produces a *reflectance* — something that multiplies incoming light, so
- * it must not exceed 1 in any channel or the surface would amplify the light
- * hitting it. Peak-normalising also means a shadow albedo built from it keeps
- * the value the band asked for, leaving hue and value independently controllable
- * (the same separation `Palette.toonRamp` makes, for the same reason).
+ * *radiance* — something added to a light term, so it wants a luminance. This
+ * produces a *reflectance* — the hue target the shadow albedo rotates toward —
+ * so it must not exceed 1 in any channel, and peak-normalising leaves hue and
+ * value independently controllable, which is the separation the whole shadow
+ * model is built on.
  */
 function chromaUnit(hex) {
   const c = hex instanceof THREE.Color ? hex.clone() : new THREE.Color(hex);
@@ -153,147 +149,182 @@ function toVec2(v, fallback) {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * ANIME_PIPELINE §1's skin shadow, as a hue target.
+ *
+ * The document is specific and it is not the scene tint: skin is `#F7DCC4` and
+ * "the cel shadow band is a **warm rose-tan** (`#E0A98F`), never grey and never
+ * a darkened copy of the base". Faces are the one surface whose shadow stays
+ * warm — a teal-shadowed face reads as corpse-lit at any distance — so the skin
+ * preset overrides the scene shadow tint with this and everything else inherits
+ * `SHADOW_TINT`.
+ */
+const SKIN_SHADOW_TINT = 0xe0a98f;
+
+/**
  * Named surface classes.
  *
  * These exist so that six characters authored by different agents cannot end up
- * with six different opinions about what skin looks like. Roughness and
- * metalness are the midpoints of ART_BIBLE §4's bands.
+ * with six different opinions about what skin looks like.
  *
- * Reading the ramp fields:
+ * Reading the fields:
  *
- *  - `terminator` — where the single decisive edge sits, **in N·L**. Values at
- *    or below zero put it on or past the geometric terminator, which is what
- *    makes the lit region "broad": on a sphere, `terminator = 0.06` still leaves
- *    the plateau covering ~85° either side of the light axis.
- *  - `softness` — the full width of that edge, in N·L. 0.08 is the house value.
- *  - `bands` / `bandSpacing` / `coreStep` — how the *shadow* subdivides. Never
- *    the lit side; a step above the terminator would put the gradient back.
- *  - `shadowMix` — how far the shadow band's albedo travels toward
- *    `SHADOW_TINT`. This is the coloured-shadow control, and it is a
- *    reflectance mix, not a light tint.
- *  - `envSpecular` — gain on the environment probe's specular contribution.
- *    Small for every dielectric class: a toon character drinking a
- *    full-strength probe stops looking hand-painted and starts looking like the
- *    environment reflected in a doll.
+ *  - `terminator` / `softness` — ANIME_PIPELINE §2's `t` and `w`, in N·L.
+ *    `softness` is the *full* width of the edge. It is a narrow band on purpose;
+ *    widening it is how this material regressed to PBR the first time.
+ *  - `bands` — 2, or 3 to enable the extra plateau on the lit side. Hair and
+ *    metal only, per §2.
+ *  - `shadowMix` — how far the albedo's chroma rotates toward `shadowTint`.
+ *  - `shadowSat` — HSV saturation multiplier inside the shadow. Above 1 by
+ *    definition: §2 requires saturation to *increase* as value drops.
+ *  - `shadowValue` — value multiplier inside the shadow. Deliberately mild; the
+ *    bulk of the value drop is the light the band withholds, and doing it twice
+ *    turns a cel shadow into a hole.
+ *  - `shadowLevel` / `shadowGain` — luminance and gain of the flat fill that
+ *    lights the shadow mass.
+ *  - `shadowLift` — the share of the key the shadow band keeps, so the dark side
+ *    still carries the key's colour and dies with it at night.
+ *  - `shadowFloor` — the face-flattening clamp. 0 everywhere except the face.
  *  - `specGain: 0` removes the highlight from the compiled program outright.
- *
- * `shadowLevel` and `warmLevel` are luminances, not swatch brightnesses — see
- * `chromaAt`. `subsurfaceLevel` 0 disables that term the same way.
+ *  - `specAlbedoMix` — how much of the surface's own colour the highlight keeps.
+ *    Hair wants roughly half: a bright, slightly desaturated version of the hair
+ *    colour, not a white dot.
+ *  - `flat` — this class is a character surface, so detail maps are dropped.
+ *  - `envSpecular` — gain on the environment probe. Small for every dielectric:
+ *    a toon character drinking a full-strength probe stops looking hand-painted.
  */
 export const TOON_PRESETS = Object.freeze({
   generic: {
-    bands: 3, terminator: 0.06, softness: 0.08, bandSpacing: 0.22,
-    shadowStep: 0.0, coreStep: 0.38,
-    shadowLevel: 0.17, warmLevel: 0.14, shadowWarmSpan: 0.45, shadowMix: 0.55,
-    subsurfaceLevel: 0.0, subsurfaceWidth: 0.35,
-    specColor: 0xffffff, specGain: 0.22, specExponent: 48, specThreshold: 0.45, specSoftness: 0.06,
+    bands: 2, terminator: 0.50, softness: 0.05,
+    shadowMix: 0.45, shadowSat: 1.25, shadowValue: 0.80,
+    shadowLevel: 0.26, shadowGain: 1.0, shadowLift: 0.10, shadowFloor: 0.0,
+    ambientGain: 0.85, metalAlbedo: 0.0,
+    specColor: 0xffffff, specGain: 0.25, specExponent: 56,
+    specThreshold: 0.50, specSoftness: 0.05, specAlbedoMix: 0.25,
     rimPower: 2.6, rimGain: 1.7, rimFloor: 0.35,
-    roughness: 0.62, metalness: 0.0, envMapIntensity: 0.35, envSpecular: 0.15,
+    roughness: 0.62, metalness: 0.0, envMapIntensity: 0.30, envSpecular: 0.12,
+    flat: false,
   },
 
-  // The face is the read, and the reference reads it on eyes and brows over a
-  // flat cream plane. So: two bands, the terminator pushed *behind* the
-  // geometric one so the lit plateau wraps around the cheek, the widest
-  // soft edge in the set, and no highlight at all. A specular lobe on a
-  // near-spherical chibi cranium is a hotspot that slides with the camera and
-  // reads as wet plastic — REFERENCE_TARGET §1 gives skin no gloss, so neither
-  // does this. The subsurface band is the warmest in the set because §1 puts
-  // 35–40% of the character's height in the head; a dead shadow side there is
-  // 40% of the silhouette going flat.
+  // The face is the read, and ANIME_PIPELINE §1 puts that read entirely in the
+  // painted texture: drawn eyes, drawn brows, drawn mouth on a flat cream plane.
+  // So the shading's whole job here is to stay out of the way. `shadowFloor`
+  // 0.75 is §2's face clamp — the essential one — the shadow tint is the warm
+  // rose-tan rather than the scene's cool one, and there is no highlight at all:
+  // a specular lobe on a near-spherical chibi cranium is a hotspot that slides
+  // with the camera and reads as wet plastic.
   skin: {
-    bands: 2, terminator: -0.02, softness: 0.10, bandSpacing: 0.24,
-    shadowStep: 0.0, coreStep: 0.38,
-    shadowLevel: 0.19, warmLevel: 0.16, shadowWarmSpan: 0.50, shadowMix: 0.58,
-    subsurface: SURFACE_TINT.SKIN_RIM, subsurfaceLevel: 0.18, subsurfaceWidth: 0.55,
+    bands: 2, terminator: 0.46, softness: 0.045,
+    shadowTint: SKIN_SHADOW_TINT,
+    shadowMix: 0.80, shadowSat: 1.18, shadowValue: 0.88,
+    shadowLevel: 0.30, shadowGain: 1.0, shadowLift: 0.14, shadowFloor: 0.75,
+    ambientGain: 0.90,
     specGain: 0.0,
-    rimPower: 2.3, rimGain: 1.8, rimFloor: 0.40,
-    roughness: 0.46, metalness: 0.0, envMapIntensity: 0.30, envSpecular: 0.08,
+    rimPower: 2.3, rimGain: 1.7, rimFloor: 0.40,
+    roughness: 0.55, metalness: 0.0, envMapIntensity: 0.22, envSpecular: 0.05,
+    flat: true,
   },
 
-  // "Bold sculpted hair silhouettes [...] reads as carved volume with a glossy
-  // highlight band" (REFERENCE_TARGET §1). One band, and it is a *band*: the
-  // Kajiya-Kay lobe is constant along the sweep axis and falls off across it, so
-  // a high exponent under a tight threshold cuts a hard-edged stripe following
-  // the sculpt. A low exponent would smear the same stripe into the broad gloss
-  // this preset used to have, which is the "polished plastic" read. Spec tint is
-  // §4's silk value.
+  // ANIME_PIPELINE §3: "One anisotropic highlight band running across the crown,
+  // perpendicular to the strand direction — a bright, slightly desaturated band
+  // with hard-ish edges." Every clause is a field here: `aniso` picks the
+  // Kajiya-Kay lobe (constant along the strand axis, falling off across it, so
+  // thresholding it yields a band and not a dot), the high exponent under a
+  // tight threshold and a 0.035 softness give the hard-ish edge, and
+  // `specAlbedoMix` 0.45 keeps enough hair colour in the band that it reads as
+  // lightened hair rather than as white plastic. Three bands: hair is one of the
+  // two classes §2 allows the extra lit-side plateau.
   hair: {
-    bands: 3, terminator: 0.12, softness: 0.07, bandSpacing: 0.20,
-    shadowStep: 0.0, coreStep: 0.42,
-    shadowLevel: 0.16, warmLevel: 0.13, shadowWarmSpan: 0.40, shadowMix: 0.56,
-    subsurfaceLevel: 0.0, subsurfaceWidth: 0.35,
-    specColor: SURFACE_TINT.SILK_SPEC, specGain: 1.15, specExponent: 56,
-    specThreshold: 0.55, specSoftness: 0.035,
-    aniso: true, anisoShift: 0.16,
+    bands: 3, terminator: 0.50, softness: 0.04,
+    shadowMix: 0.50, shadowSat: 1.35, shadowValue: 0.74,
+    shadowLevel: 0.24, shadowGain: 1.0, shadowLift: 0.08, shadowFloor: 0.0,
+    ambientGain: 0.80, litBandThreshold: 0.86, litBandGain: 0.22,
+    specColor: SURFACE_TINT.SILK_SPEC, specGain: 1.45, specExponent: 96,
+    specThreshold: 0.52, specSoftness: 0.035, specAlbedoMix: 0.45,
+    aniso: true, anisoShift: 0.18,
     rimPower: 2.8, rimGain: 2.2, rimFloor: 0.32,
-    roughness: 0.40, metalness: 0.0, envMapIntensity: 0.35, envSpecular: 0.10,
+    roughness: 0.42, metalness: 0.0, envMapIntensity: 0.22, envSpecular: 0.06,
+    flat: true,
   },
 
-  // Cloth keeps a whisper of sheen — §4's "sheen colour = albedo lightened 20%"
-  // — but spread wide and weak. A tight highlight on a coat reads as vinyl.
+  // Cloth carries no highlight at all. A sheen band on a coat is the tell that
+  // separates a cel frame from a stylised-PBR one, and §5's colour blocking
+  // wants these surfaces to be *the* flat zones the character is identified by
+  // at eighty pixels tall. Its shadow is the most saturated in the set, because
+  // a garment shadow is where a painter puts the frame's richest colour.
   cloth: {
-    bands: 3, terminator: 0.06, softness: 0.09, bandSpacing: 0.22,
-    shadowStep: 0.0, coreStep: 0.36,
-    shadowLevel: 0.18, warmLevel: 0.15, shadowWarmSpan: 0.45, shadowMix: 0.55,
-    subsurfaceLevel: 0.0, subsurfaceWidth: 0.35,
-    specColor: 0xffffff, specGain: 0.06, specExponent: 16, specThreshold: 0.50, specSoftness: 0.20,
+    bands: 2, terminator: 0.50, softness: 0.05,
+    shadowMix: 0.48, shadowSat: 1.35, shadowValue: 0.78,
+    shadowLevel: 0.25, shadowGain: 1.0, shadowLift: 0.10, shadowFloor: 0.0,
+    ambientGain: 0.85,
+    specGain: 0.0,
     rimPower: 2.4, rimGain: 1.5, rimFloor: 0.38,
-    roughness: 0.85, metalness: 0.0, envMapIntensity: 0.25, envSpecular: 0.10,
+    roughness: 0.88, metalness: 0.0, envMapIntensity: 0.18, envSpecular: 0.05,
+    flat: true,
   },
 
+  // Props and monster hides rather than a party garment, so this one keeps its
+  // detail maps and a modest highlight.
   leather: {
-    bands: 3, terminator: 0.06, softness: 0.08, bandSpacing: 0.22,
-    shadowStep: 0.0, coreStep: 0.38,
-    shadowLevel: 0.17, warmLevel: 0.14, shadowWarmSpan: 0.42, shadowMix: 0.55,
-    subsurfaceLevel: 0.0, subsurfaceWidth: 0.35,
-    specColor: 0xffffff, specGain: 0.16, specExponent: 40, specThreshold: 0.42, specSoftness: 0.08,
+    bands: 2, terminator: 0.50, softness: 0.055,
+    shadowMix: 0.46, shadowSat: 1.25, shadowValue: 0.78,
+    shadowLevel: 0.22, shadowGain: 1.0, shadowLift: 0.10, shadowFloor: 0.0,
+    ambientGain: 0.85,
+    specColor: 0xffffff, specGain: 0.18, specExponent: 44,
+    specThreshold: 0.48, specSoftness: 0.05, specAlbedoMix: 0.30,
     rimPower: 2.6, rimGain: 1.6, rimFloor: 0.35,
-    roughness: 0.60, metalness: 0.0, envMapIntensity: 0.30, envSpecular: 0.14,
+    roughness: 0.60, metalness: 0.0, envMapIntensity: 0.26, envSpecular: 0.10,
+    flat: false,
   },
 
-  // §1: "metal (armour, blades) reads through a hard specular band rather than
-  // environment reflection". Two bands and a tight, bright highlight; the
-  // anisotropy is §4's "metal must show anisotropic highlight direction", and
-  // callers holding a weapon should push its blade axis through
-  // `updateToonUniforms(mat, { anisoDirection })` each frame. Metal is the one
-  // class allowed a real probe reflection, and even there it arrives quantised
-  // into plates rather than as a mirror.
+  // The second class §2 allows a third band, and the one that lives on its
+  // highlight: a tight, bright, hard-edged blob with an anisotropic axis a
+  // caller pushes per frame for a blade (`updateToonUniforms(m, {anisoDirection})`).
+  // `metalAlbedo` restores most of the diffuse three zeroes at metalness 1 —
+  // cel-shaded armour is painted, not simulated, and §5 needs it to read as a
+  // flat colour zone. The probe is kept but quantised into plates and held well
+  // below full strength, so armour acknowledges the world without mirroring it.
   metal: {
-    bands: 2, terminator: 0.04, softness: 0.05, bandSpacing: 0.26,
-    shadowStep: 0.0, coreStep: 0.40,
-    shadowLevel: 0.14, warmLevel: 0.11, shadowWarmSpan: 0.35, shadowMix: 0.48,
-    subsurfaceLevel: 0.0, subsurfaceWidth: 0.35,
-    specColor: 0xffffff, specGain: 2.0, specExponent: 110, specThreshold: 0.42, specSoftness: 0.05,
-    aniso: true, anisoShift: 0.05,
+    bands: 3, terminator: 0.48, softness: 0.035,
+    shadowMix: 0.42, shadowSat: 1.25, shadowValue: 0.70,
+    shadowLevel: 0.20, shadowGain: 1.0, shadowLift: 0.06, shadowFloor: 0.0,
+    ambientGain: 0.80, litBandThreshold: 0.84, litBandGain: 0.28,
+    metalAlbedo: 0.70,
+    specColor: 0xffffff, specGain: 2.4, specExponent: 130,
+    specThreshold: 0.45, specSoftness: 0.03, specAlbedoMix: 0.50,
+    aniso: true, anisoShift: 0.06,
     rimPower: 3.0, rimGain: 2.4, rimFloor: 0.30,
-    roughness: 0.42, metalness: 1.0, envMapIntensity: 1.0, envSpecular: 0.85,
+    roughness: 0.35, metalness: 1.0, envMapIntensity: 0.55, envSpecular: 0.45,
+    flat: true,
   },
 
-  // §1 again: "simple bright iris + dark outline + a specular catch-light".
-  // The catch-light is the entire point of this preset — a pinpoint highlight
-  // hot enough to clear the bloom threshold on its own. `shadowMix` is nearly
-  // off: an iris that turns teal on the shadow side of the face stops being the
-  // saturated colour the whole character reads on.
+  // Kept for any geometry eye still in the scene. Under the painted-face
+  // pipeline the eye is drawn into the texture and this preset is not the
+  // primary path — but where it is used, an iris must never take a shadow band
+  // (hence the 0.9 floor) and its catch-light is the whole point.
   eye: {
-    bands: 2, terminator: -0.25, softness: 0.14, bandSpacing: 0.30,
-    shadowStep: 0.0, coreStep: 0.30,
-    shadowLevel: 0.10, warmLevel: 0.09, shadowWarmSpan: 0.30, shadowMix: 0.15,
-    subsurfaceLevel: 0.0, subsurfaceWidth: 0.35,
-    specColor: 0xffffff, specGain: 3.0, specExponent: 220, specThreshold: 0.60, specSoftness: 0.04,
+    bands: 2, terminator: 0.0, softness: 0.10,
+    shadowMix: 0.15, shadowSat: 1.10, shadowValue: 0.94,
+    shadowLevel: 0.12, shadowGain: 1.0, shadowLift: 0.30, shadowFloor: 0.90,
+    ambientGain: 0.90,
+    specColor: 0xffffff, specGain: 3.0, specExponent: 220,
+    specThreshold: 0.60, specSoftness: 0.03, specAlbedoMix: 0.0,
     rimPower: 3.4, rimGain: 1.2, rimFloor: 0.20,
-    roughness: 0.20, metalness: 0.0, envMapIntensity: 0.20, envSpecular: 0.30,
+    roughness: 0.20, metalness: 0.0, envMapIntensity: 0.20, envSpecular: 0.25,
+    flat: true,
   },
 
-  // §4 crystal: interior glow is the caller's `emissive`; this supplies the
-  // mandatory fresnel rim and a hard highlight over the top of it.
+  // Interior glow is the caller's `emissive`; this supplies the fresnel rim and
+  // a hard highlight over the top of it. A prop class, so detail maps stay.
   crystal: {
-    bands: 2, terminator: -0.05, softness: 0.10, bandSpacing: 0.24,
-    shadowStep: 0.0, coreStep: 0.34,
-    shadowLevel: 0.15, warmLevel: 0.12, shadowWarmSpan: 0.35, shadowMix: 0.40,
-    subsurfaceLevel: 0.0, subsurfaceWidth: 0.35,
-    specColor: 0xffffff, specGain: 1.4, specExponent: 120, specThreshold: 0.40, specSoftness: 0.06,
+    bands: 2, terminator: 0.30, softness: 0.06,
+    shadowMix: 0.40, shadowSat: 1.20, shadowValue: 0.82,
+    shadowLevel: 0.18, shadowGain: 1.0, shadowLift: 0.16, shadowFloor: 0.0,
+    ambientGain: 0.90,
+    specColor: 0xffffff, specGain: 1.4, specExponent: 120,
+    specThreshold: 0.42, specSoftness: 0.04, specAlbedoMix: 0.20,
     rimPower: 1.6, rimGain: 2.6, rimFloor: 0.30,
-    roughness: 0.10, metalness: 0.0, envMapIntensity: 1.0, envSpecular: 1.0,
+    roughness: 0.10, metalness: 0.0, envMapIntensity: 0.9, envSpecular: 0.9,
+    flat: false,
   },
 });
 
@@ -305,9 +336,9 @@ export const TOON_PRESETS = Object.freeze({
 const DEFAULT_RIM_FOCUS = new THREE.Vector2(-0.50, 0.35);
 
 /** Window applied to fresnel × focus. Opens at 0.05 rather than 0 to kill the
- *  long low tail `pow()` leaves across the facing side — that tail is what
- *  turns a rim into a wash. Closes at 0.5 so the band reaches full strength in
- *  the outer quarter of the silhouette and stays soft-edged getting there. */
+ *  long low tail `pow()` leaves across the facing side — that tail is what turns
+ *  a rim into a wash. Closes at 0.5 so the band reaches full strength in the
+ *  outer quarter of the silhouette. */
 const DEFAULT_RIM_SHAPE = new THREE.Vector2(0.05, 0.50);
 
 /** Default anisotropy axis: world up. Hair falls, blades are worn vertically,
@@ -320,85 +351,107 @@ const DEFAULT_ANISO_DIR = new THREE.Vector3(0, 1, 0);
  *  the aliasing silently degrades into private copies nobody updates. */
 const RIG_UNIFORMS = ['uKeyColor', 'uRimDirection', 'uRimColor', 'uRimStrength'];
 
-/** The shadow-region hue, as a reflectance. ART_BIBLE §2.1 names the swatch;
- *  peak-normalising turns it into something that can multiply light without
- *  amplifying it, and leaves its value to the band. */
-const SHADOW_ALBEDO = chromaUnit(LIGHT.SHADOW_TINT);
-
 /**
  * Saturation the shadow albedo is held at or above.
  *
- * §2.1 sets the legal minimum at `MIN_SHADOW_SATURATION` (0.15). That is a
- * *floor*, and a shadow sitting exactly on it still eyedrops as a grey with a
- * faint cast — which is the observation the rule is trying to prevent, so
- * targeting the floor itself defeats it. The margin also has to clear the point
- * where the albedo→tint line crosses the neutral axis (mix ≈ 0.52 for skin
- * tones), or the guard in `awToonShadowAlbedo` would be inert exactly where it
- * is needed.
+ * ART_BIBLE §2.1 sets the legal minimum at `MIN_SHADOW_SATURATION` (0.15). That
+ * is a *floor*, and a shadow sitting exactly on it still eyedrops as a grey with
+ * a faint cast — which is the observation the rule is trying to prevent. The
+ * margin also has to clear the point where the albedo→tint line crosses the
+ * neutral axis (mix ≈ 0.5 for skin tones), or the guard in `awToonShadowAlbedo`
+ * would be inert exactly where it is needed.
  */
 const SHADOW_SAT_TARGET = Math.max(MIN_SHADOW_SATURATION, 0.22);
+
+/** Maps three's detail-map slots to the reason they are dropped on a flat class:
+ *  in this project every one of them is fBm from `AssetForge`, and
+ *  ANIME_PIPELINE's absolute rule is that no procedural noise touches a
+ *  character. `map` is deliberately absent — the painted face arrives that way. */
+const DETAIL_MAP_KEYS = Object.freeze(['normalMap', 'roughnessMap', 'aoMap', 'bumpMap']);
 
 /* -------------------------------------------------------------------------- */
 /* Surface material                                                           */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Build a toon-shaded character material.
+ * Build a cel-shaded character material.
  *
  * @param {Object} [opts]
  * @param {string} [opts.preset='generic'] key into {@link TOON_PRESETS}.
  * @param {import('./Lighting.js').Lighting|{uniforms:Object}} [opts.lighting]
  *   the lighting rig (or anything exposing its `uniforms` block). Supplying it
- *   aliases the key/rim uniforms so they track the rig for free.
- * @param {{texture:Function}} [opts.forge] `AssetForge`; used to fetch the
- *   `ramp-toon-<bands>` shadow gradient. Ignored if `rampMap` is given.
- * @param {THREE.Texture|null} [opts.rampMap] explicit shadow-gradient ramp.
+ *   aliases the key/rim uniforms so they track the rig for free, and is what
+ *   lets the face-flattening fill be paid in the sun's own colour.
  * @param {THREE.ColorRepresentation} [opts.color=0xffffff] base albedo.
- * @param {THREE.Texture} [opts.map] / [opts.normalMap] / [opts.roughnessMap] /
- *   [opts.metalnessMap] / [opts.aoMap] / [opts.alphaMap] / [opts.emissiveMap]
- * @param {number} [opts.bands] 2–4. Subdivides the shadow side only.
- * @param {number} [opts.terminator] position of the main edge, in N·L.
- * @param {number} [opts.softness] full width of that edge, in N·L.
- * @param {number} [opts.shadowMix] 0–1, how far the shadow albedo shifts toward
- *   `SHADOW_TINT`.
- * @param {number} [opts.envSpecular] gain on the environment probe's specular.
- * @param {boolean} [opts.aniso] force the anisotropic specular on or off.
- * @param {THREE.Vector3} [opts.anisoDirection] world-space sheen axis.
+ * @param {THREE.Texture} [opts.map] base colour map — the painted face texture.
+ *   Nothing in this material multiplies anything into it.
+ * @param {boolean} [opts.detailMaps] force detail maps on a `flat` preset. They
+ *   are dropped by default on every character class.
+ * @param {number} [opts.bands=2] 2, or 3 to enable the lit-side band.
+ * @param {number} [opts.terminator=0.5] the cel edge's position, in N·L.
+ * @param {number} [opts.softness=0.045] the cel edge's full width, in N·L.
+ *   0.03–0.06. Wider is the PBR failure mode.
+ * @param {number} [opts.shadowFloor] minimum for the banded light term. `0.75`
+ *   is the face value; see also `faceFlatten`.
+ * @param {boolean} [opts.faceFlatten] shorthand for `shadowFloor: 0.75`.
+ * @param {THREE.ColorRepresentation} [opts.shadowTint] hue target for the
+ *   shadow albedo. Defaults to the scene shadow tint (warm rose-tan on `skin`).
+ * @param {number} [opts.shadowMix] 0–1, how far the albedo's chroma rotates.
+ * @param {number} [opts.shadowSat] HSV saturation multiplier in shadow, > 1.
+ * @param {number} [opts.shadowValue] value multiplier in shadow, < 1.
+ * @param {number} [opts.shadowLevel] luminance of the flat shadow fill.
+ * @param {number} [opts.shadowLift] share of the key the shadow band keeps.
+ * @param {number} [opts.specGain] 0 compiles the highlight out entirely.
+ * @param {boolean} [opts.aniso] force the anisotropic highlight on or off.
+ * @param {THREE.Vector3} [opts.anisoDirection] world-space strand axis.
  * @returns {THREE.MeshStandardMaterial} patched, ready to add to a scene.
  */
 export function createToonMaterial(opts = {}) {
   const presetName = opts.preset && TOON_PRESETS[opts.preset] ? opts.preset : 'generic';
   const p = { ...TOON_PRESETS.generic, ...TOON_PRESETS[presetName] };
 
-  const bands = THREE.MathUtils.clamp(Math.round(opts.bands ?? p.bands), 2, 4);
   const specGain = opts.specGain ?? p.specGain ?? 0;
   // A zero-gain highlight is not the same thing as no highlight. The classes the
-  // reference gives no gloss (skin above all) must not merely multiply the lobe
-  // by zero — the term drops out of the compiled program, so it cannot come back
-  // through a stray `updateToonUniforms` and cannot cost a `pow()` per light per
-  // fragment on the largest surface in frame.
+  // pipeline gives no gloss (skin and cloth above all) must not merely multiply
+  // the blob by zero — the term drops out of the compiled program, so it cannot
+  // come back through a stray `updateToonUniforms` and cannot cost a `pow()` per
+  // light per fragment on the largest surfaces in frame.
   const hasSpec = specGain > 0;
   const aniso = hasSpec && (opts.aniso ?? p.aniso ?? false);
 
-  // The ramp is chroma-only (see `awToonTint`), so a mismatch between its band
-  // count and `bands` is cosmetic rather than broken — but matching them keeps
-  // the ramp's colour steps landing on the band plateaus instead of across
-  // their terminators, which is the difference between a coloured shadow and a
-  // faintly iridescent one.
-  let rampMap = opts.rampMap ?? null;
-  if (!rampMap && opts.forge?.texture) {
-    rampMap = opts.forge.texture(`ramp-toon-${bands}`, { bands });
-  }
+  // `bands` is the caller-facing spelling of "is the third, lit-side band on".
+  // ANIME_PIPELINE §2 allows it for hair and metal only, and the presets are
+  // where that is decided; an explicit `litBand` overrides for a one-off.
+  const bands = THREE.MathUtils.clamp(Math.round(opts.bands ?? p.bands), 2, 3);
+  const litBand = opts.litBand ?? bands >= 3;
+
+  // ANIME_PIPELINE's absolute rule, enforced where it can be: a character class
+  // never receives a procedural detail map. Callers with a genuine reason opt
+  // back in per material rather than by editing this table.
+  const flat = opts.detailMaps === undefined ? (p.flat ?? false) : !opts.detailMaps;
+  const detail = {};
+  for (const key of DETAIL_MAP_KEYS) detail[key] = flat ? null : (opts[key] ?? null);
+
+  // `faceFlatten` is the readable spelling of the one number ANIME_PIPELINE §2
+  // calls essential; `shadowFloor` is the same control with the value exposed.
+  // Resolved here rather than inline so that `faceFlatten: false` can genuinely
+  // turn the face clamp *off* on a preset that carries one.
+  const shadowFloor = opts.shadowFloor
+    ?? (opts.faceFlatten === undefined ? (p.shadowFloor ?? 0.0) : (opts.faceFlatten ? 0.75 : 0.0));
+
+  // The hue the shadow rotates toward: the scene shadow tint, unless the preset
+  // or the caller names another (skin's warm rose-tan is the one that matters).
+  const shadowTint = opts.shadowTint ?? p.shadowTint ?? LIGHT.SHADOW_TINT;
 
   const material = new THREE.MeshStandardMaterial({
     name: opts.name ?? `toon:${presetName}`,
     color: opts.color ?? 0xffffff,
     map: opts.map ?? null,
-    normalMap: opts.normalMap ?? null,
+    normalMap: detail.normalMap,
     normalScale: opts.normalScale ?? new THREE.Vector2(1, 1),
-    roughnessMap: opts.roughnessMap ?? null,
+    roughnessMap: detail.roughnessMap,
     metalnessMap: opts.metalnessMap ?? null,
-    aoMap: opts.aoMap ?? null,
+    aoMap: detail.aoMap,
     aoMapIntensity: opts.aoMapIntensity ?? 1.0,
     alphaMap: opts.alphaMap ?? null,
     emissive: opts.emissive ?? 0x000000,
@@ -408,7 +461,7 @@ export function createToonMaterial(opts = {}) {
     // baked value through unchanged — the same convention `AssetForge.material`
     // documents, and deviating from it here would make the two disagree about
     // what `roughness: 0.6` means.
-    roughness: opts.roughness ?? (opts.roughnessMap ? 1.0 : p.roughness),
+    roughness: opts.roughness ?? (detail.roughnessMap ? 1.0 : p.roughness),
     metalness: opts.metalness ?? (opts.metalnessMap ? 1.0 : p.metalness),
     envMapIntensity: opts.envMapIntensity ?? p.envMapIntensity,
     transparent: opts.transparent ?? false,
@@ -418,7 +471,7 @@ export function createToonMaterial(opts = {}) {
     flatShading: opts.flatShading ?? false,
     vertexColors: opts.vertexColors ?? false,
     fog: opts.fog ?? true,
-    // Banded shading puts large near-flat regions on screen, which is exactly
+    // Cel shading puts large genuinely-flat regions on screen, which is exactly
     // where 8-bit quantisation shows as contouring. The cost is one hash per
     // fragment and it removes a defect the post chain's grain would otherwise
     // have to hide.
@@ -436,46 +489,29 @@ export function createToonMaterial(opts = {}) {
     uRimColor: { value: chromaAt(LIGHT.RING_GLOW, 0.45) },
     uRimStrength: { value: 1.0 },
 
-    // ---- the cel ramp -----------------------------------------------------
-    uToonBands: { value: bands },
+    // ---- the two-band terminator (ANIME_PIPELINE §2) ----------------------
     uToonTerminator: { value: opts.terminator ?? p.terminator },
     uToonSoftness: { value: opts.softness ?? p.softness },
-    uToonBandSpacing: { value: opts.bandSpacing ?? p.bandSpacing },
-    uToonShadowStep: { value: opts.shadowStep ?? p.shadowStep },
-    uToonCoreStep: { value: opts.coreStep ?? p.coreStep },
-    uToonRamp: { value: rampMap },
+    uToonShadowFloor: { value: shadowFloor },
+    uToonShadowLift: { value: opts.shadowLift ?? p.shadowLift },
 
-    // ---- shadow colour (ART_BIBLE §2.1) -----------------------------------
-    uToonShadowDeep: {
-      value: chromaAt(opts.shadowColor ?? LIGHT.SHADOW_TINT, opts.shadowLevel ?? p.shadowLevel),
-    },
-    uToonShadowWarm: {
-      value: chromaAt(opts.shadowWarm ?? LIGHT.BOUNCE_GROUND, opts.warmLevel ?? p.warmLevel),
-    },
-    uToonShadowGain: { value: opts.shadowGain ?? 1.0 },
-    uToonShadowWarmSpan: { value: opts.shadowWarmSpan ?? p.shadowWarmSpan },
-    uToonShadowAlbedo: {
-      value: opts.shadowAlbedo !== undefined ? chromaUnit(opts.shadowAlbedo) : SHADOW_ALBEDO.clone(),
-    },
-    uToonShadowMix: { value: opts.shadowMix ?? p.shadowMix },
+    // ---- shadow colour: hue shift, saturation up --------------------------
+    uToonShadowTint: { value: chromaUnit(shadowTint) },
+    uToonShadowHue: { value: opts.shadowMix ?? p.shadowMix },
+    uToonShadowSat: { value: opts.shadowSat ?? p.shadowSat },
+    uToonShadowValue: { value: opts.shadowValue ?? p.shadowValue },
     // Enforced in the shader rather than left to an author to remember: a warm
-    // albedo lerped halfway to a cool tint passes through the neutral axis, so
+    // albedo rotated halfway to a cool tint passes through the neutral axis, so
     // the rule has to hold where the mix happens.
     uToonShadowSatFloor: { value: opts.shadowSatFloor ?? SHADOW_SAT_TARGET },
 
-    // ---- subsurface -------------------------------------------------------
-    uToonSubsurface: {
-      value: chromaAt(opts.subsurface ?? p.subsurface ?? SURFACE_TINT.SKIN_RIM,
-        opts.subsurfaceLevel ?? p.subsurfaceLevel),
+    // ---- the flat shadow fill ---------------------------------------------
+    uToonShadowFill: {
+      value: chromaAt(opts.shadowColor ?? shadowTint, opts.shadowLevel ?? p.shadowLevel),
     },
-    uToonSubsurfaceWidth: { value: opts.subsurfaceWidth ?? p.subsurfaceWidth },
-
-    // ---- specular ---------------------------------------------------------
-    uToonSpecColor: { value: toColor(opts.specColor ?? p.specColor ?? 0xffffff) },
-    uToonSpecGain: { value: specGain },
-    uToonSpecExponent: { value: opts.specExponent ?? p.specExponent ?? 48 },
-    uToonSpecThreshold: { value: opts.specThreshold ?? p.specThreshold ?? 0.45 },
-    uToonSpecSoftness: { value: opts.specSoftness ?? p.specSoftness ?? 0.06 },
+    uToonShadowGain: { value: opts.shadowGain ?? p.shadowGain },
+    uToonAmbientGain: { value: opts.ambientGain ?? p.ambientGain },
+    uToonMetalAlbedo: { value: opts.metalAlbedo ?? p.metalAlbedo ?? 0.0 },
     uToonEnvSpecular: { value: opts.envSpecular ?? p.envSpecular },
 
     // ---- rim --------------------------------------------------------------
@@ -489,20 +525,33 @@ export function createToonMaterial(opts = {}) {
     uToonPulse: { value: toColor(opts.pulse ?? 0x000000) },
     uToonPulseRate: { value: opts.pulseRate ?? 0.0 },
     uToonTime: { value: 0.0 },
-
-    // ---- anisotropy -------------------------------------------------------
-    uToonAnisoDirection: { value: toDirection(opts.anisoDirection, DEFAULT_ANISO_DIR) },
-    uToonAnisoShift: { value: opts.anisoShift ?? p.anisoShift ?? 0.12 },
   };
 
-  // Levels are remembered so a later `updateToonUniforms({ shadowColor })` can
-  // re-derive the radiance the same way the constructor did, instead of
+  if (litBand) {
+    uniforms.uToonLitBandThreshold = {
+      value: opts.litBandThreshold ?? p.litBandThreshold ?? 0.85,
+    };
+    uniforms.uToonLitBandGain = { value: opts.litBandGain ?? p.litBandGain ?? 0.22 };
+  }
+
+  if (hasSpec) {
+    uniforms.uToonSpecColor = { value: toColor(opts.specColor ?? p.specColor ?? 0xffffff) };
+    uniforms.uToonSpecGain = { value: specGain };
+    uniforms.uToonSpecExponent = { value: opts.specExponent ?? p.specExponent ?? 56 };
+    uniforms.uToonSpecThreshold = { value: opts.specThreshold ?? p.specThreshold ?? 0.5 };
+    uniforms.uToonSpecSoftness = { value: opts.specSoftness ?? p.specSoftness ?? 0.04 };
+    uniforms.uToonSpecAlbedoMix = { value: opts.specAlbedoMix ?? p.specAlbedoMix ?? 0.0 };
+  }
+
+  if (aniso) {
+    uniforms.uToonAnisoDirection = { value: toDirection(opts.anisoDirection, DEFAULT_ANISO_DIR) };
+    uniforms.uToonAnisoShift = { value: opts.anisoShift ?? p.anisoShift ?? 0.12 };
+  }
+
+  // The fill's level is remembered so a later `updateToonUniforms({ shadowColor })`
+  // can re-derive the radiance the same way the constructor did, instead of
   // dumping a raw swatch into a uniform that expects a radiance.
-  const levels = {
-    shadow: opts.shadowLevel ?? p.shadowLevel,
-    warm: opts.warmLevel ?? p.warmLevel,
-    subsurface: opts.subsurfaceLevel ?? p.subsurfaceLevel,
-  };
+  const levels = { shadow: opts.shadowLevel ?? p.shadowLevel };
 
   const shared = new Set();
   if (rig) {
@@ -517,9 +566,9 @@ export function createToonMaterial(opts = {}) {
   if (opts.rimStrength !== undefined) privatiseUniform(uniforms, shared, 'uRimStrength', opts.rimStrength);
 
   material.defines = { ...(material.defines ?? {}) };
-  if (rampMap) material.defines.TOON_RAMP_MAP = '';
   if (hasSpec) material.defines.TOON_SPECULAR = '';
   if (aniso) material.defines.TOON_ANISO = '';
+  if (litBand) material.defines.TOON_LIT_BAND = '';
 
   material.userData.toon = { kind: 'surface', uniforms, levels, shared, preset: presetName };
   material.userData.isToonMaterial = true;
@@ -535,11 +584,11 @@ export function createToonMaterial(opts = {}) {
   };
 
   // Without this, three's program cache keys a toon material and a plain
-  // `MeshStandardMaterial` with the same defines to the *same* compiled
-  // program, because `onBeforeCompile` is not part of the key. The first one
-  // compiled wins and the other renders with someone else's BRDF — a bug that
-  // presents as "characters look fine until you walk past a rock".
-  const cacheKey = `aw-toon-surface|${presetName}|${rampMap ? 'ramp' : 'analytic'}`
+  // `MeshStandardMaterial` with the same defines to the *same* compiled program,
+  // because `onBeforeCompile` is not part of the key. The first one compiled wins
+  // and the other renders with someone else's BRDF — a bug that presents as
+  // "characters look fine until you walk past a rock".
+  const cacheKey = `aw-toon-surface|${presetName}|${litBand ? 'lit3' : 'lit2'}`
     + `|${hasSpec ? (aniso ? 'aniso' : 'iso') : 'nospec'}`;
   material.customProgramCacheKey = () => cacheKey;
 
@@ -557,7 +606,7 @@ function injectAfter(source, pairs, label) {
   let out = source;
   for (const [anchor, block] of pairs) {
     if (out.indexOf(anchor) === -1) {
-      console.error(`[ToonMaterial] anchor "${anchor}" missing from ${label}; toon shading incomplete.`);
+      console.error(`[ToonMaterial] anchor "${anchor}" missing from ${label}; cel shading incomplete.`);
       continue;
     }
     out = out.replace(anchor, () => `${anchor}\n${block}`);
@@ -571,8 +620,8 @@ function injectAfter(source, pairs, label) {
  * Writing through a shared uniform object would retint every other character
  * built against the same rig, so an override has to break the alias first. If
  * the material has already compiled, the swap needs a program rebuild: three
- * captures the uniform *objects* into `materialProperties.uniformsList` when
- * the program is built, so replacing the entry afterwards would be ignored.
+ * captures the uniform *objects* into `materialProperties.uniformsList` when the
+ * program is built, so replacing the entry afterwards would be ignored.
  */
 function privatiseUniform(uniforms, shared, name, value) {
   if (!shared.has(name)) {
@@ -599,30 +648,38 @@ export function isToonMaterial(material) {
 /* Uniform updates                                                            */
 /* -------------------------------------------------------------------------- */
 
-/** Scalar options that map straight onto a uniform. */
+/** Scalar options that map straight onto a uniform. Entries whose uniform is
+ *  absent (the highlight on a `specGain: 0` material, the lit band on a two-band
+ *  one) are skipped rather than created: the uniform is not in the compiled
+ *  program either. */
 const SCALAR_KEYS = Object.freeze({
   time: 'uToonTime',
-  bands: 'uToonBands',
   terminator: 'uToonTerminator',
   softness: 'uToonSoftness',
-  bandSpacing: 'uToonBandSpacing',
-  shadowStep: 'uToonShadowStep',
-  coreStep: 'uToonCoreStep',
-  shadowGain: 'uToonShadowGain',
-  shadowWarmSpan: 'uToonShadowWarmSpan',
-  shadowMix: 'uToonShadowMix',
+  shadowFloor: 'uToonShadowFloor',
+  shadowLift: 'uToonShadowLift',
+  shadowMix: 'uToonShadowHue',
+  shadowSat: 'uToonShadowSat',
+  shadowValue: 'uToonShadowValue',
   shadowSatFloor: 'uToonShadowSatFloor',
-  subsurfaceWidth: 'uToonSubsurfaceWidth',
+  shadowGain: 'uToonShadowGain',
+  ambientGain: 'uToonAmbientGain',
+  metalAlbedo: 'uToonMetalAlbedo',
+  envSpecular: 'uToonEnvSpecular',
+  litBandThreshold: 'uToonLitBandThreshold',
+  litBandGain: 'uToonLitBandGain',
   specExponent: 'uToonSpecExponent',
   specThreshold: 'uToonSpecThreshold',
   specSoftness: 'uToonSpecSoftness',
-  envSpecular: 'uToonEnvSpecular',
+  specAlbedoMix: 'uToonSpecAlbedoMix',
   rimPower: 'uToonRimPower',
   rimGain: 'uToonRimGain',
   rimFloor: 'uToonRimFloor',
   pulseRate: 'uToonPulseRate',
   anisoShift: 'uToonAnisoShift',
   outlineWidth: 'uOutlineWidth',
+  outlineDarkness: 'uOutlineDarkness',
+  outlineSaturation: 'uOutlineSaturation',
 });
 
 /** Colour options written verbatim as radiance. */
@@ -632,36 +689,32 @@ const COLOR_KEYS = Object.freeze({
   pulse: 'uToonPulse',
 });
 
-/** Colour options whose swatch is separated from its level by `chromaAt`. */
-const CHROMA_KEYS = Object.freeze({
-  shadowColor: ['uToonShadowDeep', 'shadow'],
-  shadowWarm: ['uToonShadowWarm', 'warm'],
-  subsurface: ['uToonSubsurface', 'subsurface'],
-});
-
 /**
  * Push art or runtime state into a material built by this module.
  *
  * Safe to call every frame — it touches only the keys present in `opts` and
  * allocates nothing on the scalar and vector paths. Safe to call on a material
- * that has not compiled yet.
+ * that has not compiled yet, and on the outline material (which shares the
+ * `outline*` keys and ignores the rest).
  *
  * Two behaviours are worth knowing about. Writing `rimColor` / `rimStrength` /
- * `keyColor` on a material that was built with `{ lighting }` **breaks the
- * alias to the rig** for that uniform and triggers one program rebuild; the
- * material then keeps the value you gave it and stops tracking time of day.
- * That is almost always what an author who reaches for the override wants, but
- * it is not free, so do not do it per frame. Writing `rampMap` toggles a define
- * and therefore also rebuilds.
+ * `keyColor` on a material built with `{ lighting }` **breaks the alias to the
+ * rig** for that uniform and triggers one program rebuild; the material then
+ * keeps the value you gave it and stops tracking time of day. That is almost
+ * always what an author who reaches for the override wants, but it is not free,
+ * so do not do it per frame. And `specGain` is inert on a material built with
+ * none: the highlight is compiled in, not multiplied, so a class the pipeline
+ * gives no gloss (skin, cloth) cannot grow one at runtime. Toggling it on a
+ * material that *has* a highlight still costs one program rebuild.
  *
  * @param {THREE.Material} material
  * @param {Object} opts
  * @param {number} [opts.time] seconds; drives the `pulse` channel.
- * @param {THREE.ColorRepresentation} [opts.rimColor]
- * @param {THREE.Vector3} [opts.rimDirection] world space, toward the light.
- * @param {THREE.Vector3} [opts.anisoDirection] world space sheen axis.
+ * @param {THREE.ColorRepresentation} [opts.shadowTint] shadow hue target.
+ * @param {THREE.ColorRepresentation} [opts.shadowColor] shadow fill swatch.
+ * @param {number} [opts.shadowLevel] luminance for that fill.
+ * @param {THREE.Vector3} [opts.anisoDirection] world-space strand/blade axis.
  * @param {THREE.ColorRepresentation} [opts.pulse] additive battle-feedback tint.
- * @param {THREE.Texture|null} [opts.rampMap]
  * @returns {THREE.Material} the same material, for chaining.
  */
 export function updateToonUniforms(material, opts = {}) {
@@ -685,14 +738,21 @@ export function updateToonUniforms(material, opts = {}) {
     if (privatiseUniform(u, shared, name, toColor(v))) material.needsUpdate = true;
   }
 
-  for (const key in CHROMA_KEYS) {
-    const v = opts[key];
-    if (v === undefined) continue;
-    const [name, levelKey] = CHROMA_KEYS[key];
-    if (!u[name]) continue;
-    const level = opts[`${levelKey}Level`] ?? toon.levels[levelKey];
-    toon.levels[levelKey] = level;
-    u[name].value.copy(chromaAt(v, level));
+  // The fill is a radiance, so its swatch and its level are recombined here the
+  // same way the constructor did; writing a raw hex would make the fill's
+  // strength an accident of how dark the swatch happens to be.
+  if ((opts.shadowColor !== undefined || opts.shadowLevel !== undefined) && u.uToonShadowFill) {
+    const level = opts.shadowLevel ?? toon.levels.shadow;
+    toon.levels.shadow = level;
+    const swatch = opts.shadowColor ?? u.uToonShadowFill.value;
+    u.uToonShadowFill.value.copy(chromaAt(swatch, level));
+  }
+
+  if (opts.shadowTint !== undefined && u.uToonShadowTint) {
+    u.uToonShadowTint.value.copy(chromaUnit(opts.shadowTint));
+  }
+  if (opts.faceFlatten !== undefined && u.uToonShadowFloor) {
+    u.uToonShadowFloor.value = opts.faceFlatten ? 0.75 : 0.0;
   }
 
   if (opts.rimColor !== undefined && u.uRimColor) {
@@ -708,14 +768,13 @@ export function updateToonUniforms(material, opts = {}) {
   if (opts.anisoDirection !== undefined && u.uToonAnisoDirection) {
     u.uToonAnisoDirection.value.copy(toDirection(opts.anisoDirection, DEFAULT_ANISO_DIR));
   }
-  if (opts.shadowAlbedo !== undefined && u.uToonShadowAlbedo) {
-    u.uToonShadowAlbedo.value.copy(chromaUnit(opts.shadowAlbedo));
-  }
 
   // `specGain` crossing zero adds or removes the highlight from the program, so
-  // it cannot go through `SCALAR_KEYS`. Anisotropy rides along: the tangent
-  // frame is only ever consumed by the highlight, so a material without one has
-  // no use for `TOON_ANISO` and should not pay to compile it.
+  // it cannot go through `SCALAR_KEYS`. Anisotropy rides along: the tangent frame
+  // is only ever consumed by the highlight, so a material without one has no use
+  // for `TOON_ANISO` and should not pay to compile it. Going from *no* highlight
+  // to one needs the material rebuilt anyway, and the uniforms the new program
+  // reads have to exist before it is compiled.
   if (opts.specGain !== undefined && u.uToonSpecGain) {
     const had = u.uToonSpecGain.value > 0;
     u.uToonSpecGain.value = opts.specGain;
@@ -742,17 +801,6 @@ export function updateToonUniforms(material, opts = {}) {
     material.color.copy(toColor(opts.outlineColor));
   }
 
-  if (opts.rampMap !== undefined && u.uToonRamp) {
-    const had = !!u.uToonRamp.value;
-    u.uToonRamp.value = opts.rampMap ?? null;
-    if (had !== !!u.uToonRamp.value) {
-      material.defines = { ...(material.defines ?? {}) };
-      if (u.uToonRamp.value) material.defines.TOON_RAMP_MAP = '';
-      else delete material.defines.TOON_RAMP_MAP;
-      material.needsUpdate = true;
-    }
-  }
-
   return material;
 }
 
@@ -763,57 +811,81 @@ export function updateToonUniforms(material, opts = {}) {
 /**
  * Default line weight, as a fraction of viewport height.
  *
- * 0.0014 is ~1.5 px at 1080p and ~2 px at 1440p. REFERENCE_TARGET §1 calls for
- * soft edges, not ink: the outline's job here is to stop a chibi's chin
- * dissolving into a same-value background at eighty pixels tall, and anything
- * heavier than two pixels starts reading as a cartoon border instead of a
- * drawn edge.
+ * ANIME_PIPELINE §4 asks for a constant screen-space weight of 1.5–2.5 px at
+ * 1080p, and names "no outlines, or too subtle to see" as one of the four
+ * failures of the first attempt. 0.0018 is ~1.9 px at 1080p and ~2.6 px at
+ * 1440p: unmistakably an ink line, still short of the cartoon border that a
+ * heavier value would give.
  */
-const DEFAULT_OUTLINE_WIDTH = 0.0014;
+const DEFAULT_OUTLINE_WIDTH = 0.0018;
 
 /**
- * The outline colour: `SHADOW_TINT` at a low level, not black.
+ * How far the outline darkens the albedo it is derived from, and how much it
+ * saturates on the way down.
  *
- * A black outline is the fastest way to break ART_BIBLE §2.3's crushed-but-
- * tinted value floor, because it would be the only true black in frame and it
- * would be sitting on the subject. Tinting toward the shadow colour also means
- * the line reads as the character's own deepest shade wrapping the silhouette,
- * which is what a painted edge does.
+ * §4: "Outline colour is **not black** — use a heavily darkened, saturated
+ * version of the underlying albedo, so hair gets a dark-warm line and cloth a
+ * dark-cool one." 0.16 is heavily darkened; 1.55 saturation is what stops the
+ * darkening from also draining the hue and landing on the near-black line the
+ * document rules out. A true black outline would additionally be the only pure
+ * black in frame, sitting on the subject, which breaks ART_BIBLE §2.3's tinted
+ * value floor.
  */
+const DEFAULT_OUTLINE_DARKNESS = 0.16;
+const DEFAULT_OUTLINE_SATURATION = 1.55;
+
+/** Fallback outline colour, for a hull with no per-vertex colour to darken. */
 const DEFAULT_OUTLINE_LEVEL = 0.035;
 
 /**
  * Build the material for an inverted-hull outline.
  *
  * @param {Object} [opts]
- * @param {number} [opts.width=0.0014] fraction of viewport height.
- * @param {THREE.ColorRepresentation} [opts.color] outline colour; defaults to
- *   `SHADOW_TINT` at {@link DEFAULT_OUTLINE_LEVEL}.
- * @param {number} [opts.level] luminance for the default colour.
- * @param {boolean} [opts.fog=true]
+ * @param {number} [opts.width=0.0018] fraction of viewport height.
+ * @param {boolean} [opts.vertexColors=true] derive the line colour from the
+ *   hull's per-vertex colour block, which is how §4's "dark-warm line on hair,
+ *   dark-cool on cloth" is achieved on a single merged mesh. Requires the
+ *   geometry to carry a `color` attribute — `CharacterFactory` paints one.
+ * @param {THREE.ColorRepresentation} [opts.color] explicit line colour. With
+ *   `vertexColors` on this multiplies the vertex colour; leave it white.
+ * @param {number} [opts.darkness] / [opts.saturation] the §4 tint controls.
  * @returns {THREE.MeshBasicMaterial}
  */
 export function createToonOutlineMaterial(opts = {}) {
+  const vertexColors = opts.vertexColors ?? true;
   const color = opts.color !== undefined
     ? toColor(opts.color)
-    : chromaAt(LIGHT.SHADOW_TINT, opts.level ?? DEFAULT_OUTLINE_LEVEL);
+    : (vertexColors ? new THREE.Color(1, 1, 1) : chromaAt(LIGHT.SHADOW_TINT, opts.level ?? DEFAULT_OUTLINE_LEVEL));
 
   const material = new THREE.MeshBasicMaterial({
     name: opts.name ?? 'toon:outline',
     color,
+    vertexColors,
     // BackSide is the hull; FrontSide culling is what makes the shell visible
     // only where it pokes out past the silhouette.
     side: THREE.BackSide,
     fog: opts.fog ?? true,
-    // Opaque and depth-writing. A transparent outline would need sorting
-    // against the character it wraps, and would show the seam wherever the
-    // shell self-overlaps on a concave part like an armpit.
+    // Opaque and depth-writing. A transparent outline would need sorting against
+    // the character it wraps, and would show the seam wherever the shell
+    // self-overlaps on a concave part like an armpit.
     transparent: false,
     depthWrite: true,
     toneMapped: true,
   });
 
   const uniforms = { uOutlineWidth: { value: opts.width ?? DEFAULT_OUTLINE_WIDTH } };
+  // The tint is only meaningful when there is an albedo to derive from. With an
+  // explicit flat colour the caller has already chosen the line, and darkening
+  // it a second time would halve a value that was picked deliberately.
+  const tint = opts.tint ?? vertexColors;
+  if (tint) {
+    uniforms.uOutlineDarkness = { value: opts.darkness ?? DEFAULT_OUTLINE_DARKNESS };
+    uniforms.uOutlineSaturation = { value: opts.saturation ?? DEFAULT_OUTLINE_SATURATION };
+    uniforms.uOutlineFallback = {
+      value: chromaAt(LIGHT.SHADOW_TINT, opts.level ?? DEFAULT_OUTLINE_LEVEL),
+    };
+  }
+
   material.userData.toon = { kind: 'outline', uniforms, levels: {}, shared: new Set() };
   material.userData.isToonMaterial = true;
 
@@ -827,10 +899,16 @@ export function createToonOutlineMaterial(opts = {}) {
         '#include <project_vertex>', () => TOON_OUTLINE_PROJECT,
       );
     }
+    if (tint) {
+      shader.fragmentShader = TOON_OUTLINE_FRAGMENT_PARS + shader.fragmentShader;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <color_fragment>', () => TOON_OUTLINE_TINT,
+      );
+    }
     material.userData.toonShader = shader;
   };
 
-  material.customProgramCacheKey = () => 'aw-toon-outline';
+  material.customProgramCacheKey = () => `aw-toon-outline|${tint ? 'tint' : 'flat'}`;
   return material;
 }
 
@@ -838,14 +916,14 @@ export function createToonOutlineMaterial(opts = {}) {
  * Attach an inverted-hull outline to a mesh.
  *
  * The hull is added as a **child of the source with an identity local matrix**,
- * which is the only arrangement that is correct for both cases: a static mesh
- * inherits the source's world transform exactly, and a `SkinnedMesh` — which
- * three transforms through its bind matrix and skeleton rather than through its
- * own world matrix — ends up sharing the source's skeleton, bind matrix and
- * bind mode, so the hull deforms with the animation instead of drifting off it.
+ * which is the only arrangement correct for both cases: a static mesh inherits
+ * the source's world transform exactly, and a `SkinnedMesh` — which three
+ * transforms through its bind matrix and skeleton rather than through its own
+ * world matrix — ends up sharing the source's skeleton, bind matrix and bind
+ * mode, so the hull deforms with the animation instead of drifting off it.
  * Cloning the geometry would double the vertex memory of every character in the
- * party for no benefit, so it is shared; `disposeToonOutline` therefore
- * disposes the material only.
+ * party for no benefit, so it is shared; `disposeToonOutline` therefore disposes
+ * the material only.
  *
  * @param {THREE.Mesh} source
  * @param {Object} [opts] forwarded to {@link createToonOutlineMaterial}, plus
@@ -868,8 +946,8 @@ export function createToonOutline(source, opts = {}) {
 
   outline.name = `${source.name || 'mesh'}::outline`;
   // The hull is a shading trick, not an occluder: casting from it would thicken
-  // every contact shadow by the outline width, and receiving would band the
-  // line where the key crosses it.
+  // every contact shadow by the outline width, and receiving would band the line
+  // where the key crosses it.
   outline.castShadow = false;
   outline.receiveShadow = false;
   // Local transform stays identity, so `matrixWorld` resolves to the source's
@@ -893,9 +971,9 @@ export function createToonOutline(source, opts = {}) {
 /**
  * Detach and dispose an outline built by {@link createToonOutline}.
  *
- * Geometry is shared with the source mesh and is deliberately left alone, and
- * so is a material the caller supplied — a party sharing one outline material
- * is the normal case, and disposing it from the first character to be torn down
+ * Geometry is shared with the source mesh and is deliberately left alone, and so
+ * is a material the caller supplied — a party sharing one outline material is
+ * the normal case, and disposing it from the first character to be torn down
  * would blank the other five.
  */
 export function disposeToonOutline(outline) {

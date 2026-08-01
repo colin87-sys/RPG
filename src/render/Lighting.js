@@ -23,12 +23,14 @@
  *     shadow must not eyedrop to zero saturation") is enforced by construction
  *     rather than by hoping the inputs were tinted.
  *
- *  3. **RIM** — a second directional light 150 degrees around in azimuth from
- *     the key, lifted above the horizon, tinted toward `RING_GLOW`. In this art
- *     style the rim is not garnish; it is the entire reason the silhouette
- *     survives against fog of a similar value. It does not cast shadows — a
- *     shadowing back light fights the key for the same surfaces and costs a
- *     second full shadow pass for no visual gain.
+ *  3. **RIM** — a second directional light opposite the key in azimuth, low over
+ *     the horizon, tinted toward `RING_GLOW`. ART_BIBLE section 3's dusk note
+ *     names its source precisely: the moon-ring, which hangs on the opposite
+ *     side of the sky from the sun, at intensity 0.8. In this art style the rim
+ *     is not garnish; it is the entire reason the silhouette survives against
+ *     fog of a similar value. It does not cast shadows — a shadowing back light
+ *     fights the key for the same surfaces and costs a second full shadow pass
+ *     for no visual gain.
  *
  * **The chroma contract.** A lighting rig does not only decide how bright a
  * frame is; it decides what hue every non-emissive surface in it can possibly
@@ -49,16 +51,34 @@
  * through bit-identical, so a zone or weather tint that respects the palette is
  * never fought, and fixing the upstream table would silently make this a no-op.
  *
- * **Why the rim is pinned in HDR.** ART_BIBLE section 2.3 names exactly three
- * things allowed past 1.0 pre-tonemap — sun disc, spell cores, and rims/spec
- * pings — and asks for ~10% of pixels above 0.75. A rig that scales its rim
- * with the time-of-day intensity curve delivers that at noon and nothing at
- * dusk, which is a frame with no bloom source at all and the flat mid-histogram
- * that follows. The analytic rim light is therefore tuned for the *environment*
- * (section 5.6's 0.8–1.2), while the rim term the toon materials read is solved
- * every frame so its hottest sliver lands on `RIM_HDR_PEAK` whatever the hour.
- * That split is also what keeps a backlit foreground occluder 1.5 stops under
- * the subject (section 5.1) instead of out-glowing it.
+ * **Why the rim is directional, and why it is no longer pinned in HDR.** An
+ * earlier revision solved the character rim's strength every frame so its
+ * hottest sliver landed on a fixed pre-tonemap radiance just past the bloom
+ * threshold, on the theory that ART_BIBLE section 2.3 permits rims past 1.0 and
+ * asks for ~10% of pixels above 0.75. That reasoning is sound only if the rim is
+ * actually a *rim*. It was not: the toon rim's directional weight carried a
+ * floor (`uToonRimFloor`, 0.20–0.40 across the presets), so the fresnel band
+ * wrapped the entire silhouette at near-constant width, and normalising its
+ * peak channel past 1.0 blew that band to white through bloom. The result was a
+ * uniform cyan-white halo of constant width on every edge in frame — undersides,
+ * shadow flanks, background treeline — which reads as die-cut and pasted on and
+ * cancels exactly the integration the mist and DOF are buying. It is the single
+ * defect a reviewer named first.
+ *
+ * The rim is therefore rebuilt as light rather than as ink, in two halves that
+ * have to agree:
+ *
+ *  - the rig publishes a rim whose peak *luminance* — not peak channel — lands
+ *    just under the bloom threshold, so `RING_GLOW`'s teal survives instead of
+ *    clipping to white, and
+ *  - the rig publishes the rim's **shape** to the materials that consume it
+ *    (`_applyRimContract`): the directional term is floored at zero, so the rim
+ *    dies on the key-facing side and its width varies along the form, which is
+ *    what a back light does and what the reference frames show.
+ *
+ * The rim direction, colour and intensity were always the rig's to own; the
+ * shape has to be, too, or the two halves disagree and one of them wins by
+ * accident.
  *
  * **Cascades.** Shadow texel density is what makes a 1.2 m chibi read as a solid
  * object rather than a smudge, and a single ortho frustum stretched over a 120 m
@@ -134,15 +154,50 @@ const SPLIT_LAMBDA = 0.72;
  *  there would cost texels to render something the grade throws away. */
 const DEFAULT_SHADOW_DISTANCE = 120;
 
-/** Distance the cascade light is pulled back along its own direction. Must
- *  clear the tallest caster above a cascade slice; a boss occupying 60% of
- *  frame height is under 10 m, so 45 m is generous without wasting depth range. */
-const LIGHT_MARGIN = 45;
+/**
+ * Distance the cascade light is pulled back along its own direction, and the
+ * tallest caster the rig promises to capture above a cascade slice.
+ *
+ * These two numbers together define each cascade's shadow-camera depth range,
+ * and that range is not a free parameter under VSM. three stores VSM's two
+ * moments in the shadow camera's *normalised* depth, so a range far larger than
+ * the geometry in it spends all of its precision on empty air: a 0.3 m
+ * occluder-to-receiver gap — precisely the gap a contact shadow is made of —
+ * lands inside a couple of ULPs of the blurred mean, the variance term swamps
+ * it, and `VSMShadow`'s light-bleed reconstruction returns "lit". The visible
+ * symptom is exactly the review's: long shadows survive, but the darkening
+ * *under* a character's feet does not, and every figure reads pasted onto the
+ * terrain.
+ *
+ * The old rig ran every cascade at near 0.5 / far `shadowDistance * 2.5 + 45`,
+ * i.e. a ~195 m range to shadow a 4.6 m near cascade. `_applyCascadeBias` now
+ * derives near and far per cascade from these two constants and the cascade's
+ * own extent, which is an order of magnitude tighter. The margin still has to
+ * clear the tallest caster standing above a slice (a boss occupying 60% of
+ * frame height is under 10 m; the treeline is the real driver), and the near
+ * plane sits `MAX_CASTER_HEIGHT` short of it so those casters are still inside
+ * the frustum rather than clipped out of their own shadow.
+ */
+const LIGHT_MARGIN = 28;
+const MAX_CASTER_HEIGHT = 14;
+/** Padding on the far plane so a cascade's light-space depth extent — bounded
+ *  above by its own diagonal, which is what `_updateShadowBounds` writes into
+ *  the ortho width — can never clip its own back face. */
+const SHADOW_DEPTH_SLACK = 2;
 
-/** Rim azimuth offset. Not 180: a true back light rims both edges equally and
- *  reads as a halo. 150 leaves one edge dominant, which is what the reference
- *  frames show and what gives the silhouette a direction. */
-const RIM_AZIMUTH_DEG = 150;
+/**
+ * Rim azimuth offset from the key.
+ *
+ * ART_BIBLE section 3's dusk note is explicit that the rim comes "from the
+ * ring's sky direction (opposite the sun azimuth)", and the ring is a fixed
+ * feature of the sky rather than a light an artist placed for flattery, so 180
+ * is not a stylistic choice here — it is where the source is. The previous 150
+ * was chosen to keep one edge dominant, but that job belongs to the rim's
+ * *directional falloff*, not to a fudged azimuth: with the falloff floored at
+ * zero (see `RIM_CONTRACT`) an opposite-key rim already dies across the whole
+ * key-facing side and narrows toward the terminator on its own.
+ */
+const RIM_AZIMUTH_DEG = 180;
 
 /**
  * Rim elevation is derived from the key's, but clamped into this band.
@@ -171,23 +226,67 @@ const RIM_ELEVATION_BASE_DEG = 10;
  *  background. Kept in the lower half of the band because section 5.1 wants a
  *  backlit foreground occluder reading *under* the subject, not competing. */
 const RIM_INTENSITY_NIGHT = 0.80;
-const RIM_INTENSITY_DAY = 1.05;
+const RIM_INTENSITY_DAY = 0.95;
 
 /**
- * Pre-tonemap radiance the hottest sliver of the toon rim is pinned to.
+ * Pre-tonemap **luminance** the hottest sliver of the toon rim is solved to.
  *
- * Set to *just* clear section 6's bloom threshold of 1.0, and no further. That
- * guarantees every character carries a genuine HDR edge into the bloom pass in
- * every frame at every hour — the rig's share of section 2.3's "~10% of pixels
- * above 0.75" — while keeping the rim a separation device rather than a second
- * light. The distinction is not academic: `awToonRim` floors its directional
- * term so the fresnel band wraps the whole silhouette, and on a near-spherical
- * chibi head that band covers a large fraction of the visible disc. Pushed to
- * the 1.6 an "HDR rim" instinctively wants, it stops reading as an edge and
- * starts reading as a white-hot head with no form in it — measured against the
- * capture harness, that is exactly what happens above about 1.35.
+ * Luminance, not peak channel, and that is the whole correction. Normalising
+ * the peak *channel* to a value past 1.0 — what this constant used to do at
+ * 1.25 — drives `RING_GLOW`'s green to 1.25 and its red to 0.31, and once bloom
+ * and ACES have had that, the edge is white. Every rim in every frame was
+ * therefore the same colourless line, which is both why the review read it as
+ * an outline pass and why it complained there is almost no teal on screen while
+ * the rig was nominally spending its whole rim budget on teal.
+ *
+ * Solving for luminance instead keeps the rim's chromaticity intact and lands
+ * `RING_GLOW`'s dominant channel at ~0.96 — bright enough to separate a
+ * character from fog of a similar value, just under section 6's bloom threshold
+ * of 1.0, so only genuine speculars and magic bloom. A directional rim is a
+ * narrow sliver rather than a full silhouette wrap, so it no longer needs to be
+ * pushed past the threshold to be seen; section 2.3's "~10% of pixels above
+ * 0.75" is paid by the sky, the sun disc and spell cores, which is where that
+ * budget was always meant to come from.
  */
-const RIM_HDR_PEAK = 1.25;
+const RIM_PEAK_LUMA = 0.80;
+
+/**
+ * The rim's *shape*, published to every toon material the rig lights.
+ *
+ * `render/ToonMaterial.js` evaluates
+ * `smoothstep(shape, pow(1 - N·V, power) * mix(floor, 1, smoothstep(focus, N·L_rim)))`,
+ * and ships per-preset floors between 0.20 and 0.40. A non-zero floor is what
+ * turns the term from a rim into a halo: it guarantees a fresnel band on every
+ * silhouette edge in the frame regardless of where the light is, including the
+ * undersides and the shadow flanks, at a width that barely varies. That is an
+ * outline, drawn by a lighting term, and it is not what the rim is for.
+ *
+ * The contract below is the assigned formula — `pow(1 - saturate(N·V), 3) *
+ * saturate(N·L_rim)` — expressed in this material's parameterisation:
+ *
+ *  - `floor: 0` so the rim reaches zero across the whole key-facing side.
+ *  - `focus` opens slightly *below* zero rather than at it, because a surface
+ *    exactly perpendicular to the rim is the middle of the band, not its end;
+ *    starting at 0 would terminate the rim in a hard edge halfway round a
+ *    cylinder. Closing at 0.45 saturates the band before the fresnel has died,
+ *    so the two terms are not fighting each other at the peak.
+ *  - `shape` keeps a narrow window on the product, which is not redundant with
+ *    the `pow`: `pow` alone leaves a long low tail that greys the facing side.
+ *  - `minPower` meets the specified exponent of 3. It is a floor rather than an
+ *    assignment so a preset that deliberately wants a *tighter* rim (glass, wet
+ *    metal) keeps it; nothing is allowed to want a broader one.
+ *
+ * `rimGain` is deliberately not touched — it is the per-character variation the
+ * roster tunes, and it scales brightness, not width.
+ */
+const RIM_CONTRACT = Object.freeze({
+  floor: 0.0,
+  focusIn: -0.18,
+  focusOut: 0.45,
+  shapeIn: 0.06,
+  shapeOut: 0.55,
+  minPower: 3.0,
+});
 
 /** The rim gain the toon presets cluster around (`ToonMaterial` ships 1.2–2.6,
  *  with every hero preset between 1.5 and 2.2). The solve below cannot see a
@@ -255,14 +354,27 @@ const PENUMBRA_RADIUS_MIN = 1;
 const PENUMBRA_RADIUS_MAX = 3;
 
 /**
- * VSM's `radius` drives a separable Gaussian over the moment map rather than a
- * PCF tap pattern, so it can be pushed several times further for the same cost
- * — which is the whole reason core selects VSM. Bounded above because the blur
- * is applied in shadow-map space: past ~6 texels the near cascade's penumbra
- * starts detaching a chibi's feet from its own contact shadow.
+ * VSM's penumbra target, and why it is roughly half the PCF one.
+ *
+ * VSM does not filter a comparison, it filters the *moments* and reconstructs
+ * an occlusion probability from them. The reconstruction's error term scales
+ * with the variance inside the kernel, and the variance inside a kernel that
+ * straddles a silhouette is enormous — so a wide VSM blur does not merely
+ * soften a shadow edge, it makes the shadow *disappear* wherever an occluder
+ * sits close to its receiver. That is the light-bleeding case, and a character's
+ * feet are the worst instance of it in the whole frame: occluder and receiver
+ * are millimetres apart, so the bled result is "lit" and the cast loses its
+ * ground contact entirely, which is precisely the defect the review reports.
+ *
+ * At the previous 0.035 m target the near cascade solved to the 6-texel ceiling
+ * and bled every contact away. Halving the target keeps a visibly soft edge at
+ * the distances that matter (the fixed battle camera stands at ~9 m) while
+ * bringing the kernel back inside the range where the moment reconstruction is
+ * still telling the truth near an occluder.
  */
-const VSM_RADIUS_MIN = 1.5;
-const VSM_RADIUS_MAX = 6;
+const VSM_PENUMBRA_METRES = 0.018;
+const VSM_RADIUS_MIN = 1.0;
+const VSM_RADIUS_MAX = 3;
 /** Enough taps that the widest kernel above does not band on flat ground. */
 const VSM_BLUR_SAMPLES = 12;
 
@@ -318,6 +430,36 @@ const FOG_CHROMA_RANGE = 0.100;
 const KEY_CHROMA_CEILING = 0.24;
 const RING_CHROMA_CEILING = 0.26;
 const ENV_CHROMA_CEILING = 0.125;
+
+/**
+ * How far the conformed fog is pulled toward `FOG_NEAR` after projection.
+ *
+ * The gamut projection guarantees the fog lands *somewhere* on section 2.1's
+ * cool-to-warm axis, and for the mauve dusk key the nearest legal point is the
+ * warm end — `FOG_FAR`, parchment. That is legal and it is also wrong for this
+ * frame: section 2.1 assigns `FOG_NEAR`'s cool teal to "ground level / short
+ * distances", REFERENCE_TARGET section 4 makes teal the dominant hue "across
+ * mist, sky, UI and rim light", and `FogExp2` carries one colour for both ends
+ * of that journey. With the battle stage 10–25 m deep, the colour the player
+ * actually sees integrated along every ray is the *near* one, so anchoring the
+ * single available value at the warm end put a salmon haze behind a cast that
+ * had nothing cool anywhere in frame to read against.
+ *
+ * Relaxed slightly in full daylight, where the far haze genuinely is the larger
+ * share of what the camera sees through — but only slightly, and both figures
+ * are far past half. That is not enthusiasm, it is geometry: `FOG_NEAR` and
+ * `FOG_FAR` sit on *opposite sides* of the neutral point in chromaticity, so the
+ * segment between them passes within 0.02 of equal-energy at its midpoint. A
+ * half-way bias measures out as the grey-teal `#7E8889` — the same
+ * neutral-crossing trap `BOUNCE_NIGHT_CHROMA` documents for the ground bounce,
+ * and grey haze behind a cast is the failure the review named, not a fix for it.
+ * Landing near `FOG_NEAR` itself puts the frame's largest area ~0.10 from
+ * neutral at hue 199: unmistakably teal, and the re-conform that follows holds
+ * it inside `ENV_CHROMA_CEILING` so the haze can never out-saturate the
+ * characters standing in it.
+ */
+const FOG_COOL_BIAS_LOW_SUN = 0.78;
+const FOG_COOL_BIAS_DAY = 0.55;
 
 /** How often the scene is rescanned for materials that still need CSM wiring.
  *  Meshes stream in during a mount and props spawn during play; 5 Hz is
@@ -752,7 +894,12 @@ export class Lighting {
     this._shadowTint = new THREE.Color(LIGHT.SHADOW_TINT);
     this._bounce = new THREE.Color(LIGHT.BOUNCE_GROUND);
     this._ringGlow = new THREE.Color(LIGHT.RING_GLOW);
+    this._fogNear = new THREE.Color(LIGHT.FOG_NEAR);
+    this._fogScratch = new THREE.Color();
     this._hsl = { h: 0, s: 0, l: 0 };
+    /** Smoothed "is this a sunlit frame" term, written by `_sampleTarget` and
+     *  read by the atmosphere conform. 1 until the first sample lands. */
+    this._dayness = 1;
     this._lensKey = '';
     this._lastFrame = -1;
     this._scanTimer = 0;
@@ -815,10 +962,12 @@ export class Lighting {
       shadowMapSize: q.shadowMapSize,
       lightIntensity: this._current.keyIntensity,
       lightDirection: this._vecA.copy(this._current.keyDir).negate().normalize().clone(),
-      lightNear: 0.5,
-      // Must cover the deepest cascade's extent along the light axis plus the
-      // pull-back margin; a low sun stretches that well past the shadow range.
-      lightFar: this.shadowDistance * 2.5 + LIGHT_MARGIN,
+      // Nominal bounds only. CSM writes these to every cascade at construction,
+      // and `_applyCascadeBias` immediately replaces them with a per-cascade
+      // range fitted to that cascade's own extent — see LIGHT_MARGIN for why a
+      // shared, generous range is a shadow-quality bug rather than a safety net.
+      lightNear: Math.max(0.5, LIGHT_MARGIN - MAX_CASTER_HEIGHT),
+      lightFar: LIGHT_MARGIN + this.shadowDistance + SHADOW_DEPTH_SLACK,
       lightMargin: LIGHT_MARGIN,
     });
     // Blended seams. Set before `updateFrustums` so the per-cascade bounds are
@@ -873,10 +1022,24 @@ export class Lighting {
     const size = this._q.shadowMapSize;
     const lights = this.csm.lights;
     const vsm = this._shadowType() === THREE.VSMShadowMap;
+    const near = Math.max(0.5, LIGHT_MARGIN - MAX_CASTER_HEIGHT);
     for (let i = 0; i < lights.length; i++) {
       const shadow = lights[i].shadow;
       const cam = shadow.camera;
-      const texel = (cam.right - cam.left) / size;
+      const span = cam.right - cam.left;
+
+      // Fit the depth range to this cascade before anything is derived from it.
+      // CSM parks the light `lightMargin` beyond the cascade's far extent along
+      // the light axis, so everything the cascade can legitimately shadow lies
+      // between `LIGHT_MARGIN - MAX_CASTER_HEIGHT` and `LIGHT_MARGIN + extent`.
+      // The extent along the light axis is bounded above by the cascade's own
+      // diagonal, which is exactly the ortho width `_updateShadowBounds` just
+      // wrote — so `span` is a correct upper bound and needs no second solve.
+      cam.near = near;
+      cam.far = LIGHT_MARGIN + span + SHADOW_DEPTH_SLACK;
+      cam.updateProjectionMatrix();
+
+      const texel = span / size;
       const depthRange = Math.max(1e-3, cam.far - cam.near);
       shadow.normalBias = texel * 1.35 + 0.004;
       if (vsm) {
@@ -886,12 +1049,15 @@ export class Lighting {
         // distribution forward and bleed light through solid geometry. The
         // normal bias above still earns its keep — it is a *geometric* offset,
         // independent of the comparison. Softness is the blur kernel: `radius`
-        // is the separable blur's texel reach, so the same penumbra target
-        // converts directly, and `blurSamples` is what stops that blur banding
-        // on the far cascade where the kernel is widest in world terms.
+        // is the separable blur's texel reach, so a penumbra target converts
+        // directly — but it converts to a *tighter* one than PCF wants, because
+        // widening a VSM kernel trades softness for light bleeding rather than
+        // for cost (see VSM_PENUMBRA_METRES). `blurSamples` is what stops that
+        // blur banding on the far cascade where the kernel is widest in world
+        // terms.
         shadow.bias = 0;
         shadow.radius = THREE.MathUtils.clamp(
-          PENUMBRA_METRES / Math.max(1e-5, texel),
+          VSM_PENUMBRA_METRES / Math.max(1e-5, texel),
           VSM_RADIUS_MIN, VSM_RADIUS_MAX,
         );
         shadow.blurSamples = VSM_BLUR_SAMPLES;
@@ -965,11 +1131,12 @@ export class Lighting {
     this.shadowDistance = Math.max(20, metres);
     if (this.csm) {
       this.csm.maxFar = this.shadowDistance;
-      this.csm.lightFar = this.shadowDistance * 2.5 + LIGHT_MARGIN;
-      for (const l of this.csm.lights) {
-        l.shadow.camera.far = this.csm.lightFar;
-        l.shadow.camera.updateProjectionMatrix();
-      }
+      this.csm.lightFar = LIGHT_MARGIN + this.shadowDistance + SHADOW_DEPTH_SLACK;
+      // The per-cascade near/far are not written here on purpose: refitting the
+      // frustums changes every cascade's extent, and `_applyCascadeBias` solves
+      // the depth range from that extent. Writing a shared far plane first would
+      // simply be overwritten a line later — and, when it was not, was how every
+      // cascade ended up sharing one 195 m range.
       this.csm.updateFrustums();
       this._applyCascadeBias();
     }
@@ -989,7 +1156,17 @@ export class Lighting {
    * every compile.
    */
   registerMaterial(material) {
-    if (!material || this._patched.has(material) || !this.csm) return false;
+    if (!material || !this.csm) return false;
+
+    // Ahead of the cascade check and ahead of the already-patched early return:
+    // a toon material may be handed to the rig long before it is first drawn,
+    // and the rim contract must be true of it from its first frame. Flagged so a
+    // scan that walks a hundred materials at 5 Hz is one property read each.
+    if (material.userData && !material.userData.awRimContract) {
+      if (this._applyRimContract(material)) material.userData.awRimContract = true;
+    }
+
+    if (this._patched.has(material)) return false;
     if (!Lighting._isLitMaterial(material)) return false;
 
     const own = Object.prototype.hasOwnProperty.call(material, 'onBeforeCompile');
@@ -1018,7 +1195,41 @@ export class Lighting {
       || (m.isShaderMaterial && m.lights === true));
   }
 
-  /** Sweep the active scene for materials that still need wiring. */
+  /**
+   * Publish the rim's *shape* to one toon material.
+   *
+   * The rig already owns the rim's direction, colour and intensity, and
+   * `ToonMaterial` aliases those uniform objects straight out of this module so
+   * the two can never disagree. Its directional falloff was the one part of the
+   * same light left to per-material art defaults, and the defaults floored it —
+   * which converted a back light into a constant-width halo on every silhouette
+   * in the frame, environment included. A light's falloff is not an art control
+   * on the surface it strikes, so the rig states it here, once, for everything
+   * it lights. `RIM_CONTRACT` documents each term.
+   *
+   * Written through `userData.toon.uniforms`, which is `ToonMaterial`'s public
+   * handle on its own uniform objects and the same objects it splices into the
+   * compiled program — so this is a value write on a live uniform, not a
+   * recompile, and it is idempotent. Materials that carry no rim (the outline
+   * hull, anything not built by `ToonMaterial`) are skipped by the guard.
+   *
+   * @returns {boolean} whether this material carried a rim to conform.
+   */
+  _applyRimContract(material) {
+    const toon = material?.userData?.toon;
+    if (!toon || toon.kind !== 'surface') return false;
+    const u = toon.uniforms;
+    if (!u?.uToonRimFloor) return false;
+
+    u.uToonRimFloor.value = RIM_CONTRACT.floor;
+    u.uToonRimPower.value = Math.max(u.uToonRimPower.value, RIM_CONTRACT.minPower);
+    u.uToonRimFocus?.value.set(RIM_CONTRACT.focusIn, RIM_CONTRACT.focusOut);
+    u.uToonRimShape?.value.set(RIM_CONTRACT.shapeIn, RIM_CONTRACT.shapeOut);
+    return true;
+  }
+
+  /** Sweep the active scene for materials that still need wiring. Two jobs, one
+   *  traverse: cascade registration, and the rim contract above. */
   refreshMaterials() {
     if (!this.scene || !this.csm) return;
     this.scene.traverse((obj) => {
@@ -1108,6 +1319,7 @@ export class Lighting {
     // is a function of the *true* sun height, not the key's, so the night rig
     // does not flip back to daylight just because the ring happens to be high.
     const dayness = sstep(sunHeight, -0.10, 0.25);
+    this._dayness = dayness;
 
     // ---- fill ------------------------------------------------------------
     // ART_BIBLE section 2.1, literally: sky colour = mix(skyZenith, SHADOW_TINT, 0.5),
@@ -1136,9 +1348,10 @@ export class Lighting {
     T.fillIntensity = ambient * (probed ? HEMI_SHARE_WITH_PROBE : 1);
 
     // ---- rim -------------------------------------------------------------
-    // Azimuth 150 degrees around from the key; elevation derived from the key's
-    // so a low dusk key gets a low, raking rim and a high noon key gets a
-    // steeper one, both inside the band that actually catches a chibi head.
+    // Opposite the key in azimuth — the ring's own side of the sky, per
+    // ART_BIBLE section 3's dusk note — with elevation derived from the key's so
+    // a low dusk key gets a low, raking rim and a high noon key gets a steeper
+    // one, both inside the band that actually catches a chibi head.
     const keyAz = Math.atan2(T.keyDir.x, T.keyDir.z);
     const rimAz = keyAz + THREE.MathUtils.degToRad(RIM_AZIMUTH_DEG);
     const keyElDeg = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(T.keyDir.y, -1, 1)));
@@ -1225,16 +1438,19 @@ export class Lighting {
     u.uFillGround.value.copy(S.fillGround).multiplyScalar(S.fillIntensity);
 
     // Solve the toon rim's strength so its hottest sliver always lands on
-    // RIM_HDR_PEAK. `toonSurface` adds `uRimColor * (awRim * uToonRimGain *
-    // uRimStrength)` to specular, and `awRim` reaches 1 at the silhouette, so
-    // the peak is exactly the product below. Pinning it — rather than letting
-    // it ride the analytic rim's day/night curve — is what guarantees an HDR
-    // edge for bloom to find in *every* frame, and it decouples the character
-    // rim from the environment rim so the two can be tuned against each other.
-    const rimPeak = Math.max(S.rimColor.r, S.rimColor.g, S.rimColor.b)
-      * S.rimIntensity * NOMINAL_TOON_RIM_GAIN;
+    // RIM_PEAK_LUMA. `toonSurface` adds `uRimColor * (awRim * uToonRimGain *
+    // uRimStrength)` to specular, and `awRim` reaches 1 where the surface is
+    // both grazing and facing the rim, so the peak is exactly the product below.
+    // Solving against *luminance* rather than the largest channel is what keeps
+    // the rim a colour: normalising the peak channel drives `RING_GLOW`'s green
+    // to the target on its own and leaves red and blue near zero, which is a
+    // white line with a teal name. Pinning it at all — rather than letting it
+    // ride the analytic rim's day/night curve — is what keeps the character rim
+    // a constant separation device across the whole clock while the analytic
+    // rim stays free to be tuned for grass and stone.
+    const rimPeak = lumOf(S.rimColor) * S.rimIntensity * NOMINAL_TOON_RIM_GAIN;
     u.uRimStrength.value = rimPeak > 1e-4
-      ? THREE.MathUtils.clamp(RIM_HDR_PEAK / rimPeak, RIM_STRENGTH_MIN, RIM_STRENGTH_MAX)
+      ? THREE.MathUtils.clamp(RIM_PEAK_LUMA / rimPeak, RIM_STRENGTH_MIN, RIM_STRENGTH_MAX)
       : 0;
 
     this._conformAtmosphere();
@@ -1275,6 +1491,24 @@ export class Lighting {
     const source = this.sky?.fogColor ?? fog.color;
     fog.color.copy(source);
     conformChroma(fog.color, FOG_GAMUT, FOG_CHROMA_TOLERANCE, FOG_CHROMA_RANGE);
+
+    // Then anchor the single available fog colour nearer the cool end of the
+    // section 2.1 axis; see FOG_COOL_BIAS_LOW_SUN. `mixChroma` moves hue and
+    // saturation only and restores the incoming luminance exactly, so this
+    // cannot change the density read of the haze or the exposure of the shot —
+    // it decides what colour the frame's largest chroma area is, and nothing
+    // else. Recomputed from the authored source every frame like the projection
+    // above, so it is idempotent rather than a per-frame ratchet toward teal.
+    const bias = THREE.MathUtils.lerp(FOG_COOL_BIAS_LOW_SUN, FOG_COOL_BIAS_DAY, this._dayness);
+    if (bias > 1e-3) {
+      fog.color.copy(mixChroma(fog.color, this._fogNear, bias, this._fogScratch));
+      // Re-project. The bias moves along the neutral-to-`FOG_NEAR` edge, which is
+      // inside the gamut by construction, so this second pass is purely the
+      // chroma ceiling — and it is needed: a dark night fog carries very little
+      // luminance and lands well past the ceiling once its chromaticity is pulled
+      // all the way to the cool anchor.
+      conformChroma(fog.color, FOG_GAMUT, FOG_CHROMA_TOLERANCE, FOG_CHROMA_RANGE);
+    }
   }
 
   /**

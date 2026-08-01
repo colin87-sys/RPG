@@ -19,6 +19,15 @@
  * appears in a closeup and in the wide battle stage: the line is a hairline in
  * one shot and a black jacket in the other.
  *
+ * ANIME_PIPELINE §4 adds a colour rule: "Outline colour is **not black** — use a
+ * heavily darkened, saturated version of the underlying albedo, so hair gets a
+ * dark-warm line and cloth a dark-cool one." That is what `TOON_OUTLINE_TINT`
+ * below implements, in the fragment stage, from whatever colour the hull already
+ * carries — which for a character is the per-vertex colour block it shares with
+ * the surface mesh. Deriving it here rather than asking the caller for a second
+ * colour per zone is the only arrangement that keeps the line correct when a
+ * single merged mesh carries three garment colours.
+ *
  * OWNED BY: render/ToonMaterial.js.
  */
 
@@ -26,6 +35,43 @@
  *  built-in uniform prefix is already in front of it. */
 export const TOON_OUTLINE_PARS = /* glsl */ `
 uniform float uOutlineWidth;
+`;
+
+/** Fragment-side uniforms, declared ahead of three's own fragment source. */
+export const TOON_OUTLINE_FRAGMENT_PARS = /* glsl */ `
+uniform float uOutlineDarkness;
+uniform float uOutlineSaturation;
+uniform vec3  uOutlineFallback;
+`;
+
+/**
+ * Appended after `#include <color_fragment>`, i.e. once `diffuseColor` holds
+ * `material.color × vColor` and before anything else touches it.
+ *
+ * The two moves are separable on purpose. Saturation is scaled at constant peak
+ * — `c' = 1 - (1 - c) * k` on a peak-normalised colour is a pure HSV saturation
+ * change and nothing else — and only then is value crushed. Doing it in the
+ * other order, or as a single multiply toward a dark colour, desaturates as it
+ * darkens and lands on the near-black line the pipeline document rules out.
+ *
+ * The fallback is not defensive padding. A hull whose geometry carries no
+ * `color` attribute reads the WebGL default attribute, which is black, and a
+ * black line is precisely what §4 forbids — so a colour with nothing left to
+ * derive from falls back to the scene's shadow tint instead of shipping the
+ * failure silently.
+ */
+export const TOON_OUTLINE_TINT = /* glsl */ `
+#include <color_fragment>
+
+// ---- AETHERWIND outline tint ---------------------------------------------
+{
+  float awPeak = max( max( diffuseColor.r, diffuseColor.g ), diffuseColor.b );
+  vec3 awChroma = diffuseColor.rgb / max( awPeak, 1e-4 );
+  awChroma = max( vec3( 0.0 ), 1.0 - ( 1.0 - awChroma ) * max( uOutlineSaturation, 0.0 ) );
+  diffuseColor.rgb = mix( uOutlineFallback, awChroma * ( awPeak * uOutlineDarkness ),
+                          step( 1e-4, awPeak ) );
+}
+// ---- end outline tint ------------------------------------------------------
 `;
 
 /**

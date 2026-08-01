@@ -1,35 +1,46 @@
 /**
  * toonCommon.js — the GLSL vocabulary of the character shading model.
  *
- * REFERENCE_TARGET §1 describes the characters as "soft cel / toon-adjacent,
- * not full PBR: a broad lit region, a soft terminator, a coloured shadow region,
- * and — critically — a bright rim/back light separating them from the background
- * in every frame." Those four clauses are the whole specification, and the
- * functions below exist one per clause.
+ * ANIME_PIPELINE §2 is the whole specification, and it is a correction of what
+ * this file used to contain. The previous model was a *soft* cel ramp: a wide
+ * terminator (0.08–0.10 in N·L), extra "core shadow" steps subdividing the dark
+ * side, a subsurface wrap bleeding across the terminator, and a shadow built by
+ * lerping the albedo toward a tint. Every one of those softens the one edge the
+ * style depends on, and the sum of them is a smooth falloff with contours in it
+ * — which reads as PBR, which is what the review called it.
  *
- * The word doing the most work in that sentence is **region**. A cel ramp is not
- * "a gradient with steps in it": it is a large flat plateau at full key, one
- * decisive edge, and a second flat plateau whose *colour is different*, not
- * merely darker. Quantising N·L into equal-width bands across 0..1 — the
- * obvious implementation, and the one this file used to carry — produces
- * neither, because the top plateau then only begins around N·L ≈ 0.9, i.e. a
- * sliver at the light-facing pole, and everything a camera actually sees is
- * mid-band gradient. `awToonBand` therefore places the terminator explicitly, in
- * N·L, and treats the band count as a subdivision of the *shadow* alone.
+ * The replacement is literal:
  *
- * The second half of the correction is `awToonShadowAlbedo`. A shadow built by
- * multiplying albedo can only ever travel toward black along the albedo's own
- * hue line, which is the "darkened desaturated albedo" the reference never has;
- * ART_BIBLE §2.1 requires the shadow region to land within ±8° of `SHADOW_TINT`
- * (hue ≈ 206°) with saturation ≥ 0.15, and the only way to get there is to shift
- * the surface colour itself before it is lit.
+ *  1. **Two bands.** One `smoothstep( t - w, t + w, N·L )` at `t ≈ 0.5` with
+ *     `w ≈ 0.03–0.06`. Nothing subdivides the shadow. A third band is available
+ *     *above* the terminator — a brighter plateau on the lit side, for hair and
+ *     metal only — because that is the one extra band the idiom actually uses.
+ *  2. **The shadow is a hue shift with rising saturation**, not a multiply.
+ *     `awToonShadowAlbedo` decomposes the albedo into chroma and value, rotates
+ *     the chroma toward the shadow tint, scales HSV saturation *up*, and drops
+ *     value only slightly. A darkened copy of the albedo is the single most
+ *     common way cel shading looks cheap; this function is the reason we do not
+ *     have one.
+ *  3. **Specular is a thresholded blob**, isotropic Blinn-Phong or Kajiya-Kay
+ *     across a strand axis, gated by the cel band so it cannot survive one pixel
+ *     past the terminator.
+ *  4. **The face resists shadowing.** `uToonShadowFloor` clamps the banded light
+ *     term from below so a fringe or a nose never carves the face into darkness.
+ *     Applied in the composite rather than here, because the floor has to lift
+ *     *cast* shadows too, and a cast shadow has already been multiplied into
+ *     `directLight.color` before this file sees it.
+ *
+ * There is deliberately **no ramp texture and no noise of any kind**. A ramp
+ * lookup is a gradient by construction, which is the failure mode; and
+ * ANIME_PIPELINE's absolute rule is that no procedural noise ever touches a
+ * character surface.
  *
  * These are exported as source strings rather than registered into
  * `THREE.ShaderChunk`, for the same reason `postCommon.js` and `skyCommon.js`
  * made that call: the chunk registry is process-global state shared with every
  * stock material in the engine, and `render/Lighting.js` already has to work
- * around one addon (CSM) that mutates it. Adding a second mutator would make
- * the order in which two unrelated modules happen to be imported a rendering
+ * around one addon (CSM) that mutates it. Adding a second mutator would make the
+ * order in which two unrelated modules happen to be imported a rendering
  * variable, which is not a debugging session anyone wants.
  *
  * Dialect: GLSL ES 1.00 spelling (`texture2D`, `varying`). three 0.185 rewrites
@@ -54,6 +65,9 @@
  *
  * `uKeyColor` and `uRimColor` arrive premultiplied by their light's intensity;
  * that is the rig's convention and the shader does not second-guess it.
+ * `uKeyColor` carries a second job here — it is the radiance the face-flattening
+ * fill is paid in, so a flattened face brightens and cools with the time of day
+ * instead of sitting under a fixed studio light.
  */
 export const TOON_UNIFORMS_GLSL = /* glsl */ `
 uniform vec3  uKeyColor;
@@ -61,24 +75,21 @@ uniform vec3  uRimDirection;
 uniform vec3  uRimColor;
 uniform float uRimStrength;
 
-uniform float uToonBands;
 uniform float uToonTerminator;
 uniform float uToonSoftness;
-uniform float uToonBandSpacing;
-uniform float uToonShadowStep;
-uniform float uToonCoreStep;
+uniform float uToonShadowFloor;
+uniform float uToonShadowLift;
 
-uniform vec3  uToonShadowDeep;
-uniform vec3  uToonShadowWarm;
-uniform float uToonShadowGain;
-uniform float uToonShadowWarmSpan;
-uniform vec3  uToonShadowAlbedo;
-uniform float uToonShadowMix;
+uniform vec3  uToonShadowTint;
+uniform float uToonShadowHue;
+uniform float uToonShadowSat;
+uniform float uToonShadowValue;
 uniform float uToonShadowSatFloor;
 
-uniform vec3  uToonSubsurface;
-uniform float uToonSubsurfaceWidth;
-
+uniform vec3  uToonShadowFill;
+uniform float uToonShadowGain;
+uniform float uToonAmbientGain;
+uniform float uToonMetalAlbedo;
 uniform float uToonEnvSpecular;
 
 uniform float uToonRimPower;
@@ -91,21 +102,23 @@ uniform vec3  uToonPulse;
 uniform float uToonPulseRate;
 uniform float uToonTime;
 
+#ifdef TOON_LIT_BAND
+  uniform float uToonLitBandThreshold;
+  uniform float uToonLitBandGain;
+#endif
+
 #ifdef TOON_SPECULAR
   uniform vec3  uToonSpecColor;
   uniform float uToonSpecGain;
   uniform float uToonSpecExponent;
   uniform float uToonSpecThreshold;
   uniform float uToonSpecSoftness;
+  uniform float uToonSpecAlbedoMix;
 #endif
 
 #ifdef TOON_ANISO
   uniform vec3  uToonAnisoDirection;
   uniform float uToonAnisoShift;
-#endif
-
-#ifdef TOON_RAMP_MAP
-  uniform sampler2D uToonRamp;
 #endif
 `;
 
@@ -123,147 +136,113 @@ export const TOON_FUNCTIONS_GLSL = /* glsl */ `
 float awMin3( const in vec3 v ) { return min( min( v.x, v.y ), v.z ); }
 
 /**
- * The cel ramp: N·L in, a plateau value in 0..1 out.
+ * The cel terminator: N·L in, 0 or 1 out, with one narrow transition.
  *
- * The terminator is an explicit position in N·L rather than a by-product of the
- * band count, and that is the correction this whole file turns on. Slicing
- * 0..1 into 'uToonBands' equal plateaus puts the topmost step at N·L ≈ 1 − 1/2n,
- * so at three bands the "fully lit" plateau does not begin until N·L ≈ 0.89 —
- * about 27° off the light axis. On an oversized chibi cranium that is a coin-
- * sized patch, and every other pixel of the head is mid-band gradient, which is
- * indistinguishable from a soft Lambert falloff. Pinning the step near N·L = 0
- * instead gives the reference's actual structure: most of the visible surface at
- * one flat value, one decisive edge, and detail only *inside* the shadow.
+ * ANIME_PIPELINE §2: 'smoothstep( t - w, t + w, N·L )' with 't ≈ 0.5' and
+ * 'w ≈ 0.03–0.06'. Both numbers matter and both are counter-intuitive.
  *
- * 'uToonSoftness' is the full width of that edge measured in N·L, so the brief's
- * "~0.08 wide" is literally the number an author types. It is floored rather
- * than allowed to reach zero because 'smoothstep' with equal edges is undefined,
- * and an edge narrower than a pixel's screen-space derivative crawls under
- * animation — the defect REFERENCE_TARGET §1 warns about with "soft terminator".
+ * 't ≈ 0.5' rather than 0 puts the edge at 60° off the light axis, well *inside*
+ * the geometric terminator. That is what makes a cel character read as drawn:
+ * the dark side is a large, deliberately-shaped mass that follows the light
+ * direction, not a thin crescent hugging the silhouette. Placing the edge at the
+ * geometric terminator — the intuitive choice, and what this file did before —
+ * leaves the shadow as a rim of dark around the outside, which is exactly what
+ * a soft Lambert falloff looks like once it is clamped.
  *
- * Extra bands subdivide the shadow side only. A step placed *above* the
- * terminator would cut the lit plateau back into a gradient and undo the point
- * of the function; a step below it is a core shadow, which is what a painter
- * would add and what the reference frames show under a jaw or inside a hood.
+ * 'w' is the *full* width of the edge in N·L, so the brief's number is literally
+ * what an author types. It is floored a hair above zero for two reasons:
+ * 'smoothstep' with equal edges is undefined, and an edge narrower than a
+ * pixel's screen-space derivative crawls and shimmers under animation. It must
+ * never be widened "to look smoother" — a wide ramp is the failure this whole
+ * file is a correction of.
  */
 float awToonBand( const in float ndl ) {
 
   float t = clamp( uToonTerminator, -0.95, 0.95 );
-  float w = max( uToonSoftness, 0.012 ) * 0.5;
+  float w = max( uToonSoftness, 0.008 ) * 0.5;
 
-  // The one edge that matters. Above it: flat, full key, no structure.
-  float lit = smoothstep( t - w, t + w, ndl );
-
-  // Core-shadow steps, stacked downward from the terminator. The 2.1 spacing
-  // ratio (rather than 2.0) keeps the two edges from landing on the same
-  // screen-space contour on a sphere, where evenly spaced N·L steps compress
-  // into a visible pair of concentric rings near the silhouette.
-  float gap = max( uToonBandSpacing, 0.04 );
-  float s1 = smoothstep( t - gap - w, t - gap + w, ndl );
-  float s2 = smoothstep( t - gap * 2.1 - w, t - gap * 2.1 + w, ndl );
-
-  float three = step( 2.5, uToonBands );
-  float four = step( 3.5, uToonBands );
-
-  float shade = uToonShadowStep
-    + three * uToonCoreStep * s1
-    + four * uToonCoreStep * 0.45 * s2;
-
-  return mix( min( shade, 1.0 ), 1.0, lit );
+  return smoothstep( t - w, t + w, ndl );
 
 }
 
+#ifdef TOON_LIT_BAND
+
 /**
- * The chromatic half of the ramp: what *colour* the key light becomes as it
- * falls off, independent of how much of it there is.
+ * The optional third band, on the **lit** side.
  *
- * The value axis is deliberately not read from the ramp texture. 'Palette''s
- * 'toonRamp' bakes its own value curve (0.40 at the dark end so a toon shadow
- * never kills the silhouette), and if both the texture and 'awToonBand' were
- * allowed to shape value they would fight: changing the band count would also
- * change the overall brightness of the character, which makes the two controls
- * uncombinable. Normalising the sample to unit maximum strips the texture's
- * value and keeps its hue and saturation — exactly the "shadow gradient" knob
- * AssetForge's 'ramp-toon' is there to provide.
+ * ANIME_PIPELINE §2 permits exactly one extra band and puts it above the
+ * terminator, for hair and metal only. It reads as the plane of the form that
+ * turns most directly into the key — the pale crown of a hair mass, the flat of
+ * a pauldron — and it is what stops a two-band metal from looking like flat
+ * paper between its highlights.
+ *
+ * Returns 0 or 1; the caller scales it. Its edge shares the terminator's width
+ * so the two bands are the same kind of line.
  */
-vec3 awToonTint( const in float lit ) {
+float awToonLitBand( const in float ndl ) {
 
-  #ifdef TOON_RAMP_MAP
+  float t = clamp( uToonLitBandThreshold, -0.9, 0.99 );
+  float w = max( uToonSoftness, 0.008 ) * 0.5;
 
-    vec3 c = texture2D( uToonRamp, vec2( clamp( lit, 0.0, 1.0 ), 0.5 ) ).rgb;
-
-  #else
-
-    // Analytic stand-in with the same shape: cool at the dark end, neutral at
-    // the lit end, arriving late (squared) so the darkest band commits to the
-    // shadow tint rather than sitting at a wishy-washy midpoint.
-    vec3 c = mix( uToonShadowDeep, vec3( 1.0 ), lit * lit );
-
-  #endif
-
-  return c / max( max3( c ), 1e-4 );
+  return smoothstep( t - w, t + w, ndl );
 
 }
 
+#endif
+
 /**
- * The shadow-region **albedo** — ART_BIBLE §2.1's shadow rule applied where it
- * can actually be obeyed.
+ * The shadow-region **albedo** — ANIME_PIPELINE §2's central rule.
  *
- * Light cannot make a surface a different hue than its own reflectance allows.
- * Multiply an amber-skin albedo by any amount of teal ambient and the result is
- * still a duller amber, because the surface has almost no blue reflectance to
- * modulate — which is precisely why a "tinted shadow" built as a light term
- * eyedrops as a darker desaturated copy of the albedo. The fix has to happen one
- * step earlier: the shading albedo itself shifts toward 'SHADOW_TINT' inside the
- * shadow band, exactly as a painter mixes the shadow colour on the palette
- * rather than glazing it over the light colour.
+ * "Shadow colour is a hue shift, not a multiply. Shift toward the scene's shadow
+ * tint and *increase* saturation slightly as value drops. A darkened copy of
+ * albedo is the single most common way cel shading looks cheap."
  *
- * The tint target carries 'SHADOW_TINT''s chromaticity scaled to the albedo's own
- * peak channel, so the mix moves hue and leaves value to 'awToonBand' — keeping
- * the two controls independent, which is the same separation 'awToonTint' and
- * 'Palette.toonRamp' make for the same reason.
+ * Light alone cannot deliver that. An amber albedo has almost no blue
+ * reflectance, so however teal the fill is, the product stays a duller amber —
+ * which is precisely why a "tinted shadow" built as a light term eyedrops as a
+ * darker desaturated copy of the albedo. The fix has to happen one step earlier,
+ * on the surface colour itself, exactly as a painter mixes the shadow colour on
+ * the palette rather than glazing it over the light colour.
  *
- * The saturation guard at the end is not optional, and the reason is a trap
- * worth spelling out. A straight lerp from a warm albedo to a cool tint passes
- * *through* the neutral axis, and for skin tones the crossing sits at mix ≈ 0.52
- * — within a hair of the value the art direction actually asks for. Ship the
- * obvious implementation at the obvious number and the shadow side of every face
- * eyedrops as grey, which is the one thing §2.1 forbids by name. The guard
- * measures the result and spends part of the *remaining* distance to the tint
- * when it comes up short: forward, never back toward the albedo, because
- * retreating lands on the same neutral from the other side. The presets carry
- * mixes past the crossing so the guard is normally inert; it is there so that an
- * author picking a mix cannot silently reintroduce the defect.
+ * The three moves are kept strictly separate so they can be tuned separately:
+ *
+ *  1. **Hue.** The albedo is split into a peak-normalised chroma and a value.
+ *     The chroma travels 'uToonShadowHue' of the way to the shadow tint's
+ *     chroma. Value is untouched by this step.
+ *  2. **Saturation, upward.** HSV saturation is scaled at constant value:
+ *     'c = peak - ( peak - c ) * k'. That identity holds the peak channel fixed
+ *     and pushes the others away from it, which is a pure saturation change and
+ *     nothing else. 'k > 1' is the point — a shadow that is *more* chromatic
+ *     than its light is the difference between painted and dimmed.
+ *  3. **Value, downward, and only slightly.** The bulk of the value drop belongs
+ *     to the lighting (the shadow band simply receives less light); doing it
+ *     twice is how a cel shadow turns into a hole.
+ *
+ * The saturation floor at the end guards a specific trap. A straight hue mix
+ * from a warm albedo to a cool tint passes *through* the neutral axis, and for
+ * skin tones the crossing sits near mix ≈ 0.5 — within a hair of the value the
+ * art direction asks for. Ship the obvious implementation at the obvious number
+ * and the shadow side of every face eyedrops as grey, which ART_BIBLE §2.1
+ * forbids by name. The guard spends part of the *remaining* distance to the tint
+ * when the result comes up short: forward, never back toward the albedo, because
+ * retreating lands on the same neutral from the other side.
  */
 vec3 awToonShadowAlbedo( const in vec3 base ) {
 
   float v = max3( base );
-  vec3 tinted = uToonShadowAlbedo * v;
-  vec3 shade = mix( base, tinted, clamp( uToonShadowMix, 0.0, 1.0 ) );
+  vec3 chroma = base / max( v, 1e-4 );
 
-  float sv = max3( shade );
-  float sat = ( sv - awMin3( shade ) ) / max( sv, 1e-4 );
+  vec3 hue = mix( chroma, uToonShadowTint, clamp( uToonShadowHue, 0.0, 1.0 ) );
+
+  float peak = max( max3( hue ), 1e-4 );
+  hue = max( vec3( 0.0 ), peak - ( peak - hue ) * max( uToonShadowSat, 0.0 ) );
+
+  // Saturation floor, measured on the result and repaired toward the tint.
+  float sat = ( peak - awMin3( hue ) ) / peak;
   float need = max( uToonShadowSatFloor, 1e-3 );
-  float k = clamp( ( need - sat ) / need, 0.0, 1.0 );
+  hue = mix( hue, uToonShadowTint * peak, clamp( ( need - sat ) / need, 0.0, 1.0 ) );
 
-  return mix( shade, tinted, k );
-
-}
-
-/**
- * The shadow *light* gradient, layered over the shifted albedo.
- *
- * A shadow that is one flat colour reads as a sticker. Real shade is a
- * gradient, warm where bounce light is still reaching the surface just past the
- * terminator and cool in the mass where only sky reaches it.
- * 'uToonShadowWarm' carries 'BOUNCE_GROUND''s chroma and 'uToonShadowDeep'
- * carries 'SHADOW_TINT''s, both pre-normalised to a chosen luminance on the CPU
- * so this mix moves hue only and cannot accidentally change exposure.
- */
-vec3 awToonShadowColor( const in float lit ) {
-
-  return mix( uToonShadowDeep, uToonShadowWarm,
-              smoothstep( 0.0, max( uToonShadowWarmSpan, 1e-3 ), lit ) );
+  return ( hue / max( max3( hue ), 1e-4 ) ) * ( v * clamp( uToonShadowValue, 0.0, 1.0 ) );
 
 }
 
@@ -301,16 +280,15 @@ vec3 awToonPlate( const in vec3 c ) {
  * floor is load-bearing. With a pure directional weight the rim exists only
  * where the rig's rim vector happens to point — in a dusk rig that is the upper
  * hemisphere, so the band lands on the top of the cranium and the lower body
- * dissolves into dark ground. §1 asks for the rim to separate the character
- * "from the background in every frame", i.e. around the whole silhouette; the
- * floor supplies that continuous edge while the directional term still rides on
- * top of it and carries the light's direction.
+ * dissolves into dark ground. REFERENCE_TARGET §1 asks for the rim to separate
+ * the character "from the background in every frame", i.e. around the whole
+ * silhouette; the floor supplies that continuous edge while the directional term
+ * still rides on top of it and carries the light's direction.
  *
  * The product is then smooth-stepped a second time. That is not redundant with
  * the first 'pow': 'pow' alone produces a long low-amplitude tail that creeps
  * across the whole facing side and greys it out, while the window collapses the
- * tail to zero and holds the band tight to the edge without hardening it into
- * an ink line.
+ * tail to zero and holds the band tight to the edge.
  */
 float awToonRim( const in vec3 n, const in vec3 v, const in vec3 rimDirView ) {
 

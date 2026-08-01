@@ -21,6 +21,9 @@ import { TitleScene } from './world/TitleScene.js';
 import { LookdevScene } from './world/LookdevScene.js';
 import { FieldScene } from './world/FieldScene.js';
 import { BattleScene } from './battle/BattleScene.js';
+import { ROSTER } from './characters/roster.js';
+import { drawFace, EXPRESSION_NAMES } from './characters/FaceTexture.js';
+import { updateOutlineScale } from './render/Outline.js';
 
 const canvas = document.getElementById('stage');
 const engine = new Engine(canvas);
@@ -36,6 +39,24 @@ engine.register('physics', new Physics(engine));
 engine.register('audio', new AudioEngine());
 engine.register('story', new Director(engine));
 engine.register('ui', new UIRoot(engine));
+
+// Inverted-hull outlines are pushed in **view space**, so their world-space
+// offset is a function of the live projection matrix and the drawing-buffer
+// height — neither of which any single scene owns. Registering the rescale as
+// a service is the only place it can live and be right for every scene: it
+// runs after `Scene.update` (so a pose change landing this frame is already
+// applied), reads the camera the engine is actually about to render with, and
+// costs one uniform write per outline material. Without it every line falls
+// back to Outline.js's 50°/1080p reference and drifts on any other lens.
+const drawingBufferSize = new THREE.Vector2();
+engine.register('outline-scale', {
+  update() {
+    const cam = engine.scene?.camera ?? engine.camera;
+    // Drawing-buffer height, not CSS height: `getDrawingBufferSize` folds in
+    // the pixel ratio, and CSS pixels would halve the line on a retina display.
+    updateOutlineScale(null, cam, engine.renderer.getDrawingBufferSize(drawingBufferSize).y);
+  },
+});
 
 // Audio can only start inside a user gesture; arm it on the first interaction.
 const armAudio = () => {
@@ -84,6 +105,122 @@ function lookdevEntryPose() {
   }
 }
 
+/* ------------------------------------------------------------- face review */
+
+/**
+ * Flat, full-screen review of the painted faces.
+ *
+ * The face is the highest-value asset in the game (ANIME_PIPELINE §1) and
+ * judging it through the 3D pipeline conflates a texture problem with a
+ * shading, UV or camera problem — a lash bar that is too thin and a lash bar
+ * that is being eaten by the fringe's cast shadow look identical on a rendered
+ * head. So this draws the *canvas source* directly onto a 2D overlay, with no
+ * material, no light and no post chain between the painter and the reviewer.
+ *
+ * It deliberately does not reuse `buildFaceSheetTexture`: that sheet is laid
+ * out characters-down / expressions-across, i.e. 4:6 portrait, and fitting a
+ * portrait sheet into a 16:9 frame wastes a third of the width and leaves each
+ * face ~165 px tall. Transposing it — characters across, expressions down —
+ * gives a 6:4 grid that very nearly fills the capture viewport and lands each
+ * face at ~250 px, which is the difference between "there is an eye there" and
+ * being able to judge the iris ramp and the highlight placement.
+ */
+const FACE_REVIEW_ID = 'face-review';
+const REVIEW_INK = '#e8eef4';
+/** Neutral slate: white lies about a warm skin tone's value, black lies the
+ *  other way. Same ground `buildFaceSheetTexture` judges against. */
+const REVIEW_GROUND = '#2b3138';
+const REVIEW_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+
+function faceReviewCanvas() {
+  let canvas = document.getElementById(FACE_REVIEW_ID);
+  if (canvas) return canvas;
+  canvas = document.createElement('canvas');
+  canvas.id = FACE_REVIEW_ID;
+  // Above #ui-root and the boot veil both: this is a debug view and anything
+  // drawn over it is a defect in the review, not a feature of it.
+  canvas.style.cssText =
+    'position:fixed;inset:0;width:100%;height:100%;z-index:9999;display:block';
+  document.body.appendChild(canvas);
+  return canvas;
+}
+
+function hideFaceReview() {
+  document.getElementById(FACE_REVIEW_ID)?.remove();
+}
+
+function paintFaceReview(index) {
+  const canvas = faceReviewCanvas();
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  // The capture harness pins deviceScaleFactor to 1; on real hardware match the
+  // engine's own cap so the lash bar is not resampled twice.
+  const dpr = window.__AW_CAPTURE__ ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = REVIEW_GROUND;
+  ctx.fillRect(0, 0, w, h);
+
+  const label = (text, x, y, px, align = 'center', alpha = 1) => {
+    ctx.font = `600 ${px}px ${REVIEW_FONT}`;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = REVIEW_INK;
+    ctx.fillText(text, x, y);
+    ctx.globalAlpha = 1;
+  };
+
+  const single = Number.isInteger(index) ? ROSTER[((index % ROSTER.length) + ROSTER.length) % ROSTER.length] : null;
+
+  if (single) {
+    // One face, as large as the frame allows. Square, so the layout fractions
+    // in FACE_LAYOUT are the ones being judged rather than a stretched copy.
+    // The caption gets its band reserved before the face is sized, so the name
+    // can never be sliced by the bottom edge.
+    const caption = Math.round(h * 0.045);
+    const size = Math.min(w, h - caption * 2);
+    const y0 = caption;
+    ctx.save();
+    ctx.translate((w - size) / 2, y0);
+    drawFace(ctx, single, size, { expression: 'neutral' });
+    ctx.restore();
+    label(single.name.toUpperCase(), w / 2, y0 + size + caption / 2, Math.round(caption * 0.5));
+    return;
+  }
+
+  const cols = ROSTER.length;
+  const rows = EXPRESSION_NAMES.length;
+  const gutter = Math.round(Math.min(w, h) * 0.008);
+  const header = Math.round(h * 0.035);
+  // Wide enough for the longest expression name at the row-label size —
+  // "DETERMINED" ran off the left edge at a tighter margin.
+  const side = Math.round(w * 0.08);
+  const cell = Math.min(
+    (w - side - gutter * (cols + 1)) / cols,
+    (h - header - gutter * (rows + 1)) / rows,
+  );
+  const gridW = cols * cell + gutter * (cols - 1);
+  const originX = side + (w - side - gridW) / 2;
+  const originY = header + (h - header - (rows * cell + gutter * (rows - 1))) / 2;
+
+  for (let c = 0; c < cols; c++) {
+    label(ROSTER[c].name, originX + c * (cell + gutter) + cell / 2, header / 2, Math.round(cell * 0.075));
+  }
+  for (let r = 0; r < rows; r++) {
+    const y = originY + r * (cell + gutter) + cell / 2;
+    label(EXPRESSION_NAMES[r].toUpperCase(), side - gutter * 2, y, Math.round(cell * 0.062), 'right', 0.75);
+    for (let c = 0; c < cols; c++) {
+      ctx.save();
+      ctx.translate(originX + c * (cell + gutter), originY + r * (cell + gutter));
+      drawFace(ctx, ROSTER[c], cell, { expression: EXPRESSION_NAMES[r] });
+      ctx.restore();
+    }
+  }
+}
+
 /** Wait until the engine has presented `n` frames, so captures see settled state. */
 function framesSettled(n = 3) {
   return new Promise((resolve) => {
@@ -105,20 +242,44 @@ window.__AW__ = {
   bus,
   gameState,
   async gotoTitle() {
+    hideFaceReview();
     await engine.setScene(new TitleScene(engine));
     await framesSettled();
   },
   async gotoLookdev(pose) {
+    hideFaceReview();
     await engine.setScene(new LookdevScene(engine, { pose: pose ?? lookdevEntryPose() }));
     await framesSettled(4);
   },
   async gotoField(zoneId = 'lumen-quay') {
+    hideFaceReview();
     await engine.setScene(new FieldScene(engine, { zoneId }));
     await framesSettled(4);
   },
   async gotoBattle(encounterId = 'shorewatch-ambush') {
+    hideFaceReview();
     await engine.setScene(new BattleScene(engine, { encounterId }));
     await framesSettled(4);
+  },
+  /**
+   * Debug review of the painted faces, drawn flat and full-screen.
+   *
+   * With no argument: every character across, every expression down. With an
+   * index: that one character's neutral face filling the frame.
+   *
+   * Async because the harness screenshots the moment this resolves, and a
+   * canvas written during a task is not on the glass until the compositor has
+   * run — `framesSettled` is the same guarantee every scene hook gives.
+   *
+   * @param {number} [index] roster index, wrapped; omit for the full sheet.
+   */
+  async showFaceSheet(index) {
+    paintFaceReview(typeof index === 'number' ? Math.trunc(index) : undefined);
+    await framesSettled(2);
+  },
+  /** Dismiss the face review without changing scene. */
+  hideFaceSheet() {
+    hideFaceReview();
   },
   async poseCamera(pose) {
     engine.scene?.poseCamera?.(pose);

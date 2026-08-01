@@ -1,0 +1,779 @@
+/**
+ * FaceTexture.js — the painted anime face, drawn with the 2D canvas API.
+ *
+ * This module exists because of ANIME_PIPELINE §1: **the face is a painted
+ * texture, not geometry**. The first cast modelled eyes, brows and mouth as
+ * projected decal discs on the skull and shaded them with the body's material.
+ * That is the single largest reason the review read "AI slop, nothing like
+ * anime": modelled features take the lighting, so the eye's dark outline
+ * brightens on the lit side and vanishes on the shadow side, the catch-light
+ * cannot stay a constant white, and no amount of tuning recovers the ink weight
+ * that a *drawn* lash line has for free.
+ *
+ * Everything here is authored the way a 2D animator authors a face:
+ *
+ *   - **Flat colour and hard edges.** No noise, ever (ANIME_PIPELINE's absolute
+ *     rule). The only gradients in the file are the three the spec explicitly
+ *     asks for — the sclera's cool tint, the iris body, and the cheek blush —
+ *     and each is a deliberate painted ramp, not a lighting effect.
+ *   - **The eye is seven stacked layers in a fixed order.** §1 "The eye, drawn
+ *     back to front" is reproduced literally, because each layer's read depends
+ *     on the one under it: the iris ring only works over a gradient iris, the
+ *     highlights only work over a dark pupil, and the lash bar only works when
+ *     it is the heaviest black on the face.
+ *   - **Bold enough to survive 80 px.** REFERENCE_TARGET §1 puts a head at
+ *     roughly eighty pixels in the battle camera, so the whole face is about
+ *     that tall on screen. Every feature is sized against that: the lash bar
+ *     lands at ~5 screen pixels, the iris at ~20, the large highlight at ~2.5.
+ *     Anything subtler than that is invisible where it matters and is not drawn.
+ *
+ * Per-character identity is *derived from `roster.js`*, never from a table keyed
+ * by id — a new party member must get a coherent face without an edit here. The
+ * three channels the roster already carries (`proportions.eye`,
+ * `proportions.eyeSpacing`, `proportions.browAngle`) plus the palette's iris,
+ * lash and hair colours are enough to separate the six into recognisable people:
+ * Bramm's narrow hard glare and Seren's tall round one are the same code with
+ * different numbers.
+ *
+ * Determinism: the micro-variation that stops the six looking rubber-stamped is
+ * driven by an `Rng` seeded from the character id, following the same convention
+ * as `art/Textures.js`. Seeding from the key rather than sharing the global
+ * stream makes a face independent of the order scenes happen to build in, which
+ * is what keeps a capture reproducible.
+ *
+ * OWNED BY: characters.
+ */
+import * as THREE from 'three';
+import { Rng } from '../core/GameState.js';
+import { ROSTER } from './roster.js';
+import { mixHex, saturate, hexToLinear, luminance } from '../art/Palette.js';
+
+/** Default edge of the square face texture. 512 is ample: see the 80 px note. */
+export const FACE_TEXTURE_SIZE = 512;
+
+/**
+ * ANIME_PIPELINE §1 layout table, verbatim, in fractions of the texture with
+ * the origin at the top-left. The head's front UV island maps onto this square.
+ *
+ * The table's positions and sizes are authoritative over its prose note that
+ * the gap is "one eye width" — centres 0.40 apart with 0.26-wide eyes leave a
+ * gap of 0.14, and the wider-set alternative pushes the eyes off the front of
+ * the skull once the UV island is projected.
+ */
+export const FACE_LAYOUT = Object.freeze({
+  eyeY: 0.56,     // eye centre height
+  eyeX: 0.30,     // inner-left eye centre; the other sits at 1 - eyeX
+  eyeW: 0.26,
+  eyeH: 0.30,
+  browGap: 0.13,  // clearance from the eye's top edge to the brow's spine
+  browW: 0.9,     // × eye width
+  mouthY: 0.80,
+  mouthW: 0.08,
+  noseY: 0.72,
+});
+
+/**
+ * Expression set. Same layout every time — only brow angle, brow height, eye
+ * openness, lower-lid raise and mouth curvature move. That constraint is what
+ * keeps four expressions looking like one character rather than four.
+ *
+ * `browTilt` is added to the roster's `browAngle` in the roster's own sign
+ * convention (positive = gentle). `mouthCurve` is a fraction of the texture and
+ * positive bows the mouth downward on screen, which reads as a smile.
+ */
+const EXPRESSIONS = Object.freeze({
+  neutral:    Object.freeze({ open: 1.00, lidRaise: 0.00, browLift: 0.000, browTilt:  0.00, browThick: 1.00, mouthCurve: 0.010, mouthWidth: 1.00, pupil: 1.00 }),
+  determined: Object.freeze({ open: 0.90, lidRaise: 0.06, browLift: -0.026, browTilt: -0.30, browThick: 1.10, mouthCurve: -0.005, mouthWidth: 1.15, pupil: 0.88 }),
+  hurt:       Object.freeze({ open: 0.64, lidRaise: 0.24, browLift: 0.022, browTilt:  0.38, browThick: 0.94, mouthCurve: -0.022, mouthWidth: 0.92, pupil: 1.12 }),
+  joy:        Object.freeze({ open: 1.05, lidRaise: 0.12, browLift: 0.030, browTilt:  0.12, browThick: 1.00, mouthCurve: 0.042, mouthWidth: 1.55, pupil: 1.06 }),
+});
+
+/** Canonical expression names, in review order. */
+export const EXPRESSION_NAMES = Object.freeze(Object.keys(EXPRESSIONS));
+
+// ------------------------------------------------------------------ plumbing
+
+/**
+ * OffscreenCanvas keeps face generation off the DOM — six characters × four
+ * expressions is twenty-four canvases and appending real ones would thrash
+ * layout. The DOM path is only for environments predating it.
+ */
+function makeCanvas(w, h) {
+  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  return c;
+}
+
+/** FNV-1a over the character id: a stable seed that does not depend on order. */
+function seedFor(id) {
+  let h = 0x811c9dc5;
+  const s = String(id);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) || 1;
+}
+
+const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+const clamp01 = (v) => clamp(v, 0, 1);
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// ------------------------------------------------------------------- colour
+
+function cssHex(hex) {
+  return `#${(hex >>> 0).toString(16).padStart(6, '0')}`;
+}
+
+function cssRgba(hex, a) {
+  const h = hex >>> 0;
+  return `rgba(${(h >> 16) & 255},${(h >> 8) & 255},${h & 255},${a})`;
+}
+
+/** Multiply toward black. `mixHex` works in linear light, so this is a true
+ *  darkening rather than the muddy sRGB-space lerp. */
+function darken(hex, amount) {
+  return mixHex(hex, 0x000000, amount);
+}
+
+const _lin = [0, 0, 0];
+function lumOf(hex) {
+  hexToLinear(hex, _lin);
+  return luminance(_lin[0], _lin[1], _lin[2]);
+}
+
+/**
+ * Force `hex` far enough below `against` in luminance to survive downscaling.
+ *
+ * Seren and Emrys have near-white hair, so the spec's "hair darkened 25%" brow
+ * lands within a few percent of their skin and the brow — half the expression —
+ * disappears at battle range. Darkening until a fixed luminance ratio is met
+ * fixes that for pale hair without touching the dark-haired characters, whose
+ * brows already clear the threshold on the first test.
+ */
+function ensureDarkerThan(hex, against, ratio) {
+  const target = lumOf(against) * ratio;
+  let out = hex;
+  for (let i = 0; i < 8 && lumOf(out) > target; i++) out = darken(out, 0.22);
+  return out;
+}
+
+// ---------------------------------------------------------------- traits
+
+/**
+ * Turn a roster entry into the dozen numbers the painter needs.
+ *
+ * `roundness` is the master dial: 1 is a tall, soft, deeply-curved eye with a
+ * heavy lash and a fine brow, 0 is a narrow, hard, shallow one with a blunt
+ * brow. It is derived from the two roster fields that already encode exactly
+ * that intent — a large `eye` multiplier and a gentle (positive) `browAngle`
+ * both push toward round — so Seren lands at ~0.94, Emrys ~0.86, Auren ~0.26
+ * and Bramm at the floor without a per-character special case anywhere.
+ *
+ * NOTE on the brow sign: `roster.js`'s comment says positive = "outer end
+ * lifted", but its data says positive = gentle (Seren +0.14, an oracle; Bramm
+ * -0.26, a grieving smith). ANIME_PIPELINE §1 defines the shapes as "down-inner
+ * = determined, up-inner = gentle". The data and the pipeline agree, so the
+ * convention used here is **positive raises the inner end**, and the roster's
+ * prose is the thing that is wrong.
+ */
+export function faceTraits(def) {
+  const p = def.proportions ?? {};
+  const pal = def.palette ?? {};
+  const eyeScale = clamp(p.eye ?? 1, 0.7, 1.4);
+  const browAngle = p.browAngle ?? 0;
+  const round = clamp01(0.5 + browAngle * 1.8 + (eyeScale - 1) * 1.6);
+  const rng = new Rng(seedFor(def.id));
+
+  const skin = pal.skin ?? 0xf7dcc4;
+  // §1 wants the lash "tinted toward the hair colour rather than pure #000" —
+  // but Seren's and Emrys's hair shade is a *light* grey, and the naive mix
+  // lifts their lash to a mid-grey that stops being the heaviest black in the
+  // face. Tint, then force it back under a near-black luminance ceiling: the
+  // hue survives, the weight is non-negotiable.
+  const lash = ensureDarkerThan(
+    mixHex(pal.lash ?? 0x14181f, pal.hairShade ?? 0x241f1c, 0.22), skin, 0.055,
+  );
+
+  return {
+    round,
+    eyeScale,
+    spacing: clamp(p.eyeSpacing ?? 1, 0.85, 1.2),
+    browAngle,
+
+    skin,
+    skinShade: pal.skinShade ?? 0xe0a98f,
+    // §1 gives the sclera as a cool near-white ramp; the roster's per-character
+    // sclera only tints it, because a warm sclera kills the cool-white read
+    // that separates an anime eye from a plastic one.
+    scleraTop: mixHex(0xf4f7fa, pal.sclera ?? 0xf2ede2, 0.25),
+    scleraBottom: mixHex(0xe4eaf2, pal.sclera ?? 0xf2ede2, 0.25),
+    iris: pal.eye ?? 0x5fb8b0,
+    irisCore: pal.eyeCore ?? mixHex(pal.eye ?? 0x5fb8b0, 0xffffff, 0.6),
+    lash,
+    brow: ensureDarkerThan(darken(pal.hair ?? 0x4a3d33, 0.25), skin, 0.32),
+    mouth: ensureDarkerThan(mixHex(pal.skinShade ?? 0xe0a98f, lash, 0.5), skin, 0.34),
+
+    // Shape dials. Every one of these is a straight read of `roundness` except
+    // where noted; the small jitter keeps six faces from looking stamped.
+    cornerDrop: lerp(0.06, 0.17, round),     // outer corner sits below the inner
+    lowerDepth: lerp(0.55, 0.97, round),     // how deep the lower lid bows
+    lashWeight: lerp(0.18, 0.22, round),     // §1: 18–22% of eye height
+    lashFlick: lerp(0.08, 0.30, round),      // overshoot past the outer corner
+    browThick: lerp(0.072, 0.050, round),    // fraction of face height
+    browArch: lerp(0.10, 0.26, round) + rng.jitter(0.02),
+    highlightJitter: rng.jitter(0.04),
+    // A nose dot is invisible at battle range and only ever reads in a portrait.
+    // The two youngest faces go without: absence of a nose is a childhood cue.
+    nose: eyeScale < 1.05,
+  };
+}
+
+// -------------------------------------------------------------- eye geometry
+
+/**
+ * The eye aperture, as an inner-corner → apex → outer-corner spine plus a lower
+ * lid closing it. Authored in a local frame where the *outer* corner is +x, so
+ * one set of numbers draws both eyes; the caller mirrors for the other side.
+ *
+ * `hu` and `hl` are separate upper and lower half-heights, which is what lets
+ * `open` (a lid coming down from above) and `lidRaise` (a lower lid pushing up,
+ * the "smiling eyes" of joy and determination) be independent without moving
+ * the iris — the iris keeps the full-open size and is simply occluded more.
+ */
+function eyeGeometry(hw, hu, hl, t) {
+  const inY = -hu * t.cornerDrop * 0.55;
+  const outY = hl * t.cornerDrop;
+  // Sharp eyes put the apex further inboard, which lengthens the outer half
+  // into a taper; round eyes keep it near the middle for a dome.
+  const apexX = -hw * (0.10 + 0.22 * (1 - t.round));
+  const midY = hl * t.lowerDepth;
+  return {
+    inX: -hw, inY,
+    outX: hw, outY,
+    apexX, apexY: -hu,
+    c0x: lerp(-hw, apexX, 0.40), c0y: -hu * 0.94,
+    c1x: lerp(apexX, hw, 0.52), c1y: -hu * (0.86 + 0.14 * t.round),
+    // Solve the quadratic's control so its midpoint lands exactly on the
+    // intended lower-lid depth, rather than guessing at a control height.
+    c2x: lerp(hw, -hw, 0.45), c2y: 2 * midY - 0.5 * (outY + inY),
+  };
+}
+
+function quadAt(p0, c, p1, s) {
+  const u = 1 - s;
+  return u * u * p0 + 2 * u * s * c + s * s * p1;
+}
+
+/**
+ * Sample the upper-lid spine. `s` ∈ [0,1] runs inner corner → outer corner;
+ * `s` > 1 continues past the outer corner along the exit tangent, rotated
+ * upward, which is the lash flick.
+ */
+function lidPoint(g, s, flickLen, out) {
+  if (s <= 1) {
+    if (s < 0.5) {
+      const k = s / 0.5;
+      out.x = quadAt(g.inX, g.c0x, g.apexX, k);
+      out.y = quadAt(g.inY, g.c0y, g.apexY, k);
+    } else {
+      const k = (s - 0.5) / 0.5;
+      out.x = quadAt(g.apexX, g.c1x, g.outX, k);
+      out.y = quadAt(g.apexY, g.c1y, g.outY, k);
+    }
+    return out;
+  }
+  // Exit tangent of the second quad, lifted 20° so the flick kicks up.
+  let tx = g.outX - g.c1x;
+  let ty = g.outY - g.c1y;
+  const len = Math.hypot(tx, ty) || 1;
+  tx /= len; ty /= len;
+  const ca = Math.cos(-0.35), sa = Math.sin(-0.35);
+  const rx = tx * ca - ty * sa;
+  const ry = tx * sa + ty * ca;
+  const d = (s - 1) * flickLen;
+  out.x = g.outX + rx * d;
+  out.y = g.outY + ry * d;
+  return out;
+}
+
+function lowerPoint(g, s, out) {
+  out.x = quadAt(g.outX, g.c2x, g.inX, s);
+  out.y = quadAt(g.outY, g.c2y, g.inY, s);
+  return out;
+}
+
+/**
+ * Emit a smooth path through sampled points: each segment is a quadratic with
+ * the sample as its control and the midpoint of the next pair as its endpoint.
+ * Straight `lineTo` chains facet visibly on a 30 px-thick black bar; this costs
+ * nothing and reads as a drawn curve.
+ */
+function smoothPath(ctx, pts, move = true) {
+  if (pts.length < 2) return;
+  if (move) ctx.moveTo(pts[0].x, pts[0].y);
+  else ctx.lineTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i].x + pts[i + 1].x) * 0.5;
+    const my = (pts[i].y + pts[i + 1].y) * 0.5;
+    ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+  }
+  const last = pts[pts.length - 1];
+  ctx.lineTo(last.x, last.y);
+}
+
+function samplePolyline(sample, s0, s1, n) {
+  const pts = [];
+  for (let i = 0; i <= n; i++) pts.push(sample(s0 + ((s1 - s0) * i) / n, { x: 0, y: 0 }));
+  return pts;
+}
+
+/**
+ * The lash bar's thickness profile along the spine: thin where it leaves the
+ * inner corner, heaviest just past the apex, still heavy at the outer corner,
+ * then tapering to a point through the flick. This asymmetry — heavy outer,
+ * light inner — is what gives an anime eye its direction.
+ */
+function lashProfile(s, flick) {
+  if (s <= 1) {
+    const a = clamp01(s / 0.42);
+    const rise = lerp(0.30, 1, a * a * (3 - 2 * a));
+    const fall = 1 - 0.16 * clamp01((s - 0.55) / 0.45);
+    return rise * fall;
+  }
+  const k = clamp01((s - 1) / Math.max(flick, 1e-3));
+  return 0.84 * (1 - k) * (1 - k);
+}
+
+// ------------------------------------------------------------------ painting
+
+/**
+ * One eye, drawn back to front exactly as ANIME_PIPELINE §1 orders it.
+ * Called with the context already translated to the eye centre and mirrored so
+ * that +x points at the outer corner.
+ */
+function drawEye(ctx, t, x, S) {
+  const hw = (FACE_LAYOUT.eyeW * t.eyeScale * S) / 2;
+  const hh = (FACE_LAYOUT.eyeH * t.eyeScale * S) / 2;
+  // The 0.26 × 0.30 cell from the layout table is the eye's *envelope* — lash
+  // bar included. The wet aperture inside it is shorter, which is what §1 means
+  // by a sclera "slightly wider than tall": at full open this lands between
+  // 1.02 (Seren, round) and 1.3 (Bramm, narrow) times as wide as it is tall.
+  const hu = hh * 0.88 * x.open;
+  const hl = hh * 0.85 * (1 - x.lidRaise);
+  const g = eyeGeometry(hw, hu, hl, t);
+  const flickLen = hw * t.lashFlick * 2;
+
+  // The aperture, reused as a clip for every layer that must not spill onto skin.
+  const aperture = () => {
+    ctx.beginPath();
+    smoothPath(ctx, samplePolyline((s, o) => lidPoint(g, s, flickLen, o), 0, 1, 18));
+    smoothPath(ctx, samplePolyline((s, o) => lowerPoint(g, s, o), 0, 1, 14), false);
+    ctx.closePath();
+  };
+
+  ctx.save();
+  aperture();
+  ctx.clip();
+
+  // 1 — sclera. Cool at the top, where the lash's cast shadow would sit.
+  const sc = ctx.createLinearGradient(0, -hu, 0, hl);
+  sc.addColorStop(0, cssHex(t.scleraTop));
+  sc.addColorStop(1, cssHex(t.scleraBottom));
+  ctx.fillStyle = sc;
+  ctx.fillRect(-hw * 1.6, -hh * 1.8, hw * 3.2, hh * 3.6);
+
+  // 2 — iris: §1's "large circle filling ~85% of the eye height", measured
+  // against the *aperture* at full open. Measuring it against the envelope
+  // instead makes the iris as wide as the whole eye, and the sclera disappears
+  // — an eye with no visible white reads as a button, not an anime eye.
+  // Deriving it from the full-open aperture rather than the current one is what
+  // lets a squint occlude the iris instead of shrinking it.
+  const irisR = 0.425 * hh * (0.88 + 0.85 * t.lowerDepth);
+  const ix = -hw * 0.03;
+  const iy = hh * 0.04;
+  const ig = ctx.createLinearGradient(0, iy - irisR, 0, iy + irisR);
+  // The dark top band is the lash's cast shadow. Kept short — run it further
+  // down and it merges with the pupil, and the pupil stops reading.
+  ig.addColorStop(0, cssHex(darken(mixHex(t.iris, t.lash, 0.30), 0.08)));
+  ig.addColorStop(0.30, cssHex(saturate(t.iris, 1.18)));
+  ig.addColorStop(0.58, cssHex(saturate(t.iris, 1.3)));
+  ig.addColorStop(1, cssHex(mixHex(t.iris, t.irisCore, 0.62)));
+  ctx.fillStyle = ig;
+  ctx.beginPath();
+  ctx.arc(ix, iy, irisR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 3 — the darker iris ring. §1: "this one detail does most of the work".
+  const ringW = irisR * 0.13;
+  ctx.strokeStyle = cssHex(mixHex(t.iris, t.lash, 0.72));
+  ctx.lineWidth = ringW;
+  ctx.beginPath();
+  ctx.arc(ix, iy, irisR - ringW * 0.5, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 4 — pupil: 35% of the iris width and taller than wide.
+  const pupilR = irisR * 0.35 * x.pupil;
+  ctx.fillStyle = cssHex(mixHex(t.lash, t.iris, 0.18));
+  ctx.beginPath();
+  ctx.ellipse(ix, iy, pupilR, pupilR * 1.28, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // 5 — the upper lash bar. Deliberately *outside* the clip: it has to overhang
+  // the outer corner, and it is the heaviest black in the face.
+  const lashTh = hh * 2 * t.lashWeight;
+  const spine = samplePolyline((s, o) => lidPoint(g, s, flickLen, o), 0, 1 + t.lashFlick, 30);
+  const top = [];
+  const bot = [];
+  for (let i = 0; i < spine.length; i++) {
+    const a = spine[Math.max(0, i - 1)];
+    const b = spine[Math.min(spine.length - 1, i + 1)];
+    let nx = b.y - a.y;
+    let ny = -(b.x - a.x);
+    const l = Math.hypot(nx, ny) || 1;
+    nx /= l; ny /= l;
+    const th = lashTh * lashProfile((i / (spine.length - 1)) * (1 + t.lashFlick), t.lashFlick);
+    // 18% of the weight above the lid line, 82% below: the bar sits *inside*
+    // the white, which is what makes it a lash rather than an eyeshadow smear.
+    top.push({ x: spine[i].x + nx * th * 0.18, y: spine[i].y + ny * th * 0.18 });
+    bot.push({ x: spine[i].x - nx * th * 0.82, y: spine[i].y - ny * th * 0.82 });
+  }
+  ctx.fillStyle = cssHex(t.lash);
+  ctx.beginPath();
+  smoothPath(ctx, top);
+  bot.reverse();
+  smoothPath(ctx, bot, false);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.save();
+  aperture();
+  ctx.clip();
+
+  // 6 — lower lid: thin, soft, and only along the outer half. Any heavier and
+  // it stops reading as a lid and starts reading as an eye bag.
+  ctx.strokeStyle = cssRgba(mixHex(t.lash, t.skinShade, 0.42), 0.7);
+  ctx.lineWidth = hh * 2 * 0.035;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  smoothPath(ctx, samplePolyline((s, o) => lowerPoint(g, s, o), 0.03, 0.48, 10));
+  ctx.stroke();
+
+  // 7 — highlights. Large upper-outer, small lower-inner, both opaque white.
+  // Drawn last so the lash can never eat them; without these the eye is dead.
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(ix + irisR * (0.38 + t.highlightJitter), iy - irisR * 0.40, irisR * 0.25, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(ix - irisR * 0.36, iy + irisR * (0.46 - t.highlightJitter), irisR * 0.12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * One brow: a short tapered stroke, thick at the inner end. Built as two
+ * offset quadratics rather than a stroked line so the taper is real — a
+ * constant-width brow reads as a marker mark, not a brow.
+ *
+ * Drawn in the same mirrored frame as the eye, so -x is the inner end.
+ */
+function drawBrow(ctx, t, x, halfW, S) {
+  const bw = halfW * 2 * FACE_LAYOUT.browW;
+  const th = t.browThick * S * x.browThick;
+  // Positive angle raises the inner end (see the sign note in `faceTraits`).
+  const ang = t.browAngle + x.browTilt;
+  const inX = -bw / 2;
+  const outX = bw / 2;
+  const inY = -ang * bw * 0.55;
+  const outY = ang * bw * 0.28;
+  const arch = -t.browArch * th * 2.2;
+  const cx = lerp(inX, outX, 0.42);
+  const cy = lerp(inY, outY, 0.42) + arch;
+
+  const norm = (ax, ay, bx, by) => {
+    const dx = bx - ax, dy = by - ay;
+    const l = Math.hypot(dx, dy) || 1;
+    return { x: dy / l, y: -dx / l };
+  };
+  const nIn = norm(inX, inY, cx, cy);
+  const nMid = norm(inX, inY, outX, outY);
+  const nOut = norm(cx, cy, outX, outY);
+  const tIn = th * 0.5;
+  const tMid = th * 0.42;
+  const tOut = th * 0.06;
+
+  ctx.fillStyle = cssHex(t.brow);
+  ctx.beginPath();
+  ctx.moveTo(inX + nIn.x * tIn, inY + nIn.y * tIn);
+  ctx.quadraticCurveTo(cx + nMid.x * tMid, cy + nMid.y * tMid, outX + nOut.x * tOut, outY + nOut.y * tOut);
+  ctx.lineTo(outX - nOut.x * tOut, outY - nOut.y * tOut);
+  ctx.quadraticCurveTo(cx - nMid.x * tMid, cy - nMid.y * tMid, inX - nIn.x * tIn, inY - nIn.y * tIn);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/**
+ * The mouth: one curve, nothing else. §1 is explicit that any more detail —
+ * lips, teeth, an outlined opening — breaks the style on sight.
+ */
+function drawMouth(ctx, t, x, S) {
+  const w = FACE_LAYOUT.mouthW * S * x.mouthWidth;
+  const y = FACE_LAYOUT.mouthY * S;
+  const c = x.mouthCurve * S;
+  ctx.strokeStyle = cssHex(t.mouth);
+  ctx.lineWidth = S * 0.014;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(S * 0.5 - w / 2, y - c * 0.25);
+  ctx.quadraticCurveTo(S * 0.5, y + c * 2, S * 0.5 + w / 2, y - c * 0.25);
+  ctx.stroke();
+}
+
+/**
+ * Paint a complete face into `ctx`, filling the square `[0,size]²`.
+ *
+ * Exported separately from `buildFaceTexture` so the same drawing can go into
+ * an atlas cell: translate the context to the cell origin and call this with
+ * the cell's edge length.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {object} def   roster entry
+ * @param {number} size  edge of the square to fill, in pixels
+ * @param {{expression?: string, background?: boolean}} [opts]
+ */
+export function drawFace(ctx, def, size = FACE_TEXTURE_SIZE, opts = {}) {
+  const S = size;
+  const t = faceTraits(def);
+  const x = EXPRESSIONS[opts.expression] ?? EXPRESSIONS.neutral;
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  // Flat skin. ANIME_PIPELINE §1: the base is one value — the cel shader
+  // supplies the shadow band, and it must be a hue shift, not a texture.
+  if (opts.background !== false) {
+    ctx.fillStyle = cssHex(t.skin);
+    ctx.fillRect(0, 0, S, S);
+  }
+
+  // Cheek blush: a painted mark on the cheekbone, warm and tight. It sits
+  // *below* the eye's envelope on purpose — overlapping it reads as an
+  // under-eye shadow, which is the grubby, smudged look the brief forbids.
+  // Pushed toward rose rather than using `skinShade` neat, because the shade
+  // tone is a shadow colour and a shadow on a cheek is not a blush.
+  const blush = mixHex(t.skinShade, 0xff6a5e, 0.45);
+  const blushR = S * 0.085;
+  for (const side of [-1, 1]) {
+    const bx = S * (0.5 + side * 0.315);
+    const by = S * 0.745;
+    const bg = ctx.createRadialGradient(bx, by, 0, bx, by, blushR);
+    bg.addColorStop(0, cssRgba(blush, 0.17));
+    bg.addColorStop(0.6, cssRgba(blush, 0.08));
+    bg.addColorStop(1, cssRgba(blush, 0));
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.ellipse(bx, by, blushR, blushR * 0.66, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const halfSpanX = (0.5 - FACE_LAYOUT.eyeX) * t.spacing;
+  const halfW = (FACE_LAYOUT.eyeW * t.eyeScale * S) / 2;
+  const halfH = (FACE_LAYOUT.eyeH * t.eyeScale * S) / 2;
+  const eyeCy = FACE_LAYOUT.eyeY * S;
+  const browY = eyeCy - halfH - (FACE_LAYOUT.browGap + x.browLift) * S;
+
+  for (const side of [-1, 1]) {
+    const cx = S * (0.5 + side * halfSpanX);
+    // Mirroring is what lets both eyes and both brows come from one authored
+    // shape with "+x is outboard" — the alternative is every sign written twice.
+    ctx.save();
+    ctx.translate(cx, eyeCy);
+    ctx.scale(side, 1);
+    drawEye(ctx, t, x, S);
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(cx, browY);
+    ctx.scale(side, 1);
+    drawBrow(ctx, t, x, halfW, S);
+    ctx.restore();
+  }
+
+  // Nose: at most a dot, per §1's layout table. It exists for portrait range
+  // and is deliberately below the threshold of visibility in battle.
+  if (t.nose) {
+    ctx.fillStyle = cssRgba(t.skinShade, 0.55);
+    ctx.beginPath();
+    ctx.ellipse(S * 0.5, FACE_LAYOUT.noseY * S, S * 0.010, S * 0.007, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  drawMouth(ctx, t, x, S);
+  ctx.restore();
+}
+
+/**
+ * Where the painter actually put things, in texture fractions — so the head
+ * builder can align its UV island, and the animator can park a blink lid or a
+ * gaze offset over the real eye rather than a guessed one.
+ */
+export function faceMetrics(def, expression = 'neutral') {
+  const t = faceTraits(def);
+  const x = EXPRESSIONS[expression] ?? EXPRESSIONS.neutral;
+  const w = FACE_LAYOUT.eyeW * t.eyeScale;
+  const h = FACE_LAYOUT.eyeH * t.eyeScale;
+  return {
+    eyeCenterY: FACE_LAYOUT.eyeY,
+    eyeHalfSpan: (0.5 - FACE_LAYOUT.eyeX) * t.spacing,
+    eyeWidth: w,
+    eyeHeight: h,
+    browY: FACE_LAYOUT.eyeY - h / 2 - (FACE_LAYOUT.browGap + x.browLift),
+    mouthY: FACE_LAYOUT.mouthY,
+    roundness: t.round,
+    skin: t.skin,
+    lash: t.lash,
+  };
+}
+
+// ------------------------------------------------------------------ textures
+
+/**
+ * Texture cache. Faces are immutable per (character, expression, size), the
+ * roster is frozen, and a party of four with four expressions is sixteen 512²
+ * uploads — building them once and holding them is the whole point.
+ */
+const _cache = new Map();
+
+function cacheKey(def, expression, size, flipY) {
+  return `${def.id}|${expression}|${size}|${flipY ? 1 : 0}`;
+}
+
+/**
+ * Build (or fetch) the painted face texture for one character and expression.
+ *
+ * @param {object} def roster entry
+ * @param {{size?: number, expression?: string, flipY?: boolean,
+ *          anisotropy?: number, cache?: boolean}} [opts]
+ * @returns {THREE.CanvasTexture}
+ */
+export function buildFaceTexture(def, opts = {}) {
+  const size = opts.size ?? FACE_TEXTURE_SIZE;
+  const expression = EXPRESSIONS[opts.expression] ? opts.expression : 'neutral';
+  // Default `true` matches Three's own convention: with v = 1 at the crown of
+  // the head island, canvas row 0 (the top of the drawn face) lands there too.
+  const flipY = opts.flipY ?? true;
+  const key = cacheKey(def, expression, size, flipY);
+  if (opts.cache !== false) {
+    const hit = _cache.get(key);
+    if (hit) return hit;
+  }
+
+  const canvas = makeCanvas(size, size);
+  const ctx = canvas.getContext('2d');
+  drawFace(ctx, def, size, { expression });
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.name = `face-${def.id}-${expression}`;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.flipY = flipY;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  // The lash bar is a high-contrast near-black edge across a white field — the
+  // exact case that aliases into a crawling grey line under minification, which
+  // is what the battle camera does to it. Three clamps this to the device max.
+  tex.anisotropy = opts.anisotropy ?? 8;
+  tex.needsUpdate = true;
+
+  if (opts.cache !== false) _cache.set(key, tex);
+  return tex;
+}
+
+/**
+ * Every expression for one character, keyed by name — what a character rig
+ * wants to hold so swapping expressions is a material `map` assignment with no
+ * allocation mid-battle.
+ *
+ * @returns {Record<string, THREE.CanvasTexture>}
+ */
+export function buildFaceTextures(def, opts = {}) {
+  const out = {};
+  for (const name of EXPRESSION_NAMES) out[name] = buildFaceTexture(def, { ...opts, expression: name });
+  return out;
+}
+
+/**
+ * All six faces × all four expressions on one sheet, for the debug capture
+ * scenario to review flat.
+ *
+ * Rows are characters and columns expressions, so a reviewer reads identity
+ * down and performance across — the two questions the review actually asks
+ * ("are these six different people?", "does hurt read as hurt?").
+ */
+export function buildFaceSheetTexture(defs = ROSTER, opts = {}) {
+  const cell = opts.cell ?? 256;
+  const cols = EXPRESSION_NAMES.length;
+  const rows = defs.length;
+  const pad = Math.round(cell * 0.06);
+  const header = Math.round(cell * 0.16);
+  const w = cols * cell + pad * (cols + 1);
+  const h = rows * cell + pad * (rows + 1) + header;
+
+  const canvas = makeCanvas(w, h);
+  const ctx = canvas.getContext('2d');
+
+  // A neutral slate ground: judging a warm skin tone against white lies about
+  // its value, and against black lies the other way.
+  ctx.fillStyle = '#2b3138';
+  ctx.fillRect(0, 0, w, h);
+
+  const label = (text, x, y, px, align = 'left') => {
+    ctx.font = `600 ${px}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#e8eef4';
+    ctx.fillText(text, x, y);
+  };
+
+  for (let c = 0; c < cols; c++) {
+    label(EXPRESSION_NAMES[c].toUpperCase(), pad + c * (cell + pad) + cell / 2, header / 2, Math.round(cell * 0.075), 'center');
+  }
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x0 = pad + c * (cell + pad);
+      const y0 = header + pad + r * (cell + pad);
+      ctx.save();
+      ctx.translate(x0, y0);
+      drawFace(ctx, defs[r], cell, { expression: EXPRESSION_NAMES[c] });
+      ctx.restore();
+      if (c === 0) label(defs[r].name, x0 + cell * 0.04, y0 + cell * 0.07, Math.round(cell * 0.062));
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.name = 'face-sheet';
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.flipY = opts.flipY ?? true;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = opts.anisotropy ?? 4;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Release every cached face texture. Call on a full teardown, not a scene swap. */
+export function disposeFaceCache() {
+  for (const tex of _cache.values()) tex.dispose();
+  _cache.clear();
+}

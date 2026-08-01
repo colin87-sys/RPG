@@ -5,25 +5,42 @@
  * numbers in `roster.js` and the skeleton in `Rig.js`. No meshes are loaded;
  * there is nothing to load.
  *
- * ## The one thing this file exists to get right
+ * ## The three things this file exists to get right
  *
- * REFERENCE_TARGET §1: the party occupies about **80 px of screen height** in
- * the fixed side-view battle camera. At that size a face is four pixels and a
- * costume seam is invisible. What survives is the outline. So the whole
- * architecture below is organised around silhouette:
+ * **1. Silhouette.** REFERENCE_TARGET §1: the party occupies about **80 px of
+ * screen height** in the fixed side-view battle camera, where a costume seam is
+ * invisible and what survives is the outline. Six characters, six *different*
+ * hair volumes, six *different* weapon outlines, six *different* cloth hems.
+ * Bramm's hair mass is below the chin (beard) where everyone else's is above
+ * it. Kite carries a hard ring on her back. Yshara carries a horizontal bar.
+ * Seren's hair is twice her shoulder width. Emrys is a bell of coat with a
+ * starburst on top. Auren is a vertical line broken at the hip. Flatten any two
+ * of those to black and they do not collide.
  *
- * - Six characters, six *different* hair volumes, six *different* weapon
- *   outlines, six *different* cloth hems. Those three channels carry all
- *   recognition; everything else is texture for the closeup camera.
- * - Bramm's mass is below the chin (beard) where everyone else's is above it.
- *   Kite carries a hard ring on her back. Yshara carries a horizontal bar.
- *   Seren's hair is twice her shoulder width. Emrys is a bell of coat with a
- *   starburst on top. Auren is a vertical line broken at the hip. Flatten any
- *   two of those to black and they do not collide.
- * - Eyes are the single most expensive facial investment because they are the
- *   only facial feature that reads at all: a dark outline, a bright sclera, a
- *   saturated iris, a dark pupil and an unlit specular catch-light, layered on
- *   the head's actual curvature rather than pasted on flat.
+ * **2. Colour blocking, and no noise anywhere.** ANIME_PIPELINE §5 requires
+ * three or four *flat* colour zones per character, identifiable "by colour
+ * alone" at battle distance. The first cast failed that outright — every
+ * surface carried an fBm detail map and every costume was a dark desaturated
+ * coat, so the party read as one navy mass with dirt on it. Two consequences
+ * run through everything below:
+ *
+ *   - **No procedural texture touches a character.** No `normalMap`, no
+ *     `roughnessMap`, no `aoMap`, on skin, hair, cloth, leather or metal. This
+ *     is ANIME_PIPELINE's absolute rule and it is enforced twice: nothing here
+ *     asks the forge for one, and `createToonMaterial`'s `flat` presets drop
+ *     any that arrive anyway.
+ *   - **Colour is per vertex, and the boundaries are hard.** A zone change is a
+ *     duplicated ring of vertices carrying two different colours, which the
+ *     welder cannot merge — so a belt line is an edge, not a gradient. One
+ *     `SkinnedMesh` per shading class still means one draw call for the coat,
+ *     its trim and its undercoat.
+ *
+ * **3. The face is a painted texture.** ANIME_PIPELINE §1. Eyes, brows and
+ * mouth are *drawn* by `FaceTexture.js` and land on a square plate wrapped onto
+ * the front of the skull (`buildFacePlate`). The previous cast modelled them as
+ * a stack of coloured decal discs, which took the lighting: the lash line
+ * brightened on the lit side, the catch-light dimmed on the shadow side, and no
+ * amount of tuning recovers the ink weight a drawn line has for free.
  *
  * ## Construction pipeline
  *
@@ -53,19 +70,33 @@ import * as THREE from 'three';
 import { mergeGeometries, mergeVertices, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { rng } from '../core/GameState.js';
 import { LIGHT, luminance } from '../art/Palette.js';
-import { buildRig, computeMetrics, skinSegments } from './Rig.js';
+import {
+  buildRig, computeMetrics, skinSegments, skullPoint, skullDepth, hairlinePhi,
+} from './Rig.js';
 import { Animator } from './Animation.js';
 import { ClothSim } from './Cloth.js';
-import { characterDef } from './roster.js';
-import {
-  createToonMaterial, createToonOutline, createToonOutlineMaterial, disposeToonOutline,
-  updateToonUniforms,
-} from '../render/ToonMaterial.js';
+import { characterDef, ROSTER } from './roster.js';
+import { buildFaceTexture } from './FaceTexture.js';
+import { createToonMaterial, updateToonUniforms } from '../render/ToonMaterial.js';
+import { buildOutline, disposeOutline, setOutlineSkip } from '../render/Outline.js';
 
 const TAU = Math.PI * 2;
 
-/** Shading classes. One `SkinnedMesh` and one material per class per character. */
-const CLASSES = ['skin', 'hair', 'cloth', 'metal', 'eye', 'glow'];
+/**
+ * Shading classes. One `SkinnedMesh` and one material per class per character.
+ *
+ * `face` is the painted plate and nothing else: it is the only class carrying a
+ * colour map, the only one whose albedo must *not* be multiplied by a vertex
+ * colour, and the only one that takes no outline (ANIME_PIPELINE §4 — the drawn
+ * lash line already is the ink). Keeping it apart from `skin` is what lets all
+ * three of those be true at once. It shares the `skin` preset otherwise, so the
+ * plate's edge and the skull around it shade identically and the join is
+ * invisible.
+ */
+const CLASSES = ['skin', 'face', 'hair', 'cloth', 'metal', 'glow'];
+
+/** Classes whose hull forms the read silhouette and therefore takes an ink line. */
+const OUTLINED = new Set(['skin', 'hair', 'cloth', 'metal']);
 
 // =========================================================== geometry tools
 
@@ -93,7 +124,18 @@ class Surface {
      * in any attribute are never merged.
      */
     this.col = [];
+    /**
+     * Per-vertex UV, written at emission for exactly one consumer: the painted
+     * face plate. Every other surface on a character is flat colour with no map
+     * at all (ANIME_PIPELINE's no-noise rule removed the detail maps that used
+     * to need a projection), so they emit the default and pay two floats a
+     * vertex to keep the attribute sets uniform — `mergeGeometries` refuses to
+     * merge geometries whose attributes differ, and one part without a UV would
+     * break its whole shading class.
+     */
+    this.uv = [];
     this._r = 1; this._g = 1; this._b = 1;
+    this._u = 0; this._v = 0;
     this._scratch = new THREE.Color();
   }
 
@@ -104,9 +146,16 @@ class Surface {
     return this;
   }
 
+  /** Set the UV subsequent vertices carry. */
+  uvAt(u, v) {
+    this._u = u; this._v = v;
+    return this;
+  }
+
   vertex(x, y, z) {
     this.pos.push(x, y, z);
     this.col.push(this._r, this._g, this._b);
+    this.uv.push(this._u, this._v);
     return this.pos.length / 3 - 1;
   }
 
@@ -176,6 +225,7 @@ class Surface {
     // afterwards: `mergeGeometries` refuses to merge geometries whose attribute
     // sets differ, so one un-coloured part would break the whole shading class.
     geo.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     geo.setIndex(this.idx);
     // Weld first: the patch builder emits shared grid vertices already, but
     // caps, seams and stitched sub-surfaces leave coincident duplicates that
@@ -417,55 +467,35 @@ function rigidSkin(geometry, boneIndex) {
 }
 
 /**
- * Triplanar-ish planar UVs derived from position.
+ * A linear-luminance band per shading class, enforced rather than trusted.
  *
- * Characters carry only detail normal maps (weave, pore, grind lines), never
- * authored colour maps, so the UVs need to be continuous and roughly
- * area-preserving, not laid out. Projecting on the dominant normal axis costs
- * one branch per vertex and never produces the smeared bands a single planar
- * projection leaves on a cylinder.
- */
-function planarUV(geometry, scale) {
-  const pos = geometry.getAttribute('position');
-  const nrm = geometry.getAttribute('normal');
-  const uv = new Float32Array(pos.count * 2);
-  for (let i = 0; i < pos.count; i++) {
-    const nx = Math.abs(nrm.getX(i));
-    const ny = Math.abs(nrm.getY(i));
-    const nz = Math.abs(nrm.getZ(i));
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    let u, v;
-    if (ny >= nx && ny >= nz) { u = x; v = z; }
-    else if (nx >= nz) { u = z; v = y; }
-    else { u = x; v = y; }
-    uv[i * 2] = u * scale;
-    uv[i * 2 + 1] = v * scale;
-  }
-  geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-}
-
-/**
- * ART_BIBLE §4's "albedo value (linear)" column, enforced rather than trusted.
+ * A palette authored by eye in sRGB spans four stops of value, and on a
+ * two-band cel surface with no environment reflection to absorb the error, an
+ * out-of-band swatch inverts the frame's value hierarchy — the brightest object
+ * becomes a rectangle of cloth and the eye leaves the face. Rescaling luminance
+ * while leaving chromaticity alone keeps every authored hue and only moves the
+ * level, so ANIME_PIPELINE §5's "flat and *saturated*" survives the clamp.
  *
- * The bible states a linear luminance band per surface class, and a palette
- * authored by eye in sRGB routinely lands outside it — `#EAE2D4` (Seren's robe,
- * WORLD_BIBLE §3.2) is luminance 0.76 against cloth's 0.20–0.55 ceiling. On a
- * toon surface with no environment reflection to absorb the error that shows up
- * as the single brightest object in frame being a rectangle of cloth, which
- * inverts the value hierarchy and pulls the eye off the face. Rescaling
- * luminance while leaving chromaticity alone keeps every WORLD_BIBLE hue exactly
- * as authored and only moves the level.
+ * The cloth window is deliberately wide — 0.09 to 0.62, against the 0.12–0.46
+ * this used to enforce. §5's whole point is that the six must be separable by
+ * colour at eighty pixels, and value is half of that separation: squeezing
+ * Seren's ivory and Emrys's violet into a third of a stop of each other is one
+ * of the mechanisms that made the first cast read as a single mass. The floor
+ * matters more than the ceiling, because a garment below it stops carrying hue
+ * at all.
  *
- * `eye` and `glow` are deliberately unbanded: the eye's read *is* its contrast
- * ratio (near-black lash against near-white sclera) and clamping either end
- * would destroy the one facial feature that survives to battle distance.
+ * `skin` is unbanded, and that is load-bearing rather than an omission. The
+ * skull's flat vertex colour has to match the skin the face texture is painted
+ * on *exactly*, or the plate's boundary shows as a patch on the cheek — and the
+ * painter reads `palette.skin` raw. There is one number, and it is the roster's.
+ * `glow` is unbanded because it is emissive by definition.
  */
 const ALBEDO_BAND = Object.freeze({
-  skin: [0.30, 0.52],
-  hair: [0.05, 0.44],
-  cloth: [0.12, 0.46],
-  metal: [0.28, 0.60],
-  eye: null,
+  skin: null,
+  face: null,
+  hair: [0.04, 0.50],
+  cloth: [0.09, 0.62],
+  metal: [0.26, 0.72],
   glow: null,
 });
 
@@ -479,6 +509,24 @@ function gradeAlbedo(hex, cls, scale = 1) {
   if (y <= 1e-5) return c.setScalar(band[0]);
   const target = THREE.MathUtils.clamp(y, band[0], band[1]);
   return c.multiplyScalar(target / y);
+}
+
+/**
+ * Open a flat colour zone on a surface: every vertex emitted from here until
+ * the next call carries this graded colour.
+ *
+ * This is how ANIME_PIPELINE §5's colour blocking is actually built. The
+ * alternative — one part per colour — would multiply the party's draw calls by
+ * four, and painting a finished geometry by re-deriving which zone a vertex
+ * belongs to from its position is the kind of thing that works until a
+ * proportion changes and then silently mis-assigns a whole zone with no way to
+ * tell from the result. Recording it at emission is unconditionally correct.
+ *
+ * A part that calls this must be pushed with `painted: true` so the assembly
+ * pass does not flatten it back to one colour.
+ */
+function zone(surface, hex, cls, scale = 1) {
+  return surface.ink(gradeAlbedo(hex, cls, scale));
 }
 
 /** Flat vertex colour for a whole part, written in linear space. */
@@ -500,13 +548,19 @@ function paint(geometry, hex, cls, scale = 1) {
  * `render/ToonMaterial.js` owns the project's shading contract — the band
  * count, the tinted shadow gradient, the anisotropic specular and the mandatory
  * rim all live there so the party, the NPCs and the espers cannot drift apart.
- * This module only chooses a preset per shading class and hands over the
- * per-character detail maps; every numeric look decision belongs to that file.
+ * This module only chooses a preset per shading class; every numeric look
+ * decision belongs to that file.
  *
- * `vertexColors` is on for every class, because a character is authored as one
- * geometry per *shading class* rather than one per colour. Auren's slate coat,
- * his amber trim and his dark undercoat are all `cloth`: same shading, three
- * colours, one draw call.
+ * Nothing is passed a texture. ANIME_PIPELINE's absolute rule is that no
+ * procedural noise touches a character surface — on a character an fBm normal
+ * or roughness map reads as dirt, and the client rejected the first cast partly
+ * for exactly that. The one map on a character is the painted face, and it
+ * arrives through `map` on the `face` class alone.
+ *
+ * `vertexColors` is on for every class but that one, because a character is
+ * authored as one geometry per *shading class* rather than one per colour.
+ * Auren's cobalt coat, his gold trim and his bone trousers are all `cloth`:
+ * same shading, three flat colours, one draw call.
  */
 function toonMaterial(preset, spec = {}) {
   return createToonMaterial({ preset, vertexColors: true, ...spec });
@@ -540,12 +594,12 @@ const BODY_RIM = Object.freeze({
 });
 
 /**
- * Unlit emissive for catch-lights, tattoo lines and chime-bells.
+ * Unlit emissive for tattoo lines, chime-bells, vents and orrery rings.
  *
  * Deliberately *not* a toon material: these surfaces must not take a shadow
- * band. A catch-light that goes dark on the shadow side of the face stops being
- * a catch-light, and ART_BIBLE §2.2 reserves supra-1.0 emissive for magic — so
- * this sits at exactly 1.0 and lets the bloom threshold decide.
+ * band, because a light source that goes dark on the shadow side stops being a
+ * light source. ART_BIBLE §2.2 reserves supra-1.0 emissive for magic, so this
+ * sits at exactly 1.0 and lets the bloom threshold decide.
  */
 function glowMaterial(name) {
   return new THREE.MeshBasicMaterial({
@@ -557,53 +611,63 @@ function glowMaterial(name) {
   });
 }
 
-/** Safe texture fetch — the forge is optional and may not have warmed a key. */
-function tex(forge, key, opts) {
-  if (!forge?.texture) return null;
-  try {
-    return forge.texture(key, opts);
-  } catch (err) {
-    console.warn(`[CharacterFactory] texture "${key}" unavailable`, err);
-    return null;
-  }
-}
-
 // ============================================================ body builders
 
 /**
- * Torso: one continuous lathed mass from hip to neck.
+ * Torso: one continuous lathed mass from hip to neck, in three flat colour
+ * zones.
  *
  * The radius profile is the character's read from the front — Bramm's widest
  * ring is at the belt, Auren's at the chest, Seren's barely varies. Ring 0 is
  * placed *below* the hip joint so the pelvis has volume under the belt line;
  * without it a chibi torso looks like it is standing on two sticks.
+ *
+ * ### The colour zones, and why the profile has duplicate rows
+ *
+ * The trunk is the largest single area on a character, so it is where
+ * ANIME_PIPELINE §5's blocking either happens or does not: `secondary` below
+ * the belt, a narrow `trim` sash across it, `identity` above. That is a
+ * garment, a waist and a coat, and the value break at the belt is what stops
+ * the figure reading as one lozenge at eighty pixels.
+ *
+ * Vertex colour interpolates across a quad, so a zone change between two
+ * *adjacent* rings would render as a gradient — precisely the soft, muddy
+ * transition the pipeline is trying to eliminate. Emitting the boundary ring
+ * **twice**, once in each colour, gives a hard edge instead: the two rings are
+ * coincident so the quad between them has zero area and never rasterises, and
+ * `mergeVertices` cannot weld them because they differ in the colour attribute.
  */
-function buildTorso(s, m) {
+function buildTorso(s, m, pal) {
   const g = m.girth;
   const hipY = m.joints.hips.y;
   const neckY = m.joints.neck.y;
   const span = neckY - hipY;
 
-  // [t along hips→neck, xScale, zScale, zOffset]
-  // The waist pinch is deeper than it was (0.78 against 0.86 at t = 0.34). A
-  // 14% variation across the trunk is invisible once the figure is eighty pixels
-  // tall, which is how four of the six ended up reading as "the same navy
-  // lozenge" — the torso had no shape to distinguish. 22% survives the downscale
-  // and is still well inside chibi proportions, where the trunk is one soft mass
-  // rather than an anatomy study.
+  // [t along hips→neck, xScale, zScale, zOffset, zone]
+  // The waist pinch is deep on purpose (0.78 at t = 0.34): a 14% variation
+  // across the trunk is invisible once the figure is eighty pixels tall, which
+  // is part of how four of the six ended up reading as the same lozenge. 22%
+  // survives the downscale and is still well inside chibi proportions, where
+  // the trunk is one soft mass rather than an anatomy study.
+  //
+  // The doubled rows at 0.10 and 0.24 are the sash's two hard edges.
   const profile = [
-    [-0.30, 0.88, 0.88, -0.004],
-    [-0.12, 1.02, 1.02, -0.002],
-    [0.10, 0.94, 0.92, 0.000],
-    [0.34, 0.78, 0.80, 0.004],
-    [0.58, 0.92, 0.90, 0.008],
-    [0.80, 1.04, 1.02, 0.006],
-    [0.95, 0.88, 0.86, 0.002],
-    [1.06, 0.52, 0.52, 0.000],
+    [-0.30, 0.88, 0.88, -0.004, 'secondary'],
+    [-0.12, 1.02, 1.02, -0.002, 'secondary'],
+    [0.10, 0.94, 0.92, 0.000, 'secondary'],
+    [0.10, 0.94, 0.92, 0.000, 'trim'],
+    [0.24, 0.85, 0.85, 0.002, 'trim'],
+    [0.24, 0.85, 0.85, 0.002, 'identity'],
+    [0.34, 0.78, 0.80, 0.004, 'identity'],
+    [0.58, 0.92, 0.90, 0.008, 'identity'],
+    [0.80, 1.04, 1.02, 0.006, 'identity'],
+    [0.95, 0.88, 0.86, 0.002, 'identity'],
+    [1.06, 0.52, 0.52, 0.000, 'identity'],
   ];
   const path = [];
   const scales = [];
-  for (const [t, sx, sz, dz] of profile) {
+  const inks = [];
+  for (const [t, sx, sz, dz, name] of profile) {
     path.push(new THREE.Vector3(0, hipY + span * t, dz * m.height));
     // Below the waist the hip girth dominates, above it the chest does; the
     // crossover is at t = 0.34, which is where a chibi's "waist" reads.
@@ -611,8 +675,14 @@ function buildTorso(s, m) {
     const rx = THREE.MathUtils.lerp(g.hipX, g.chestX, k) * sx;
     const rz = THREE.MathUtils.lerp(g.hipZ, g.chestZ, k) * sz;
     scales.push([rx, rz]);
+    // Graded once per ring rather than once per vertex: `sweep` consults the
+    // scale function for every column, and `gradeAlbedo` allocates.
+    inks.push(gradeAlbedo(pal[name], 'cloth'));
   }
-  sweep(s, path, SECTIONS.square(22, 0.86), (i) => scales[i], { capStart: true, capEnd: true });
+  sweep(s, path, SECTIONS.square(22, 0.86), (i) => {
+    s.ink(inks[i]);
+    return scales[i];
+  }, { capStart: true, capEnd: true });
 }
 
 /** Neck: short, mostly swallowed by the collar, but it must exist or the head floats. */
@@ -645,12 +715,17 @@ function buildHead(s, m) {
     eU: 1, eV: h.eV, segU: 32, segV: 22,
     profile: h.profile,
   });
-  // Ears: two flat nubs. Four hundred triangles that stop the head silhouette
-  // from being a perfect circle, which is worth more than it sounds at 80 px.
+  // Ears: two flat nubs that stop the head silhouette from being a perfect
+  // circle. Their placement is solved in `Rig.computeMetrics` against the
+  // hairline rather than authored, because an ear whose top rises above the
+  // hairline punches through the hair shell and mottles the temple — half of
+  // the "camo blotching across every skull" the review found. No `capDrop` in
+  // the roster can reintroduce it now.
+  const ear = m.ear;
   for (const side of [1, -1]) {
     blob(s, {
-      cx: side * h.rx * 0.94, cy: h.center.y - h.ry * 0.08, cz: -h.rz * 0.06,
-      rx: h.rx * 0.16, ry: h.ry * 0.24, rz: h.rz * 0.10,
+      cx: side * ear.cx, cy: ear.cy, cz: ear.cz,
+      rx: ear.rx, ry: ear.ry, rz: ear.rz,
       eU: 0.9, eV: 0.9, segU: 10, segV: 8,
     });
   }
@@ -749,7 +824,7 @@ function buildCuff(s, m, side) {
  * a chibi look like it is about to tip over. `eU = 0.5` squares the cross
  * section so the boot has an edge to catch the key light along.
  */
-function buildBoot(s, m, side, cuffHeight = 0.0) {
+function buildBoot(s, m, side, cuffHeight = 0.0, zones = null) {
   const f = m.foot;
   const g = m.girth;
   const ankle = m.joints[side > 0 ? 'footL' : 'footR'];
@@ -761,6 +836,11 @@ function buildBoot(s, m, side, cuffHeight = 0.0) {
   // as a chunky boot rather than as a sock.
   const halfW = Math.max(f.width * 0.5, g.ankle * 1.30);
   const halfL = Math.max(f.length * 0.5, g.ankle * 1.65);
+
+  // Two flat zones per §5: the boot body in the dark leather accent, the shaft
+  // in the bright trim. A single-colour boot is a black blob at the bottom of
+  // the silhouette; the cuff is what makes the leg terminate in a *shape*.
+  if (zones) zone(s, zones.body, 'cloth');
 
   // Main mass: sole to instep. `eU = 0.45` squares the cross-section so the
   // boot has a real edge for the key light to catch along its outside.
@@ -787,6 +867,7 @@ function buildBoot(s, m, side, cuffHeight = 0.0) {
   // Ankle shaft: rises past the leg's own end cap and swallows it. Always
   // built, cuffed or not — a bare foot still needs its ankle closed.
   const shaft = Math.max(cuffHeight, g.ankle * 0.55);
+  if (zones) zone(s, cuffHeight > 0 ? zones.cuff : zones.body, 'cloth');
   sweep(
     s,
     [new THREE.Vector3(ankle.x, f.height * 0.55, ankle.z),
@@ -803,266 +884,236 @@ function buildBoot(s, m, side, cuffHeight = 0.0) {
 
 // ================================================================== face
 
-/**
- * A point on the skull, in the same parameterisation `blob` uses to build it.
- *
- * `theta` is the azimuth (+Z, the face direction, is θ = π/2) and `phi` the
- * latitude in [-π/2, π/2]. Kept identical to `blob`'s inner loop on purpose —
- * this is the shared definition the face projector and the mesh both read.
- */
-function headPoint(h, theta, phi, out = new THREE.Vector3()) {
-  const pw = (x, e) => Math.sign(x) * Math.pow(Math.abs(x), e);
-  const sc = h.profile(phi / Math.PI + 0.5);
-  const cr = pw(Math.cos(phi), h.eV) * sc;
-  return out.set(
-    h.rx * cr * Math.cos(theta),
-    h.center.y + h.ry * pw(Math.sin(phi), h.eV),
-    h.rz * cr * Math.sin(theta),
-  );
-}
+/** Signed power, the superellipse primitive every surface here is built from. */
+const pw = (x, e) => Math.sign(x) * Math.pow(Math.abs(x), e);
+
+const _faceRow = { phi: 0, halfWidth: 0, depth: 0 };
+const _plateRow = { phi: 0, halfWidth: 0, depth: 0 };
+const _plateOut = new THREE.Vector3();
 
 /**
- * Project a face-plane offset onto the *actual* skull surface, pushed out along
- * the true surface normal by `lift`.
+ * The skull's cross-section half-width and front depth at a given height.
  *
- * ### Why this is not the ellipsoid formula it replaces
- *
- * The head is built by `blob` as a superellipsoid (`eV = 0.94`) carrying a jaw
- * and cranium profile. Treating it as a plain ellipsoid here — which is what
- * this function used to do — puts the projected point up to 0.5% of a radius
- * *inside* the mesh at the eye latitude and around 1.2 mm inside at the outer
- * canthus, against a decal stand-off of about the same magnitude. The result is
- * that parts of every eye layer are swallowed by the skull and parts survive:
- * the eye renders as a partial ring with no iris, which is exactly the "single
- * grey torus, no second eye" the review reports. There is no lift value that
- * fixes it, because the error varies across the eye.
- *
- * Solving in the mesh's own parameterisation removes the error entirely rather
- * than hiding it. Given the target `(x, y)` on the face plane:
- *   `y` fixes `phi` by inverting the superellipse's vertical term,
- *   `phi` gives the cross-section scale `cr`,
- *   `x` then fixes `theta` on that cross-section, and `z` falls out.
- * The normal comes from the cross product of the two parametric tangents, taken
- * by central difference — analytic derivatives of a profiled superellipsoid are
- * long, error-prone, and no more accurate at this step size.
+ * `dy` is measured from the head centre. Returns the latitude the row sits at,
+ * the world half-width of the skull there (the largest `|x|` a face feature can
+ * occupy on that row), and the skull's `z` on the centreline — which is the
+ * depth the flattening pulls the whole row toward.
  */
-const _fpA = new THREE.Vector3();
-const _fpB = new THREE.Vector3();
-const _fpC = new THREE.Vector3();
-const _fpD = new THREE.Vector3();
-const _fpU = new THREE.Vector3();
-const _fpV = new THREE.Vector3();
-
-function faceProject(m, dx, dy, lift) {
+function faceRow(m, dy, out = { phi: 0, halfWidth: 0, depth: 0 }) {
   const h = m.head;
   // Invert y = ry * sign(sin phi) * |sin phi|^eV.
   const ny = THREE.MathUtils.clamp(dy / h.ry, -0.999, 0.999);
   const sinPhi = Math.sign(ny) * Math.pow(Math.abs(ny), 1 / h.eV);
   const phi = Math.asin(THREE.MathUtils.clamp(sinPhi, -1, 1));
-
-  const pw = (x, e) => Math.sign(x) * Math.pow(Math.abs(x), e);
-  const cr = pw(Math.cos(phi), h.eV) * h.profile(phi / Math.PI + 0.5);
-  // cos(theta) is the fraction of this cross-section's half-width the feature
-  // sits at; clamping is what keeps a wide brow that runs off the cheek from
-  // producing a NaN rather than sliding round to the temple.
-  const ct = THREE.MathUtils.clamp(dx / (h.rx * Math.max(cr, 1e-4)), -0.999, 0.999);
-  const theta = Math.acos(ct); // in [0, π]; sin(theta) ≥ 0, i.e. the +Z face side.
-
-  const p = headPoint(h, theta, phi, _fpA);
-  const eps = 1e-3;
-  _fpU.subVectors(headPoint(h, theta + eps, phi, _fpB), headPoint(h, theta - eps, phi, _fpC));
-  _fpV.subVectors(headPoint(h, theta, phi + eps, _fpB), headPoint(h, theta, phi - eps, _fpD));
-  const n = new THREE.Vector3().crossVectors(_fpV, _fpU);
-  if (n.lengthSq() < 1e-12) n.set(0, 0, 1); else n.normalize();
-  if (n.z < 0) n.negate();
-  return n.multiplyScalar(lift).add(p);
+  const cr = Math.sign(Math.cos(phi)) * Math.pow(Math.abs(Math.cos(phi)), h.eV)
+    * h.profile(phi / Math.PI + 0.5);
+  out.phi = phi;
+  out.halfWidth = h.rx * Math.max(cr, 1e-4);
+  out.depth = h.rz * Math.max(cr, 1e-4);
+  return out;
 }
 
 /**
- * A filled face decal shaped by a superellipse outline, wrapped on the skull.
+ * The face plate surface: the point on the flattened face shield carrying face
+ * coordinate `(ox, oy)`, measured from the plate centre.
  *
- * `tilt` rakes the outer canthus up or down — that single angle is the whole
- * difference between Auren's level stare and Seren's open one, and it survives
- * downscaling better than any amount of internal eye detail.
+ * ### The construction, and what each term is defending against
+ *
+ * **`x` and `y` are returned exactly as asked.** That is the whole contract.
+ * The UV is `0.5 + ox/size`, an affine function of the plate coordinate, so if
+ * the world position is also affine in it then UV is affine in world position —
+ * at any tessellation, on any proportions. The painted eye cannot stretch, skew
+ * or shift, and the two eyes are provably identical in size and height because
+ * the texture that draws them is mirrored about `ox = 0` and the surface is too.
+ * The previous projector broke this in two places: it saturated `acos` once the
+ * requested `x` ran past the local cross-section (the truncated outer eye the
+ * review measured), and it applied the stand-off along the surface *normal*,
+ * which drags `x` and `y` off the coordinate they were solved for.
+ *
+ * **Saturation is now impossible rather than clamped.** The caller asks for a
+ * fraction of the row's own half-width, so the request is always satisfiable;
+ * `buildFacePlate` sizes each ring against `faceRow().halfWidth`.
+ *
+ * **`z` is flattened toward the row's centre depth.** Across the eye pair a
+ * chibi skull recedes about 0.19 head-radii, which foreshortens the outboard
+ * eye the instant the head turns — the "different sizes at different heights"
+ * finding. Pulling each row 62% toward its own centre depth is the face-shield
+ * construction anime 3D uses, and it is bounded by design: the correction is
+ * zero on the centreline and never exceeds the centre depth, so the plate can
+ * never break the head's profile silhouette.
+ *
+ * **The rim scales toward the head centre.** The skull is star-shaped about that
+ * point, so a ring scaled inward is unconditionally buried inside it — no
+ * stand-off tuning, no visible plate edge under the rim light.
  */
-function faceDisc(s, m, { cx, cy, rx, ry, lift, n = 2.4, tilt = 0, rings = 4, seg = 20, side = 1 }) {
-  const pw = (v, e) => Math.sign(v) * Math.pow(Math.abs(v), e);
-  const grid = s.patch(rings, seg, true, (i, j) => {
+function facePoint(m, ox, oy, r, out = new THREE.Vector3()) {
+  const f = m.face;
+  const h = m.head;
+  const row = faceRow(m, f.centerY - h.center.y + oy, _faceRow);
+
+  // Flattening: 1 inside `flatFrom`, easing to 0 by `flatTo` so the plate has
+  // rejoined the skull before the rim dives.
+  const fade = 1 - THREE.MathUtils.smoothstep(r, f.flatFrom, f.flatTo);
+  const ct = ox / row.halfWidth;               // |ct| < 1 guaranteed by the caller
+  const zSkull = row.depth * Math.sqrt(Math.max(0, 1 - ct * ct));
+  const bury = THREE.MathUtils.smoothstep(r, f.buryFrom, 1);
+
+  let x = ox;
+  let y = f.centerY + oy;
+  let z = zSkull + (row.depth - zSkull) * f.flatten * fade + f.lift * (1 - bury);
+
+  if (bury > 0) {
+    const k = 1 - f.buryDepth * bury;
+    x *= k;
+    y = h.center.y + (y - h.center.y) * k;
+    z *= k;
+  }
+  return out.set(x, y, z);
+}
+
+/**
+ * The face plate: the painted face texture's square, wrapped onto the skull.
+ *
+ * ANIME_PIPELINE §1 — this is the whole face. `FaceTexture.drawFace` paints
+ * eyes, brows and mouth into a square canvas at fixed fractions of its edge;
+ * this builds the surface that square lands on, and `Rig.computeMetrics` has
+ * already solved the placement so that the layout's 56%-down eye line coincides
+ * with the skull's anatomical one.
+ *
+ * ### Why the UVs are exact
+ *
+ * `faceProject` is a *planar* projection in disguise: it solves for the point on
+ * the skull whose `(x, y)` are the ones asked for, and only `z` comes out of the
+ * skull's shape. So world x and y equal the plate coordinates exactly, and the
+ * UV — an affine function of those — is an affine function of world position.
+ * A triangle is planar, position varies linearly across it, therefore UV does
+ * too, at any tessellation. The painted face cannot stretch, skew or shift with
+ * mesh density; the only thing tessellation buys is how closely the plate hugs
+ * the skull.
+ *
+ * ### Why the plate is a rounded square, and why its lift goes negative
+ *
+ * The corners of a true square would project past the skull's cross-section at
+ * the chin and the crown and pile up on its silhouette. A superellipse of
+ * exponent 2.6 stays inside the skull everywhere while still reaching the
+ * texture's outer margin — which is blank skin, because every drawn feature
+ * sits well inside `FACE_LAYOUT`'s bounds.
+ *
+ * The stand-off then falls off as `1 - 1.35 r²`, crossing zero at 86% of the
+ * radius so the plate's rim is *buried* inside the skull. That removes the
+ * plate's edge from the silhouette entirely: what you see is the intersection
+ * curve of two surfaces that are the same flat colour, shaded by the same
+ * preset, with the same normals — invisible, including under the rim light,
+ * which is where a hard floating edge would otherwise print a bright line
+ * across the cheek.
+ */
+function buildFacePlate(m, pal) {
+  const s = new Surface();
+  const f = m.face;
+  const h = m.head;
+  // 10 × 40 rather than 7 × 32. Tessellation buys nothing in texture fidelity
+  // — the UV is exactly affine either way — but it does control how closely the
+  // shield hugs the skull between rings, and the coarse grid left a faceted
+  // ridge across the cheekbone that the rim light picked out.
+  const rings = 10;
+  const seg = 40;
+  const e = 2 / 2.6;
+
+  // Painted, but the vertex colour still says "skin": the outline pass reads it
+  // if this plate is ever outlined, and a white default would draw a white line.
+  s.ink(pal.skin);
+  s.patch(rings, seg, true, (i, j) => {
     const r = i / rings;
     const a = (j / seg) * TAU;
-    const ox = pw(Math.cos(a), 2 / n) * rx * r;
-    const oy = pw(Math.sin(a), 2 / n) * ry * r;
-    const ct = Math.cos(tilt * side), st = Math.sin(tilt * side);
-    const rxo = ox * ct - oy * st;
-    const ryo = ox * st + oy * ct;
-    return faceProject(m, cx + rxo, cy + ryo, lift);
+    const oy = pw(Math.sin(a), e) * f.halfY * r;
+    // The ring's width is solved against the skull's *own* cross-section at
+    // this height, capped at 94% of it. That single line is what makes the
+    // projector unsaturatable: it can only ever be asked for an `x` the row can
+    // actually supply, so there is no clamp, no pile-up, and no truncated eye.
+    const row = faceRow(m, f.centerY - h.center.y + oy, _plateRow);
+    const halfX = Math.min(f.halfX, row.halfWidth * 0.94);
+    const ox = pw(Math.cos(a), e) * halfX * r;
+    s.uvAt(0.5 + ox / f.size, 0.5 + oy / f.size);
+    return facePoint(m, ox, oy, r, _plateOut);
   });
-  // Ring 0 collapses to the centre point, so the disc is already closed; a fan
-  // cap here would only add degenerate triangles for the welder to strip.
-  return grid;
+  // Ring 0 collapses to a point, so the plate is already closed; a fan cap here
+  // would only add degenerate triangles for the welder to strip.
+  return s;
 }
 
 /**
- * The face, built as five explicitly-coloured decal layers per eye.
+ * How far in front of the face shield a point sits, in world units.
  *
- * REFERENCE_TARGET §1: "very large, high-contrast eyes [...] simple bright iris
- * + dark outline + a specular catch-light", and "the face reads on eyes and
- * brows alone". That is a specification with five parts and it is built here as
- * five parts, in this order outward from the skull:
+ * Negative means behind it — safely hidden. This is the invariant every hair
+ * mass is held to: two of the six characters shipped with a hair volume parked
+ * *in front of* the face, which is why the review found "a blank cream oval
+ * with a single dot" where a face should be. Authoring the masses correctly is
+ * the fix; this is the guard rail that makes the failure impossible to
+ * reintroduce from the roster.
  *
- *   1. **outline lozenge** — `pal.lash`, near-black. The dark boundary is what
- *      makes the eye survive being scaled to six pixels; without it the sclera
- *      is just a lighter patch of face.
- *   2. **sclera** — inset to 80%, so layer 1 survives as a ring of even weight
- *      all the way round rather than as a lash line on one edge only.
- *   3. **iris** — 55% of the lozenge height, in the character's *element*
- *      accent, which is the cheapest possible way to make six characters
- *      distinguishable at closeup range: six different saturated hues.
- *   4. **pupil** — half the iris, back to `pal.lash`.
- *   5. **catch-light** — 10% of the lozenge height, offset up-and-outward, and
- *      the only unlit surface on the character. A catch-light that takes a
- *      shadow band stops being a catch-light.
- *
- * Layers 3–5 go into separate surfaces because the animator drives them as a
- * rigid group on the head bone (eyes lead the head in a gaze shift); 1, 2 and
- * the brow are skinned with the rest of the face.
- *
- * @returns {{face: Surface, iris: Surface, catch: Surface, lid: Surface}}
+ * Returns `-Infinity` for anything outside the plate's footprint, so hair that
+ * legitimately frames the face from the side is never touched.
  */
-function buildFace(m, pal) {
-  const e = m.eye;
+function faceIntrusion(m, x, y, z) {
+  const f = m.face;
   const h = m.head;
-  const face = new Surface();
-  const iris = new Surface();
-  const glint = new Surface();
-  const lid = new Surface();
-
-  const L = e.lift;
-  const G = e.layerGap;
-  const halfW = e.width * 0.5;
-  const halfH = e.height * 0.5;
-  const irisR = e.height * 0.275;          // "55% of the lozenge height"
-  const pupilR = irisR * 0.50;
-  const glintR = e.height * 0.05;          // "~10%"
-
-  for (const side of [1, -1]) {
-    const cx = side * e.halfSpan;
-    const cy = e.y - h.center.y;
-
-    // 1 — outline lozenge. `n = 2.7` squares the superellipse off just enough
-    // to give the eye a flat top edge, which is what reads as a lid.
-    face.ink(pal.lash);
-    faceDisc(face, m, { cx, cy, rx: halfW, ry: halfH, lift: L, n: 2.7, tilt: 0.10, side, rings: 3, seg: 22 });
-
-    // 2 — sclera.
-    face.ink(pal.sclera);
-    faceDisc(face, m, {
-      cx, cy, rx: halfW * 0.80, ry: halfH * 0.80,
-      lift: L + G, n: 2.7, tilt: 0.10, side, rings: 3, seg: 22,
-    });
-
-    // 3/4 — iris and pupil, dropped slightly below the eye's centre so a sliver
-    // of sclera shows above: a pupil centred in the aperture reads as a stare.
-    const iy = cy - halfH * 0.10;
-    iris.ink(pal.eye);
-    faceDisc(iris, m, { cx, cy: iy, rx: irisR, ry: irisR, lift: L + 2 * G, n: 2.0, side, rings: 3, seg: 18 });
-    iris.ink(pal.lash);
-    faceDisc(iris, m, { cx, cy: iy, rx: pupilR, ry: pupilR, lift: L + 3 * G, n: 2.0, side, rings: 2, seg: 14 });
-
-    // 5 — catch-light, offset toward the temple and up. Offsetting it *outward*
-    // rather than inward is what makes both eyes read as catching the same
-    // light source instead of as two independent decals.
-    glint.ink(0xffffff);
-    faceDisc(glint, m, {
-      cx: cx + side * irisR * 0.42, cy: iy + irisR * 0.44,
-      rx: glintR, ry: glintR, lift: L + 4 * G, n: 2.0, side, rings: 2, seg: 12,
-    });
-
-    // Brow — a short dark bar. `browAngle` sets the whole expression, and at
-    // 80 px it and the eye block are the entire face.
-    face.ink(pal.hairShade);
-    faceDisc(face, m, {
-      cx: cx * 1.02, cy: cy + e.browLift, rx: halfW * 0.92, ry: e.browThickness * 0.5,
-      lift: L + G * 0.5, n: 3.0, tilt: e.browAngle, side, rings: 2, seg: 14,
-    });
-
-    // Blink lid. Parked just above the eye and slid down by exactly the eye's
-    // height plus its clearance; it carries the largest lift of any face layer
-    // because it must occlude the iris *and* the catch-light or a blink reads
-    // as a glitch.
-    lid.ink(pal.skin);
-    faceDisc(lid, m, {
-      cx, cy: cy + e.height * 1.16, rx: halfW * 1.14, ry: halfH * 1.30,
-      lift: L + 5 * G, n: 2.7, tilt: 0.10, side, rings: 3, seg: 18,
-    });
+  // Only the painted eye envelope is protected. A fringe belongs in front of the
+  // forehead and a beard in front of the chin, so a guard spanning the whole
+  // plate would flatten both back into the skull.
+  if (z <= 0 || y > f.guardTop || y < f.guardBottom || Math.abs(x) > f.guardX) {
+    return -Infinity;
   }
-
-  // Mouth — deliberately tiny. REFERENCE §1: "nose/mouth minimal or absent".
-  face.ink(pal.skinShade);
-  faceDisc(face, m, {
-    cx: 0, cy: -h.ry * 0.50, rx: e.width * 0.28, ry: e.height * 0.075,
-    lift: L, n: 2.2, tilt: 0, side: 1, rings: 2, seg: 14,
-  });
-
-  return { face, iris, catch: glint, lid };
+  const oy = y - f.centerY;
+  const row = faceRow(m, f.centerY - h.center.y + oy, _faceRow);
+  const halfX = Math.min(f.halfX, row.halfWidth * 0.94);
+  const u = Math.abs(x) / halfX;
+  const v = Math.abs(oy) / f.halfY;
+  // The plate's own superellipse metric, so "inside the face" means exactly
+  // what `buildFacePlate` means by it.
+  const r = Math.pow(Math.pow(u, 2.6) + Math.pow(v, 2.6), 1 / 2.6);
+  if (r >= 0.98) return -Infinity;
+  return z - facePoint(m, x, oy, r, _plateOut).z;
 }
 
 // ================================================================== hair
 
 /**
- * The hairline, as a function of azimuth.
- *
- * This is the single most important function in the hair builder. A revolved
- * shell over the skull covers the *face*, so the shell's lower boundary has to
- * ride high across the forehead and drop away at the nape — exactly like a real
- * hairline. Getting this wrong does not look like a hair bug; it looks like the
- * character has no face at all.
- *
- * `theta` follows `blob`'s convention: +Z (forward) is θ = π/2, so
- * `sin(theta)` is +1 at the face and −1 at the nape.
- *
- * @param {number} frontPhi latitude of the hairline across the forehead, derived
- *        from the brow position so it can never cross the eyes
- * @param {number} backPhi latitude at the nape
- * @param {number} peak widow's-peak dip at the centre front, radians
- */
-function hairlinePhi(theta, frontPhi, backPhi, peak) {
-  const f = Math.sin(theta);
-  const t = (f + 1) * 0.5;
-  // Cubic in `t` so the transition happens over the temples rather than being
-  // spread evenly around the head — a linear blend puts the hairline halfway
-  // down the cheek at the ears, which reads as a swim cap.
-  const k = t * t * (3 - 2 * t);
-  const base = backPhi + (frontPhi - backPhi) * k;
-  return base - peak * Math.max(0, f) ** 3;
-}
-
-/**
  * A closed hair shell: outer surface, inner surface, and a rim strip joining
  * them at the hairline.
  *
- * Two surfaces rather than one because an open shell shows its backfaces at
- * every edge, and because the visible thickness at the hairline is what makes
- * hair read as *carved volume* (REFERENCE_TARGET §1) instead of as paint.
+ * ### Why both walls are built from `skullPoint`
+ *
+ * This shell used to be a plain ellipsoid scaled off `head.rx/ry/rz`, while the
+ * skull it covers is a superellipsoid carrying a jaw taper and a cranium swell.
+ * `profile()` widens the cranium by up to 4.5%, and the inner wall stood at
+ * 0.5% — so across most of the crown the **scalp was outside the hair**, and
+ * the two surfaces interleaved into the mottled, bruise-like camouflage the
+ * review found on every head in `cast-lineup.png`. It was never z-fighting; the
+ * hair was genuinely inside the head.
+ *
+ * Both walls are now radial offsets of the *same* skull definition. The skull is
+ * star-shaped about the head centre, so any scale above 1 strictly encloses it:
+ * interpenetration is impossible by construction rather than avoided by tuning.
+ *
+ * The walls are 7–8% of a head radius apart, which on a chibi skull is a little
+ * over a centimetre of visible thickness at the hairline. That edge is what the
+ * reference reads as *carved volume* rather than as paint, and it is the single
+ * biggest difference between hair and a swim cap.
  */
-function hairShell(s, { center, rx, ry, rz, outer, inner, frontPhi, backPhi, peak, segU = 26, segV = 14, swell = 0.06 }) {
+function hairShell(s, { head, outer, inner, frontPhi, backPhi, peak, segU = 30, segV = 14, swell = 0.06 }) {
   const ringOuter = [];
   const ringInner = [];
+  const p = new THREE.Vector3();
   const build = (scale, ring) => {
     const grid = s.patch(segV, segU, true, (i, j) => {
       const theta = (j / segU) * TAU;
       const lo = hairlinePhi(theta, frontPhi, backPhi, peak);
       const phi = lo + (Math.PI * 0.5 - lo) * (i / segV);
-      // The crown swells slightly: hair has bulk on top and is flat at the
-      // temples, and that asymmetry is most of what separates a hairstyle from
-      // a helmet at silhouette scale.
+      // The crown swells: hair has bulk on top and is flat at the temples, and
+      // that asymmetry is most of what separates a hairstyle from a helmet at
+      // silhouette scale.
       const bulk = scale * (1 + swell * Math.pow(Math.max(0, Math.sin(phi)), 2));
-      const cp = Math.cos(phi);
-      return {
-        x: center.x + rx * bulk * cp * Math.cos(theta),
-        y: center.y + ry * bulk * Math.sin(phi),
-        z: center.z + rz * bulk * cp * Math.sin(theta),
-      };
+      return skullPoint(head, theta, phi, bulk, p);
     });
     for (const id of grid[0]) ring.push(id);
     return grid;
@@ -1077,120 +1128,178 @@ function hairShell(s, { center, rx, ry, rz, outer, inner, frontPhi, backPhi, pea
 }
 
 /**
+ * Push every vertex of a hair surface out of the head.
+ *
+ * Applied after a surface is fully built rather than negotiated inside each of
+ * the six style branches, because the failure it prevents is not a style
+ * question: a clump whose spline control point happens to fall inside the head
+ * does not read as a modelling slip, it reads as a black ribbon driven through
+ * the character's face — the "cage of hair cards stabbing through the faces"
+ * finding, and the reason the hero's outer eye looked truncated.
+ *
+ * The minimum radius switches across the hairline. Above it a clump must clear
+ * the shell's outer wall, or it surfaces through the crown in patches; below it
+ * only the scalp, so a beard still grows off the jaw instead of ballooning off
+ * it. The correction is radial in the head's own metric, so a squashed clump
+ * reads as hair lying against the skull — which is what hair does.
+ *
+ * The margins on top (`+0.06` over the shell, `1.05` over the scalp) cover
+ * `profile()`'s 4.5% cranium swell, which the radial metric deliberately
+ * ignores so it stays a cheap three-divide test.
+ */
+function clearSkull(surface, m, shellOuter) {
+  const h = m.head;
+  const hl = m.hairline;
+  const pos = surface.pos;
+  const reach = shellOuter + 0.06;
+  for (let i = 0; i < pos.length; i += 3) {
+    const x = pos[i];
+    const y = pos[i + 1];
+    const z = pos[i + 2];
+    const q = skullDepth(h, x, y, z);
+    if (q < 1e-6 || q >= reach) continue;
+    const phi = Math.asin(THREE.MathUtils.clamp((y - h.center.y) / h.ry / q, -1, 1));
+    const theta = Math.atan2(z / h.rz, x / h.rx);
+    const min = phi > hairlinePhi(theta, hl.frontPhi, hl.backPhi, hl.peak) ? reach : 1.05;
+    if (q >= min) continue;
+    const k = min / q;
+    pos[i] = x * k;
+    pos[i + 1] = h.center.y + (y - h.center.y) * k;
+    pos[i + 2] = z * k;
+  }
+}
+
+/**
+ * Pull every vertex of a hair *mass* out of the face shield.
+ *
+ * Two of the six characters shipped with a hair volume parked in front of the
+ * eyes — the review's "blank cream oval with a single dot" and the eyes
+ * "rendering as a wireframe rectangle on the temple". Both were a style volume
+ * authored in body-height units on a character whose head is a different
+ * fraction of that height, so no amount of eyeballing the numbers catches it;
+ * the invariant has to be enforced.
+ *
+ * Only masses get this, never locks: a lock is *supposed* to hang in front of
+ * the forehead, and `faceIntrusion`'s guard band is limited to the eye block for
+ * the same reason.
+ */
+function clearFace(surface, m) {
+  const pos = surface.pos;
+  const gap = m.head.ry * 0.05;
+  for (let i = 0; i < pos.length; i += 3) {
+    const d = faceIntrusion(m, pos[i], pos[i + 1], pos[i + 2]);
+    if (d > -gap) pos[i + 2] -= d + gap;
+  }
+}
+
+/**
  * Hair is built as a *carved volume*, never as strands.
  *
- * REFERENCE §1: "large, sculpted, bold single-silhouette shapes — not strands.
- * Reads as carved volume with a glossy highlight band." So every style below
- * is a skull-hugging cap, a small number of large swept locks, and one band of
- * geometry proud of the cap in the highlight colour. Thin strands would
- * dissolve into aliasing at battle distance and cost ten times the triangles.
+ * ANIME_PIPELINE §3, in full: chunky geometric clumps, each "a broad tapered
+ * form with a clear point"; **one flat base colour**, no mottling and no
+ * per-pixel variation; one anisotropic highlight band; and silhouette doing all
+ * the work — spikes, sweeps, twin-tails, a long fringe.
+ *
+ * Two things changed here from the rejected version, and both are §3 read
+ * literally:
+ *
+ *  - **The highlight band is no longer geometry.** It used to be a strip of
+ *    mesh riding proud of the shell in a lighter tone. §3 asks for *one*
+ *    highlight band, and `ToonMaterial`'s `hair` preset already produces one —
+ *    a thresholded Kajiya-Kay lobe about the strand axis, which is a band by
+ *    construction and, unlike a painted strip, moves when the light does. Two
+ *    highlights on one head is one of the ways stylised-PBR gives itself away.
+ *  - **The clumps are faceted.** The lock section is an eight-sided lens swept
+ *    at a 0.65 rad crease, so every clump keeps hard planes with a hard edge
+ *    between them. A smooth tube of hair reads as a rope; §3's "carved" is the
+ *    whole difference, and it is the facets that carve it.
+ *
+ * The hair carries exactly two colours: `palette.hair` for every clump and the
+ * shell, and `palette.accent` for a binding cord where a style has one. Nothing
+ * is noise-textured, nothing is gradient-shaded, and nothing varies per pixel.
  */
 function buildHair(parts, m, def, pal) {
   const hp = def.hair ?? {};
   const h = m.head;
-  const H = m.height;
   const style = hp.style ?? 'swept';
 
   const cap = new Surface();
   const detail = new Surface();
-  const band = new Surface();
-
-  const capScale = hp.capScale ?? 1.08;
-  const drop = hp.capDrop ?? 0.5;
+  const mass = new Surface();
+  const cord = new Surface();
+  zone(cap, pal.hair, 'hair');
+  zone(detail, pal.hair, 'hair');
+  zone(mass, pal.hair, 'hair');
+  // Graded on the `metal` band rather than `cloth`: a binding cord is §5's
+  // small high-value accent, and the cloth band's floor would sink it into the
+  // hair it is tied around.
+  zone(cord, pal.accent, 'metal');
 
   /**
-   * A point on the hair shell, in the same frame the shell is built in.
+   * The shell's outer and inner walls, as radial offsets of the skull.
    *
-   * Every lock, spike and tail below anchors through this rather than through a
-   * hand-written fraction of the head radius. The previous code anchored front
-   * locks at `0.80 × rx`, which is *inside the skull* — so the lock's first
-   * segment started buried in the head and surfaced through the temple, giving
-   * the "dark ribbon of hair driven straight through the skull" and the loose
-   * blade "jutting past the head like a chopstick". Anchoring at 0.98 of the
-   * shell puts the origin outside the skull and just under the hair surface,
-   * which hides the join and makes the intersection impossible by construction.
+   * The floor is not a taste decision. At the previous 0.5% inner offset the
+   * shell was thinner than `profile()`'s own cranium swell, so the scalp came
+   * through it in patches — the mottled camouflage across every head in the
+   * lineup. The review's brief is explicit: hair is "a single sculpted shell
+   * offset 2–4 cm off the skull" with "the silhouette carved into the mesh".
+   * 8% of a head radius on a chibi skull is about 1.4 cm of wall and 1.4 cm of
+   * stand-off — the right order for a head this size, and unconditionally
+   * thicker than anything `profile()` can do.
    */
-  const scalp = (theta, phi, scale = capScale * 0.98) => new THREE.Vector3(
-    h.rx * scale * Math.cos(phi) * Math.cos(theta),
-    h.center.y + h.ry * scale * Math.sin(phi),
-    h.rz * scale * Math.cos(phi) * Math.sin(theta),
+  const shellOuter = Math.max(hp.capScale ?? 1.08, 1.10);
+  const shellInner = Math.max(1.045, shellOuter - 0.085);
+
+  /**
+   * A point on the hair shell's outer wall.
+   *
+   * Every lock, spike and tail anchors through this rather than through a
+   * hand-written fraction of the head radius. It routes through `skullPoint`, so
+   * it carries the jaw taper and the cranium swell the shell itself is built
+   * from and cannot drift from it. `scale` below 1 reaches the scalp — the
+   * beard grows off the jaw, not off the hair.
+   */
+  const scalp = (theta, phi, scale = shellOuter * 0.99) => skullPoint(
+    h, theta, phi, scale, new THREE.Vector3(),
   );
 
-  // The hairline is pinned to the brow, not authored: the forehead boundary is
-  // derived from `metrics.eye`, so no combination of roster values can push
-  // hair down over the eyes — the one hair failure that destroys a character.
-  // Clearance above the brow is 0.07 of a head radius, not 0.16. The larger
-  // value left a band of bare forehead between the shell and the brow that the
-  // fringe locks then hung across, so the hair read as a receding hairline with
-  // loose ribbons over it instead of as one mass — half of what made the head
-  // look like an untextured blockout. This is still a hard floor: the hairline
-  // is derived from `metrics.eye`, so no roster value can push hair over the
-  // eyes, which is the failure the pinning exists to prevent.
-  const frontPhi = Math.asin(THREE.MathUtils.clamp(
-    (m.eye.y + m.eye.browLift + m.eye.browThickness * 0.5 + h.ry * 0.07 - h.center.y) / h.ry,
-    -0.98, 0.98,
-  ));
-  const backPhi = -(0.32 + drop * 0.95);
-  const peak = h.ry > 0 ? 0.10 : 0;
-  const center = { x: 0, y: h.center.y, z: -h.rz * 0.02 };
+  // The hairline is solved in `Rig.computeMetrics`, pinned to the *painted*
+  // brow, and shared with the ear placement and the clearance solver. No
+  // combination of roster values and no retune of the face layout can push hair
+  // over the eyes — the one hair failure that destroys a character and that no
+  // shading can hide.
+  const { frontPhi, backPhi, peak } = m.hairline;
 
-  // `inner` sits closer to the skull than before (1.005 rather than 1.02) so the
-  // rim strip at the hairline is the shell's *full* thickness. That visible
-  // edge is what turns the boundary from "a tan plate meeting a cream plate
-  // across the temple" — a flat seam with no depth, which is how the review read
-  // it — into a carved hair volume overhanging a forehead, which is what
-  // REFERENCE §1 asks for. Swell is held at 0.04 so the shell contributes under
-  // 3% of head height and the 3.0–3.5-heads metric survives the hairstyle.
   hairShell(cap, {
-    center, rx: h.rx, ry: h.ry, rz: h.rz,
-    outer: capScale, inner: 1.005,
-    frontPhi, backPhi, peak, segU: 30, segV: 13, swell: 0.04,
+    head: h,
+    outer: shellOuter, inner: shellInner,
+    // 34 × 15 rather than 30 × 13. The rim strip at the hairline is now a real
+    // visible edge rather than a hairline crack, and a coarse ring around it
+    // read as a faceted band — which at closeup is exactly the swim-cap seam the
+    // review called out.
+    frontPhi, backPhi, peak, segU: 34, segV: 15, swell: 0.05,
   });
 
-  // --- the highlight band: a strip riding the shell a hair's breadth proud of
-  // it, in the light hair tone. The reference's single most identifiable hair
-  // cue, and it costs about 250 triangles. Columns whose hairline sits above
-  // the band are skipped, so the band can never float in front of the face.
-  const bandLo = Math.PI * 0.5 * ((hp.highlightBand ?? 0.6) - (hp.highlightWidth ?? 0.13) * 0.5) * 2 - Math.PI * 0.25;
-  const bandHi = bandLo + Math.PI * (hp.highlightWidth ?? 0.13);
-  const lift = 1 + H * 0.004 / Math.max(1e-4, h.ry);
-  {
-    const segU = 26;
-    const prev = [];
-    for (let j = 0; j <= segU; j++) {
-      const theta = ((j % segU) / segU) * TAU;
-      const line = hairlinePhi(theta, frontPhi, backPhi, peak);
-      const lo = Math.max(bandLo, line);
-      const hi = Math.max(bandHi, line + 1e-4);
-      if (hi <= line + 2e-4) { prev.length = 0; continue; }
-      const pt = (phi) => {
-        const sc = capScale * lift * (1 + 0.06 * Math.pow(Math.max(0, Math.sin(phi)), 2));
-        const cp = Math.cos(phi);
-        return band.vertex(
-          center.x + h.rx * sc * cp * Math.cos(theta),
-          center.y + h.ry * sc * Math.sin(phi),
-          center.z + h.rz * sc * cp * Math.sin(theta),
-        );
-      };
-      const a = pt(lo);
-      const b = pt(hi);
-      if (prev.length === 2) band.quad(prev[0], a, b, prev[1]);
-      prev[0] = a; prev[1] = b;
-    }
-  }
-
   /**
-   * One swept lock.
+   * One hair clump — ANIME_PIPELINE §3's "broad tapered form with a clear
+   * point".
+   *
+   * The section is an eight-sided lens at 0.72 thickness rather than the ten
+   * sides at 0.55 it was: fewer, larger planes so the crease pass leaves
+   * genuinely visible facets, and a fatter cross-section so a clump is a
+   * *chunk* rather than a blade. Thin, numerous locks are the strand look §3
+   * rules out — they alias into fizz at battle distance and cost ten times the
+   * triangles for a worse silhouette.
    *
    * The radius is driven to zero at the tip by the `1 - t^6` term. A lock that
-   * ends at finite width is capped by a disc of geometry facing sideways, and at
-   * closeup range that disc is the "raw rectangular boundary" the review found
-   * on the loose strands. Collapsing the final ring turns the end cap into
-   * degenerate triangles the welder strips, leaving an actual point.
+   * ends at finite width is capped by a disc of geometry facing sideways, and
+   * at closeup range that disc is a raw rectangular boundary on the strand.
+   * Collapsing the final ring turns the end cap into degenerate triangles the
+   * welder strips, leaving an actual point.
    */
   const lock = (from, ctrl, to, w0, w1, twist = 0) => {
     const path = smoothPath([from, ctrl, to], 9);
-    sweep(detail, path, SECTIONS.lens(10, 0.55), (i) => {
+    sweep(detail, path, SECTIONS.lens(8, 0.72), (i) => {
       const t = i / (path.length - 1);
       const r = THREE.MathUtils.lerp(w0, w1, t * t) * (1 - Math.pow(t, 6));
       return [Math.max(r, 1e-5), Math.max(r * 0.85, 1e-5)];
@@ -1209,17 +1318,23 @@ function buildHair(parts, m, def, pal) {
   // Lengths here are fractions of *head radius*, not of body height: a lock
   // measured against the body would swallow Emrys's face and barely reach
   // Yshara's brow.
-  const nF = hp.fringe | 0;
-  const partShift = hp.part ?? 0.12;
+  const nF = Math.min(hp.fringe | 0, 3);
+  const partShift = hp.part ?? 0.14;
   const sweepAmt = hp.fringeSweep ?? 0.4;
   const lean = hp.lean ?? 0;
-  // A lock is allowed to hang no lower than this before it starts crossing the
-  // eye. The eyes are the entire face (REFERENCE §1) and a blade of hair through
-  // them is the one hair failure that cannot be shaded away, so the limit is
-  // derived from `metrics.eye` rather than authored — no roster value can
-  // violate it.
-  const fringeFloor = m.eye.y + m.eye.height * 0.60;
-  const fringeGuard = m.eye.halfSpan + m.eye.width * 0.55;
+  // The protected column, widened by the clump's own half-thickness. A spine
+  // held exactly at the brow still puts the *body* of a fat clump across the
+  // eye, which is how a fringe that measured correctly on paper came back as a
+  // blade through the iris; the floor has to account for the volume, not the
+  // curve. Outside the column a lock may hang to the jaw, which is where a
+  // fringe earns its silhouette corners.
+  const guardX = m.face.guardX;
+  const browFloor = Math.max(m.eye.browTop, m.face.guardTop) + h.ry * 0.02;
+  /** Hold a control point clear of the eyes if it sits over them. */
+  const guard = (p, w) => {
+    if (Math.abs(p.x) < guardX + w) p.y = Math.max(p.y, browFloor + w);
+    return p;
+  };
   for (let i = 0; i < nF; i++) {
     const t = nF === 1 ? 0.5 : (i + 0.5) / nF;
     const off = (t - 0.5) + partShift;
@@ -1227,28 +1342,29 @@ function buildHair(parts, m, def, pal) {
     const sx = Math.sin(ang);
     const cz = Math.cos(ang);
     const taper = 0.45 + 1.35 * Math.min(1, Math.abs(off) * 2.2);
-    const tipX = sx * h.rx * (1.04 + sweepAmt * 0.75) + lean * h.rx * 0.9;
+    const tipX = sx * h.rx * (1.06 + sweepAmt * 0.75) + lean * h.rx * 0.9;
     const top = h.center.y + h.ry * 0.34;
-    let len = (hp.fringeLength ?? 0.26) * h.ry * 2.0 * taper;
-    if (Math.abs(tipX) < fringeGuard) len = Math.min(len, Math.max(0, top - fringeFloor));
-    // Anchored on the hair shell, not at 0.80 of the skull radius. See `scalp`.
-    const from = scalp(Math.atan2(cz, sx), Math.asin(0.52));
-    const ctrl = new THREE.Vector3(
-      sx * h.rx * (1.00 + sweepAmt * 0.30) + lean * h.rx * 0.4,
+    const len = (hp.fringeLength ?? 0.26) * h.ry * 2.0 * taper;
+    // Three fat clumps, not five thin ones. The review's read of the previous
+    // fringe was "zero-thickness cards intersecting a low-poly sphere", and half
+    // of that was count: narrow blades with bare forehead between them alias
+    // into ribbons, where a small number of broad forms with real thickness
+    // fuse into one carved mass (ANIME_PIPELINE §3, REFERENCE §1).
+    const w = h.rx * 0.36 * (1 - Math.abs(off) * 0.22);
+    // Anchored on the hair shell's outer wall, above the hairline, so the clump
+    // emerges *from under* the shell rather than out of the forehead.
+    const from = scalp(Math.atan2(cz, sx), frontPhi + 0.34);
+    const ctrl = guard(new THREE.Vector3(
+      sx * h.rx * (1.02 + sweepAmt * 0.30) + lean * h.rx * 0.4,
       h.center.y + h.ry * 0.30 - len * 0.35,
-      cz * h.rz * (1.04 + sweepAmt * 0.25),
-    );
-    const to = new THREE.Vector3(
+      cz * h.rz * (1.10 + sweepAmt * 0.25),
+    ), w);
+    const to = guard(new THREE.Vector3(
       tipX,
       top - len,
-      cz * h.rz * (0.98 + sweepAmt * 0.55) - sweepAmt * len * 0.30,
-    );
-    // Wide enough that neighbouring locks overlap into one continuous fringe.
-    // At the previous 0.115 they were separate blades with bare forehead showing
-    // between them, which is what made a fringe read as "dark ribbons" rather
-    // than as the sculpted mass REFERENCE §1 asks for.
-    const w = h.rx * 0.21 * (1 - Math.abs(off) * 0.25);
-    lock(from, ctrl, to, w, w * 0.18, off * 0.7);
+      cz * h.rz * (1.04 + sweepAmt * 0.55) - sweepAmt * len * 0.30,
+    ), w * 0.35);
+    lock(from, ctrl, to, w, w * 0.20, off * 0.7);
   }
 
   // --- style-specific mass.
@@ -1266,6 +1382,14 @@ function buildHair(parts, m, def, pal) {
   //   topknot — a tall bound column plus a trailing braid          (tallest, narrowest)
   //
   // Flatten any two to black and they do not collide, which is the test.
+  //
+  // **Every length below is a multiple of head diameter, never of body height.**
+  // That is a correctness fix, not a convenience: Bramm's beard was authored at
+  // 0.50 of *body* height, which on a head 0.28 of body height is three and a
+  // half head-radii of mass whose top edge landed above his eyes. He is the
+  // review's "blank cream oval with a single dot" — the beard was the face. A
+  // hair volume is a function of the skull it grows on and nothing else.
+  const D = h.ry * 2;
   if (style === 'spike') {
     const n = hp.spikes ?? 8;
     const spread = hp.spikeSpread ?? 1.1;
@@ -1274,7 +1398,7 @@ function buildHair(parts, m, def, pal) {
       const j = rng.next();
       const ang = (i / n) * TAU + j * (hp.spikeJitter ?? 0.3);
       const pitch = 0.30 + rng.next() * 0.50;
-      const len = (hp.spikeLength ?? 0.3) * H * (0.70 + rng.next() * 0.55);
+      const len = (hp.spikeLength ?? 0.55) * D * (0.70 + rng.next() * 0.55);
       const base = scalp(ang, pitch);
       // Weighted outward rather than upward: a purely vertical starburst adds
       // head height (which the 3.0–3.5-heads metric charges for) and reads as a
@@ -1286,7 +1410,7 @@ function buildHair(parts, m, def, pal) {
         Math.sin(ang) * len * spread,
       ));
       const ctrl = base.clone().lerp(tip, 0.42).add(new THREE.Vector3(0, len * 0.14, 0));
-      lock(base, ctrl, tip, H * 0.040, H * 0.002);
+      lock(base, ctrl, tip, D * 0.20, D * 0.008);
     }
   } else if (style === 'bob') {
     // A bell of hair, cut on a hard diagonal, flaring outward at the jaw. The
@@ -1294,11 +1418,15 @@ function buildHair(parts, m, def, pal) {
     // asymmetric `lean` is Kite's "everything about her is diagonals".
     const lean = hp.lean ?? 0.3;
     const cut = hp.cutAngle ?? 0.4;
-    const bl = (hp.backLength ?? 0.22) * H;
+    const bl = (hp.backLength ?? 0.75) * D;
     const wide = hp.backWidth ?? 1.3;
-    blob(detail, {
-      cx: lean * h.rx * 0.16, cy: h.center.y - h.ry * 0.06 - bl * 0.28, cz: -h.rz * 0.16,
-      rx: h.rx * wide, ry: bl * 0.62 + h.ry * 0.72, rz: h.rz * 1.04,
+    // `cz` pulls the bell a third of a head-depth back and `rz` no longer
+    // exceeds the skull's, so the front of the bob sits behind the cheekbone
+    // instead of closing over the face. A bob frames a face from the *sides*;
+    // the side flares below are what does the framing.
+    blob(mass, {
+      cx: lean * h.rx * 0.16, cy: h.center.y - h.ry * 0.06 - bl * 0.28, cz: -h.rz * 0.34,
+      rx: h.rx * wide, ry: bl * 0.62 + h.ry * 0.72, rz: h.rz * 0.92,
       eU: 1, eV: 0.88, segU: 22, segV: 14,
       // Widest just below the ear line, pinched at the crown so it sits under
       // the shell, and cut off square at the bottom for the blunt bob hem.
@@ -1319,7 +1447,7 @@ function buildHair(parts, m, def, pal) {
         -h.rz * 0.30,
       );
       lock(from, from.clone().lerp(tip, 0.45).setY(h.center.y - h.ry * 0.22), tip,
-        h.rx * 0.24, h.rx * 0.03);
+        h.rx * 0.30, h.rx * 0.03);
     }
   } else if (style === 'sheet' || style === 'drift') {
     // "a pale drifting mass twice the width of her body" (WORLD_BIBLE §3.2).
@@ -1327,7 +1455,7 @@ function buildHair(parts, m, def, pal) {
     // edge-on in the side-view battle camera, which is the one angle the game
     // spends most of its running time in. Each layer is a squashed ellipsoid
     // whose lower half is pinched, so the stack silhouettes as a flame.
-    const back = (hp.backLength ?? 0.6) * H;
+    const back = (hp.backLength ?? 1.5) * D;
     const wide = hp.backWidth ?? 1.8;
     const flare = hp.backFlare ?? 1.4;
     const layers = 3;
@@ -1339,11 +1467,11 @@ function buildHair(parts, m, def, pal) {
       // previous placement pushed the top layer above the skull, which counts
       // straight against the head-to-height ratio while adding nothing to a
       // silhouette whose whole point is length below the shoulder.
-      blob(detail, {
+      blob(mass, {
         cx: 0,
         cy: h.center.y - h.ry * 0.10 - drop * 0.55,
-        cz: -h.rz * (0.22 + lt * 0.42),
-        rx: w, ry: drop * 0.62 + h.ry * 0.45, rz: h.rz * (0.86 - lt * 0.16),
+        cz: -h.rz * (0.45 + lt * 0.35),
+        rx: w, ry: drop * 0.62 + h.ry * 0.45, rz: h.rz * (0.80 - lt * 0.14),
         // `eU` under 1 squares the horizontal cross-section off: the sheet has
         // to read as a *slab* with two flat faces and a hard side edge. At
         // eU = 1 it is an ellipsoid, and an ellipsoid as wide as it is tall
@@ -1366,51 +1494,58 @@ function buildHair(parts, m, def, pal) {
       const from = scalp(sgn > 0 ? 0.28 : Math.PI - 0.28, Math.asin(0.30));
       const ctrl = new THREE.Vector3(sgn * h.rx * 1.16, h.center.y - h.ry * 0.45, h.rz * 0.36);
       const to = new THREE.Vector3(sgn * h.rx * 1.06, h.center.y - h.ry * 0.6 - back * 0.55, h.rz * 0.14);
-      lock(from, ctrl, to, H * 0.040, H * 0.008);
+      lock(from, ctrl, to, D * 0.19, D * 0.03);
     }
   } else if (style === 'beard') {
-    const bl = (hp.beardLength ?? 0.4) * H;
+    // Measured in head diameters. At the old body-height scale this mass grew
+    // to three and a half head-radii and its top edge closed over the eyes.
+    const bl = (hp.beardLength ?? 0.95) * D;
     const bwd = (hp.beardWidth ?? 1.2);
     const fork = hp.beardFork ?? 0.25;
+    // The whole beard hangs below the mouth line. Solved from the face metrics
+    // rather than authored, so it cannot creep back up over the eye block.
+    const chin = Math.min(m.face.guardBottom - h.ry * 0.04, h.center.y - h.ry * 0.52);
     for (const sgn of [-1, 1]) {
-      // Anchored on the jaw *surface* (the beard grows off the face, so the
-      // shell here is the skull itself at 1.0, not the hair cap).
-      const from = scalp(sgn > 0 ? 0.72 : Math.PI - 0.72, -0.34, 1.0);
-      const ctrl = new THREE.Vector3(sgn * h.rx * 0.60 * bwd, h.center.y - h.ry * 0.62 - bl * 0.35, h.rz * 0.72);
-      const to = new THREE.Vector3(sgn * h.rx * fork * 2.2, h.center.y - h.ry * 0.5 - bl, h.rz * 0.34);
-      lock(from, ctrl, to, H * 0.055 * bwd, H * 0.012);
+      // Anchored on the jaw *surface* — the beard grows off the face, so the
+      // radius here is just clear of the skull, not the hair shell.
+      const from = scalp(sgn > 0 ? 0.72 : Math.PI - 0.72, -0.40, 1.03);
+      const ctrl = new THREE.Vector3(sgn * h.rx * 0.66 * bwd, chin - bl * 0.35, h.rz * 0.68);
+      const to = new THREE.Vector3(sgn * h.rx * fork * 2.2, chin - bl, h.rz * 0.30);
+      lock(from, ctrl, to, D * 0.20 * bwd, D * 0.045);
     }
-    // Central mass filling between the forks, plus a moustache bar.
-    blob(detail, {
-      cx: 0, cy: h.center.y - h.ry * 0.62 - bl * 0.30, cz: h.rz * 0.44,
-      rx: h.rx * 0.62 * bwd, ry: bl * 0.55, rz: h.rz * 0.50,
+    // Central mass filling between the forks, plus a moustache bar. Both sized
+    // and placed against `chin`, so the top of the beard is a solved quantity.
+    blob(mass, {
+      cx: 0, cy: chin - bl * 0.42, cz: h.rz * 0.42,
+      rx: h.rx * 0.66 * bwd, ry: bl * 0.50, rz: h.rz * 0.48,
       eU: 0.9, eV: 0.85, segU: 16, segV: 10,
       profile: (v) => 1 - Math.pow(THREE.MathUtils.clamp((0.5 - v) / 0.5, 0, 1), 1.4) * 0.55,
     });
-    blob(detail, {
-      cx: 0, cy: h.center.y - h.ry * 0.22, cz: h.rz * 0.78,
-      rx: h.rx * 0.46, ry: h.ry * 0.10, rz: h.rz * 0.24,
+    blob(mass, {
+      cx: 0, cy: chin + h.ry * 0.10, cz: h.rz * 0.74,
+      rx: h.rx * 0.48, ry: h.ry * 0.09, rz: h.rz * 0.22,
       eU: 0.8, eV: 0.8, segU: 14, segV: 6,
     });
   } else if (style === 'topknot' || style === 'braid') {
     // A bound column above the crown. Narrow and tall — the exact opposite of
     // the bob and the sheet, and the only party member whose mass is *above*
     // the skull rather than beside or behind it.
-    const tk = (hp.topknot ?? 0.24) * H;
+    const tk = (hp.topknot ?? 0.80) * D;
     const tw = hp.topknotWidth ?? 0.50;
     const bindY = h.center.y + h.ry * 0.80;
     // Raked backwards as it rises: the mass ends up behind the crown rather
     // than above it, which keeps the read ("a bound column") while spending
     // roughly half the head-height the same volume would cost stood upright.
-    sweep(detail,
+    sweep(mass,
       [new THREE.Vector3(0, bindY - h.ry * 0.10, -h.rz * 0.10),
         new THREE.Vector3(0, bindY + tk * 0.52, -h.rz * 0.62),
         new THREE.Vector3(0, bindY + tk * 0.80, -h.rz * 1.55)],
       SECTIONS.circle(14),
       (i) => { const r = h.rx * tw * [0.86, 1.0, 0.30][i]; return [r, r * 0.94]; },
       { capStart: true, capEnd: true });
-    // Binding ring, in the light tone, sits in the highlight bucket.
-    sweep(band,
+    // Binding cord. The one place the hair is allowed a second colour: it is a
+    // *cord*, a small flat accent zone in the §5 sense, not a shading effect.
+    sweep(cord,
       [new THREE.Vector3(0, bindY - h.ry * 0.06, -h.rz * 0.10),
         new THREE.Vector3(0, bindY + h.ry * 0.06, -h.rz * 0.12)],
       SECTIONS.circle(14),
@@ -1422,23 +1557,42 @@ function buildHair(parts, m, def, pal) {
   // already owns the volume behind the skull, or the two would inter-penetrate.
   const OWNS_BACK = new Set(['sheet', 'drift', 'bob']);
   if ((hp.backLength ?? 0) > 0 && !OWNS_BACK.has(style)) {
-    const bl = hp.backLength * H;
+    const bl = hp.backLength * D;
     // `backDepth` pushes the mass behind the skull rather than beside it, which
     // is how a swept style earns silhouette width in the *side-view* battle
     // camera without widening the head from the front. Front width and side
     // width are separate identity channels and the roster tunes them apart.
     const depth = hp.backDepth ?? 0.62;
-    blob(detail, {
-      cx: 0, cy: h.center.y - h.ry * 0.10 - bl * 0.35, cz: -h.rz * (0.10 + depth * 0.52),
+    blob(mass, {
+      cx: 0, cy: h.center.y - h.ry * 0.10 - bl * 0.35, cz: -h.rz * (0.24 + depth * 0.52),
       rx: h.rx * (hp.backWidth ?? 0.9) * 0.86, ry: bl * 0.72 + h.ry * 0.25, rz: h.rz * depth,
       eU: 1, eV: 0.88, segU: 18, segV: 12,
       profile: (v) => 1 - Math.pow(THREE.MathUtils.clamp((0.45 - v) / 0.45, 0, 1), 1.5) * 0.45,
     });
   }
 
-  if (!cap.empty) parts.push({ surface: cap, cls: 'hair', color: pal.hair, bind: ['neck', 'head'] });
-  if (!detail.empty) parts.push({ surface: detail, cls: 'hair', color: pal.hair, bind: ['neck', 'head'], crease: 0.9 });
-  if (!band.empty) parts.push({ surface: band, cls: 'hair', color: pal.hairLight, bind: ['head'] });
+  // ---- the two invariants -------------------------------------------------
+  //
+  // Applied here, once, on finished surfaces, rather than defended inside each
+  // of the six style branches. Locks are only held out of the head — a lock is
+  // *supposed* to hang in front of the forehead. Masses are held out of the head
+  // and out of the eye block, because a mass in front of the eyes is a character
+  // with no face, which is what shipped.
+  clearSkull(detail, m, shellOuter);
+  clearSkull(mass, m, shellOuter);
+  clearFace(mass, m);
+  clearSkull(cord, m, shellOuter);
+
+  // `crease: 0.65` rather than 0.9: the clump section is an octagon, so its
+  // facets meet at ~45° (0.785 rad). At 0.9 every one of them was smoothed away
+  // and the clumps rendered as soft tubes; below the facet angle they stay hard,
+  // which is what makes the hair read as carved (§3).
+  if (!cap.empty) parts.push({ surface: cap, cls: 'hair', bind: ['neck', 'head'], painted: true });
+  if (!detail.empty) parts.push({ surface: detail, cls: 'hair', bind: ['neck', 'head'], crease: 0.65, painted: true });
+  // The style mass keeps a softer crease than the clumps: it is one large form
+  // and hard facets across it read as a low-poly artefact rather than as carving.
+  if (!mass.empty) parts.push({ surface: mass, cls: 'hair', bind: ['neck', 'head'], crease: 1.05, painted: true });
+  if (!cord.empty) parts.push({ surface: cord, cls: 'hair', bind: ['head'], crease: 0.9, painted: true });
 }
 
 /**
@@ -1725,7 +1879,7 @@ function buildAccessories(parts, m, def, pal) {
       vFrom: 0.02, vTo: 1.0,
     });
     parts.push({
-      surface: pauldron, cls: 'metal', color: pal.metal, crease: 0.8,
+      surface: pauldron, cls: 'metal', color: pal.accent, crease: 0.8,
       bind: [side > 0 ? 'shoulderL' : 'shoulderR', 'chest'],
     });
   }
@@ -1805,7 +1959,7 @@ function buildAccessories(parts, m, def, pal) {
       blob(rigArm, { cx: p.x, cy: p.y, cz: p.z, rx: g.elbow * 1.7, ry: g.elbow * 0.22, rz: g.elbow * 1.7, eU: 0.85, eV: 0.4, segU: 12, segV: 5 });
     }
     parts.push({
-      surface: rigArm, cls: 'metal', color: pal.metal, crease: 0.7,
+      surface: rigArm, cls: 'metal', color: pal.accent, crease: 0.7,
       bind: [side > 0 ? 'armL' : 'armR', side > 0 ? 'forearmL' : 'forearmR', side > 0 ? 'handL' : 'handR', side > 0 ? 'shoulderL' : 'shoulderR'],
     });
   }
@@ -1819,7 +1973,7 @@ function buildAccessories(parts, m, def, pal) {
     sweep(blade, [base, tip], SECTIONS.lens(8, 0.28),
       (i) => { const s = H * (i === 0 ? 0.018 : 0.003); return [s, s * 0.6]; }, { capStart: true, capEnd: true });
     parts.push({
-      surface: blade, cls: 'metal', color: pal.metal, crease: 0.5,
+      surface: blade, cls: 'metal', color: pal.accent, crease: 0.5,
       bind: [side > 0 ? 'shinL' : 'shinR', side > 0 ? 'footL' : 'footR'],
     });
   }
@@ -1884,10 +2038,13 @@ function buildAccessories(parts, m, def, pal) {
     }
   }
 
-  if (!cloth.empty) parts.push({ surface: cloth, cls: 'cloth', color: pal.secondary, bind: 'body' });
+  // Collar, sleeve rolls and feather fringe are all *trim*: small, bright, and
+  // adjacent to the face or the hands, which is where §5 wants the party's
+  // highest-contrast colour so the eye has somewhere to land at battle range.
+  if (!cloth.empty) parts.push({ surface: cloth, cls: 'cloth', color: pal.trim, bind: 'body' });
   if (!leather.empty) parts.push({ surface: leather, cls: 'cloth', color: pal.leather, bind: 'body', crease: 0.8 });
   if (!glow.empty) parts.push({ surface: glow, cls: 'glow', color: pal.glow, bind: 'body' });
-  if (!metalBody.empty) parts.push({ surface: metalBody, cls: 'metal', color: pal.metal, bind: 'body', crease: 0.8 });
+  if (!metalBody.empty) parts.push({ surface: metalBody, cls: 'metal', color: pal.accent, bind: 'body', crease: 0.8 });
 }
 
 // ========================================================= contact shadow
@@ -1994,7 +2151,14 @@ function buildContactShadow(rig, metrics) {
     // occlusion term of this footprint is worth.
     color: new THREE.Color(LIGHT.SHADOW_TINT).multiplyScalar(1.35),
     transparent: true,
-    opacity: 0.62,
+    // 0.78 rather than 0.62. The review found the cast "not grounded" — contact
+    // shadows "missing or near-missing on most of the cast". They were present;
+    // they were simply too weak to survive the dusk key's exposure and the fog
+    // lift over the ground plane, which together lighten a decal at 0.62 to
+    // within a few percent of the terrain it sits on. The decal is a
+    // transmission factor under `MultiplyBlending`, so raising it can only
+    // darken, at any hour and over any ground albedo.
+    opacity: 0.78,
     premultipliedAlpha: true,
     blending: THREE.MultiplyBlending,
     depthWrite: false,
@@ -2015,7 +2179,13 @@ function buildContactShadow(rig, metrics) {
   group.renderOrder = 2;
 
   const body = new THREE.Mesh(geo, material);
-  body.scale.set(g.hipX * 5.2, 1, g.hipZ * 5.6);
+  // Sized against the *stance*, not the hips: the pool has to reach past both
+  // boots or the feet read as floating even with their own decals under them.
+  body.scale.set(
+    Math.max(g.hipX * 5.6, Math.abs(metrics.joints.footL.x) * 2 + metrics.foot.width * 3.2),
+    1,
+    Math.max(g.hipZ * 6.0, metrics.foot.length * 3.4),
+  );
   body.position.y = H * 0.006;
   body.renderOrder = 2;
   body.castShadow = false;
@@ -2072,15 +2242,19 @@ function buildContactShadow(rig, metrics) {
  * Build a complete playable character.
  *
  * @param {object|string} defOrId roster entry, or an id into `roster.js`
- * @param {import('../art/AssetForge.js').AssetForge} [forge] optional; supplies
- *        the toon ramp and the detail normal maps that keep ART_BIBLE §4's
- *        "nothing flat" rule true
+ * @param {import('../art/AssetForge.js').AssetForge} [forge] accepted for the
+ *        `ARCHITECTURE.md` signature and deliberately unused: ANIME_PIPELINE
+ *        forbids any procedural texture on a character surface
  * @param {object} [opts] optional extensions, none of them required
  * @param {import('../render/Lighting.js').Lighting} [opts.lighting] light rig to
  *        alias key/rim uniforms from, so a time-of-day change re-lights the
  *        whole party without touching a material
  * @param {boolean} [opts.outline=true] inverted-hull silhouette line
- * @param {number} [opts.outlineWidth] viewport-fraction width
+ * @param {number} [opts.outlineWidth] line weight in **device pixels**;
+ *        ANIME_PIPELINE §4's range is 1.5–2.5 and `render/Outline.js` defaults
+ *        to 2.0. The scene must call `updateOutlineScale` once a frame for the
+ *        weight to stay constant on screen.
+ * @param {string} [opts.expression='neutral'] initial painted face
  * @returns {{root: THREE.Group, skeleton: THREE.Skeleton,
  *            bones: Record<string, THREE.Bone>, animator: Animator,
  *            cloth: ClothSim|null, height: number, dispose: () => void}}
@@ -2091,6 +2265,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
   const lighting = opts.lighting ?? null;
   const outline = opts.outline !== false;
   const outlineWidth = opts.outlineWidth;
+  const expression = opts.expression ?? 'neutral';
 
   const metrics = computeMetrics(def);
   const rig = buildRig(def, metrics);
@@ -2104,9 +2279,11 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
   // ---- parts ------------------------------------------------------------
   const parts = [];
 
+  // The trunk carries its own three zones (see `buildTorso`), so it is pushed
+  // `painted` — the assembly pass must not flatten it back to one colour.
   const torso = new Surface();
-  buildTorso(torso, metrics);
-  parts.push({ surface: torso, cls: 'cloth', color: pal.primary, bind: ['hips', 'spine', 'chest', 'neck'] });
+  buildTorso(torso, metrics, pal);
+  parts.push({ surface: torso, cls: 'cloth', bind: ['hips', 'spine', 'chest', 'neck'], painted: true });
 
   const skin = new Surface();
   buildNeck(skin, metrics);
@@ -2128,7 +2305,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     parts.push({
       surface: arm,
       cls: bare ? 'skin' : 'cloth',
-      color: bare ? pal.skin : pal.primary,
+      color: bare ? pal.skin : pal.identity,
       bind: [`shoulder${sfx}`, `arm${sfx}`, `forearm${sfx}`, `hand${sfx}`],
     });
 
@@ -2137,7 +2314,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     parts.push({
       surface: hand,
       cls: def.accessories?.prosthetic === sfx ? 'metal' : 'skin',
-      color: def.accessories?.prosthetic === sfx ? pal.metal : pal.skin,
+      color: def.accessories?.prosthetic === sfx ? pal.accent : pal.skin,
       bind: [`forearm${sfx}`, `hand${sfx}`],
     });
 
@@ -2148,7 +2325,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
       const cuff = new Surface();
       buildCuff(cuff, metrics, side);
       parts.push({
-        surface: cuff, cls: 'cloth', color: pal.trim ?? pal.secondary, crease: 0.9,
+        surface: cuff, cls: 'cloth', color: pal.trim, crease: 0.9,
         bind: [`forearm${sfx}`, `hand${sfx}`],
       });
     }
@@ -2176,8 +2353,8 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
       buildBoot(boot, metrics, side, 0);
       parts.push({ surface: boot, cls: 'skin', color: pal.skin, bind: [`shin${sfx}`, `foot${sfx}`], crease: 1.0 });
     } else {
-      buildBoot(boot, metrics, side, H * 0.045);
-      parts.push({ surface: boot, cls: 'cloth', color: pal.leather, bind: [`shin${sfx}`, `foot${sfx}`], crease: 0.9 });
+      buildBoot(boot, metrics, side, H * 0.045, { body: pal.leather, cuff: pal.trim });
+      parts.push({ surface: boot, cls: 'cloth', bind: [`shin${sfx}`, `foot${sfx}`], crease: 0.9, painted: true });
     }
   }
 
@@ -2186,14 +2363,16 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
   buildWeapon(parts, metrics, def, pal, rig);
   buildAccessories(parts, metrics, def, pal);
 
-  // ---- face: skinned layers plus the mobile iris/lid groups ---------------
-  const headWorld = rig.rest.head.world;
-  const faceParts = buildFace(metrics, pal);
-  const irisSurface = faceParts.iris;
-  const catchSurface = faceParts.catch;
-  const lidSurface = faceParts.lid;
-
-  parts.push({ surface: faceParts.face, cls: 'eye', bind: ['head'], painted: true });
+  // ---- the painted face --------------------------------------------------
+  //
+  // Skinned against the same whitelist as the skull rather than bound rigidly
+  // to the head bone. The plate sits barely a third of a millimetre off the
+  // skull, so identical weights mean identical deformation: under a neck bend
+  // the two surfaces move as one and the plate cannot shear off the face.
+  parts.push({
+    surface: buildFacePlate(metrics, pal), cls: 'face',
+    bind: ['neck', 'head', 'chest'], painted: true,
+  });
 
   // ---- geometry assembly -------------------------------------------------
   const coreSegments = skinSegments(rig);
@@ -2203,10 +2382,9 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
   for (const part of parts) {
     if (part.surface.empty) continue;
     const geo = part.surface.finish(part.crease ?? 0);
-    planarUV(geo, 3.2 / H);
 
-    // `painted` parts carried their colours out of the builder, per vertex, and
-    // must not be flattened to a single tone here — that is the whole face.
+    // `painted` parts carried their zones out of the builder, per vertex, and
+    // must not be flattened back to a single tone here.
     if (!part.painted) paint(geo, part.color, part.cls, part.colorScale ?? 1);
 
     if (part.rigid !== undefined) {
@@ -2226,44 +2404,105 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
   }
 
   // ---- materials ---------------------------------------------------------
-  // Detail maps only: characters carry no authored albedo. The weave on a coat
-  // and the grind lines on a blade are what keep ART_BIBLE §4's "nothing flat"
-  // rule true on a toon surface that has no environment reflection to hide in.
-  const clothNormal = tex(forge, 'cloth/normal', { repeat: 4 });
-  const steelNormal = tex(forge, 'steel/normal', { repeat: 3 });
-  const leatherNormal = tex(forge, 'leather/normal', { repeat: 4 });
-  const shared = { forge, lighting, ...BODY_RIM };
+  //
+  // Not one texture between them except the painted face. ANIME_PIPELINE's
+  // absolute rule: no procedural noise on a character. The weave normal, the
+  // grind-line normal and the leather bump that used to be fetched here are all
+  // fBm out of `AssetForge`, and on a character they read as dirt — which is
+  // half of what the client saw. `forge` stays in the signature because it is
+  // part of the module contract in ARCHITECTURE.md and monsters and props still
+  // want it; characters simply no longer ask it for anything.
+  const shared = { lighting, ...BODY_RIM };
 
   const materials = {
     skin: toonMaterial('skin', { ...shared, name: `${def.id}:skin` }),
-    hair: toonMaterial('hair', { ...shared, name: `${def.id}:hair` }),
-    cloth: toonMaterial('cloth', {
-      ...shared, name: `${def.id}:cloth`,
-      normalMap: clothNormal ?? leatherNormal,
-      normalScale: new THREE.Vector2(0.55, 0.55),
+    // The face shares `skin` down to the last uniform — same preset, same rim
+    // envelope — so the plate's buried rim and the skull around it shade
+    // identically and there is no seam to find. It differs in exactly two
+    // things: the painted map, and `vertexColors: false`, because three
+    // multiplies vertex colour into the map and a face multiplied by its own
+    // skin tone would come out with a grey sclera. `faceFlatten` is redundant
+    // against the preset's own 0.75 floor and passed anyway — §2's face clamp is
+    // the one number the pipeline calls essential, and it should be visible at
+    // the call site rather than inherited silently.
+    face: createToonMaterial({
+      preset: 'skin', ...shared, name: `${def.id}:face`,
+      // 1024 rather than 512.
+      //
+      // The review's "jagged aliased polyline" lash is a sampling failure, not a
+      // drawing one: at 512 the lash bar is about 25 texels of near-black across
+      // a white sclera, and the closeup camera magnifies the face plate roughly
+      // 1:1, so every stair-step in the rasterised curve is a screen pixel. At
+      // 1024 the canvas rasteriser anti-aliases the same curve at twice the
+      // linear rate and the mip chain box-filters it back down for the battle
+      // camera — supersampling the highest-contrast edge in the game for the
+      // cost of 4 MB a character.
+      map: buildFaceTexture(def, { expression, size: 1024 }),
+      vertexColors: false, faceFlatten: true,
     }),
-    metal: toonMaterial('metal', {
-      ...shared, name: `${def.id}:metal`,
-      normalMap: steelNormal,
-      normalScale: new THREE.Vector2(0.35, 0.35),
+    // The hair band is tightened from the preset's default, and it is a *shape*
+    // correction rather than a taste one. `TOON_PRESETS.hair` thresholds its
+    // Kajiya-Kay lobe at 0.52 with exponent 96, which lands a band on a
+    // human-scale head; a chibi cranium is a near-sphere barely two head-radii
+    // across, so the lobe stays above that threshold across the entire crown and
+    // resolves as a blown white cap rather than as a band — every character
+    // rendered as though wearing a cream skullcap. Narrowing the lobe and
+    // raising the cut restores ANIME_PIPELINE §3's "bright, slightly desaturated
+    // band with hard-ish edges" on this geometry.
+    hair: toonMaterial('hair', {
+      ...shared, name: `${def.id}:hair`,
+      // ANIME_PIPELINE §3 and the review both ask for **one glossy band running
+      // around the crown**, and the previous settings did not deliver one: at
+      // exponent 240 / threshold 0.86 the Kajiya-Kay lobe clears the cut over
+      // about two degrees of surface, which is a specular *pinprick*. The
+      // opposite failure is the preset's own 96 / 0.52, which on a near-spherical
+      // chibi cranium — where the projected strand tangent degenerates at the
+      // pole — blows the whole crown out into a cream skullcap.
+      //
+      // 170 / 0.55 puts the cut at |t·h| ≈ 0.084, a band roughly five degrees
+      // wide: readable as a band at battle distance, nowhere near wide enough to
+      // reach the degenerate pole. Softness is doubled so its edges are "hard-
+      // ish" rather than hard, which is what §3 actually asks for.
+      specGain: 1.25, specExponent: 170, specThreshold: 0.55, specSoftness: 0.07,
     }),
-    // The eye takes the stock preset's rim envelope, not `BODY_RIM`: the iris is
-    // four pixels wide at battle distance and a lifted fresnel floor across it
-    // is a grey smear over the one facial feature that has to stay legible. Its
-    // own catch-light already supplies the highlight a rim would be faking.
-    eye: toonMaterial('eye', { forge, lighting, name: `${def.id}:eye` }),
+    cloth: toonMaterial('cloth', { ...shared, name: `${def.id}:cloth` }),
+    metal: toonMaterial('metal', { ...shared, name: `${def.id}:metal` }),
+    // Simulated cloth gets its own material, and the only thing that differs is
+    // the rim. A fresnel rim is only a *rim* on a convex body, where `N·V → 0`
+    // happens along the silhouette and nowhere else. A cape, a skirt and an
+    // apron are large flat sheets hanging edge-on to the fixed side-view
+    // camera, so `N·V → 0` over their entire area and the "rim" floods the
+    // whole panel with the rig's teal ring glow — which is what turned every
+    // costume in the party into the same sheet of pale cyan and hid all of §5's
+    // colour blocking behind it. Held to a fifth of the body's gain and a
+    // tighter fresnel, the band survives where a hem genuinely curves away and
+    // stops competing with the albedo everywhere else.
+    panel: toonMaterial('cloth', {
+      ...shared, name: `${def.id}:panel`,
+      rimGain: 0.10, rimPower: 4.5, rimFloor: 0.25,
+      // And its shadow runs darker and keeps more of its own hue. The fixed
+      // side-view camera sees the *back* of every cape, so a panel's shadow
+      // response — not its lit response — is what the garment actually looks
+      // like in play. The body's 0.48 rotation toward the scene tint is right
+      // for a surface whose lit side dominates and wrong here: it turned a
+      // scarlet coat tail grey-violet, which is identity thrown away on the
+      // largest area a character owns.
+      shadowMix: 0.30, shadowValue: 0.60, shadowLevel: 0.14, ambientGain: 0.62,
+    }),
     glow: glowMaterial(def.id),
   };
+
+  // ANIME_PIPELINE §4: "Skip outlines on the eyes; the painted lash line already
+  // provides that weight." A hull around the face plate would draw a dark ring
+  // across the cheeks, and the head's silhouette is already inked by the skull's
+  // own hull. Marked on the materials so `buildOutline` refuses them even if a
+  // caller reaches for `buildOutlines(root)`.
+  setOutlineSkip(materials.face);
+  setOutlineSkip(materials.glow);
 
   // ---- skinned meshes ----------------------------------------------------
   const meshes = [];
   const outlines = [];
-  // One outline material per character, shared by all of its hulls: the width
-  // is a viewport fraction, so every class wants the identical value and six
-  // copies would be six extra uniform blocks for no visual difference.
-  const outlineMaterial = outline
-    ? createToonOutlineMaterial({ name: `${def.id}:outline`, width: outlineWidth })
-    : null;
   const bounds = new THREE.Sphere(new THREE.Vector3(0, H * 0.55, 0), H * 1.15);
   for (const cls of CLASSES) {
     const list = buckets.get(cls);
@@ -2281,8 +2520,13 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
 
     const mesh = new THREE.SkinnedMesh(merged, materials[cls]);
     mesh.name = `${def.id}:${cls}`;
-    mesh.castShadow = true;
-    mesh.receiveShadow = cls !== 'glow';
+    // The face plate neither casts nor receives. It is coincident with the
+    // skull to within a third of a millimetre, so casting from it would put
+    // shadow acne across the painted eyes — the one surface in the game that
+    // cannot afford any — while the skull behind it already casts the identical
+    // silhouette. `glow` is emissive and has nothing to occlude.
+    mesh.castShadow = cls !== 'face' && cls !== 'glow';
+    mesh.receiveShadow = cls !== 'face' && cls !== 'glow';
     mesh.frustumCulled = true;
     root.add(mesh);
     // Bound with the rig at the origin: `AttachedBindMode` (the default)
@@ -2291,56 +2535,15 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     mesh.bind(rig.skeleton, new THREE.Matrix4());
     meshes.push(mesh);
 
-    // Inverted-hull outline on the shading classes that define the silhouette.
-    // Skipped on `eye` and `glow`: an outline around a four-pixel catch-light
-    // erases it, and the face already carries its own drawn dark ring.
-    if (outline && cls !== 'eye' && cls !== 'glow') {
-      const hull = createToonOutline(mesh, { material: outlineMaterial });
+    // Inverted-hull outline on the classes that define the silhouette.
+    // `buildOutline` derives the line colour from the source material's own
+    // albedo — per fragment here, since every one of these carries a vertex
+    // colour block — which is how ANIME_PIPELINE §4's "dark-warm line on hair,
+    // dark-cool on cloth" happens on a single merged mesh.
+    if (outline && OUTLINED.has(cls)) {
+      const hull = buildOutline(mesh, { width: outlineWidth });
       if (hull) outlines.push(hull);
     }
-  }
-
-  // ---- face groups on the head bone --------------------------------------
-  const headLocal = new THREE.Matrix4().makeTranslation(-headWorld.x, -headWorld.y, -headWorld.z);
-  const irisGroup = new THREE.Group();
-  irisGroup.name = `${def.id}:irises`;
-  const extraGeo = [];
-
-  if (!irisSurface.empty) {
-    const g = irisSurface.finish(0);
-    g.applyMatrix4(headLocal);
-    planarUV(g, 3.2 / H);
-    const mesh = new THREE.Mesh(g, materials.eye);
-    mesh.name = `${def.id}:iris`;
-    mesh.castShadow = false;
-    irisGroup.add(mesh);
-    extraGeo.push(g);
-  }
-  if (!catchSurface.empty) {
-    const g = catchSurface.finish(0);
-    g.applyMatrix4(headLocal);
-    planarUV(g, 3.2 / H);
-    const mesh = new THREE.Mesh(g, materials.glow);
-    mesh.name = `${def.id}:catchlight`;
-    mesh.castShadow = false;
-    irisGroup.add(mesh);
-    extraGeo.push(g);
-  }
-  if (irisGroup.children.length) rig.bones.head.add(irisGroup);
-
-  let lidGroup = null;
-  if (!lidSurface.empty) {
-    const g = lidSurface.finish(0);
-    g.applyMatrix4(headLocal);
-    planarUV(g, 3.2 / H);
-    lidGroup = new THREE.Group();
-    lidGroup.name = `${def.id}:lids`;
-    const mesh = new THREE.Mesh(g, materials.skin);
-    mesh.castShadow = false;
-    lidGroup.add(mesh);
-    lidGroup.visible = false;
-    rig.bones.head.add(lidGroup);
-    extraGeo.push(g);
   }
 
   // ---- grounding ---------------------------------------------------------
@@ -2348,7 +2551,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
   if (contact) root.add(contact.group);
 
   // ---- cloth -------------------------------------------------------------
-  const cloth = buildCloth(root, rig, metrics, def, pal, materials, forge);
+  const cloth = buildCloth(root, rig, metrics, def, pal, materials);
 
   // ---- animator ----------------------------------------------------------
   const skip = new Set();
@@ -2362,8 +2565,11 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     metrics,
     def,
     skip,
-    irises: irisGroup.children.length ? irisGroup : null,
-    lids: lidGroup,
+    // No iris or lid geometry exists any more: both are painted into the face
+    // texture, and `Animator` treats them as optional. Blink and gaze are
+    // therefore currently inert — see the note on `setExpression`.
+    irises: null,
+    lids: null,
   });
   animator.play('idle', { fade: 0 });
 
@@ -2404,9 +2610,30 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
      * @param {object} o forwarded to `updateToonUniforms`
      */
     setToonUniforms(o) {
-      for (const key of ['skin', 'hair', 'cloth', 'metal', 'eye']) {
+      for (const key of ['skin', 'face', 'hair', 'cloth', 'metal', 'panel']) {
         updateToonUniforms(materials[key], o);
       }
+    },
+    /**
+     * Swap the painted face for another expression — `'neutral'`,
+     * `'determined'`, `'hurt'` or `'joy'`.
+     *
+     * This is the whole expression system now that the face is a texture, and
+     * it is a single `map` assignment: `FaceTexture` caches by (character,
+     * expression, size), so the first call per expression paints a 512² canvas
+     * and every call afterwards is free. Nothing recompiles — `USE_MAP` is
+     * already defined and three refreshes the sampler from `material.map` each
+     * frame.
+     *
+     * The textures are owned by that cache and are deliberately **not** disposed
+     * with the character: a party of four sharing the neutral face is the normal
+     * case, and releasing it with the first member to be torn down would blank
+     * the other three. `disposeFaceCache()` is the global release.
+     *
+     * @param {string} name expression id; unknown names fall back to neutral.
+     */
+    setExpression(name) {
+      materials.face.map = buildFaceTexture(def, { expression: name });
     },
     dispose() {
       if (disposed) return;
@@ -2414,20 +2641,17 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
       animator.dispose();
       cloth?.dispose();
       contact?.dispose();
-      // Outlines share their source geometry, so they are detached before the
-      // meshes free it; `disposeToonOutline` knows not to touch a supplied
-      // material, which is why the shared one is disposed separately below.
-      for (const hull of outlines) disposeToonOutline(hull);
-      outlineMaterial?.dispose();
+      // Hulls share their source's attribute buffers, so they are released
+      // before the meshes free them; `disposeOutline` detaches the shared
+      // attributes first and only reclaims the hull's own welded-normal buffer.
+      disposeOutline(outlines);
       for (const mesh of meshes) {
         mesh.geometry.dispose();
         mesh.removeFromParent();
       }
-      for (const g of extraGeo) g.dispose();
-      irisGroup.removeFromParent();
-      lidGroup?.removeFromParent();
-      // The toon ramp and the detail normals belong to the forge, which guards
-      // its own dispose; the materials themselves are per-character and ours.
+      // The materials are per-character and ours. The face *texture* is not: it
+      // belongs to `FaceTexture`'s cache and is shared with every other
+      // character wearing the same expression.
       for (const key of Object.keys(materials)) materials[key].dispose();
       rig.skeleton.dispose?.();
       root.removeFromParent();
@@ -2440,7 +2664,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
  * Cloth rig: colliders derived from the body's own capsules, then one to three
  * simulated panels per character according to the roster's `cape` block.
  */
-function buildCloth(root, rig, metrics, def, pal, materials, forge) {
+function buildCloth(root, rig, metrics, def, pal, materials) {
   const cape = def.cape;
   const chainCount = metrics.chains.hair.length - 1;
   if (!cape && chainCount <= 0) return null;
@@ -2458,16 +2682,21 @@ function buildCloth(root, rig, metrics, def, pal, materials, forge) {
     sim.addCollider(`thigh${s}`, `shin${s}`, g.thigh * 1.15);
   }
 
-  const clothMat = materials.cloth;
+  const clothMat = materials.panel;
 
   if (cape) {
     const len = cape.length * H;
     const wid = cape.width * H;
-    // Graded, not raw. `pal.cape` for the oracle is ivory `#EAE2D4`, linear
-    // luminance 0.76 against ART_BIBLE §4's 0.20–0.55 cloth ceiling; ungraded it
-    // becomes the brightest object in the frame and the eye lands on a blank
-    // rectangle instead of on a face. `gradeAlbedo` moves the level and leaves
-    // the WORLD_BIBLE hue untouched.
+    // Graded rather than raw, so a swatch authored by eye cannot invert the
+    // frame's value hierarchy — Seren's ivory is linear luminance 0.81 and
+    // would otherwise be the brightest object on the stage. `gradeAlbedo` moves
+    // the level and leaves the authored hue untouched.
+    //
+    // Cape outside is the identity colour and the lining is the trim, which is
+    // deliberate and is most of what the cloth contributes to §5: a coat that
+    // flares shows a hard flash of the character's brightest colour, and it is
+    // the one moment in an idle where the trim is a large area rather than a
+    // seam.
     const common = {
       material: clothMat,
       color: gradeAlbedo(pal.cape, 'cloth'),
@@ -2524,7 +2753,7 @@ function buildCloth(root, rig, metrics, def, pal, materials, forge) {
     if (cape.skirt) {
       sim.addPanel({
         material: clothMat,
-        color: gradeAlbedo(pal.primary, 'cloth'),
+        color: gradeAlbedo(pal.identity, 'cloth'),
         lining: gradeAlbedo(pal.secondary, 'cloth'),
         thickness: H * 0.007,
         name: `${def.id}-skirt`,
@@ -2603,6 +2832,128 @@ function buildCloth(root, rig, metrics, def, pal, materials, forge) {
   // §7.9 again: cloth that stops when the character does is a failed review.
   sim.setWind(new THREE.Vector3(0.28, 0.0, -0.16), 0.30);
   return sim;
+}
+
+/**
+ * Build-time geometry audit for one roster entry.
+ *
+ * The review's fifth finding asks for exactly this: "an automated check that
+ * every rig's face UV island is non-empty and that the face normal is within 15
+ * degrees of the head bone's forward". Two of six characters shipped without a
+ * usable face and nothing in the pipeline noticed, because the only test was a
+ * person looking at a render. This runs the same builders `buildCharacter` runs,
+ * inspects the raw vertex buffers, and reports the invariants that were violated
+ * — no renderer, no canvas, no browser, so it can run anywhere.
+ *
+ * Checks, in the order they matter:
+ *
+ *  - `face-uv-island` — the plate's UV must span most of the texture. An island
+ *    collapsed to a point is the failure mode where a face texture binds but
+ *    lands on three texels of blank cheek.
+ *  - `face-normal` — the plate's area-weighted normal must point within 15° of
+ *    the head's forward axis. This is the check that catches a face plane
+ *    rotated onto the temple.
+ *  - `hair-in-skull` — no hair vertex inside the scalp. Below 1.0 is a lock
+ *    driven through the head; this is what produced the mottling.
+ *  - `hair-over-eyes` — no hair vertex in front of the painted eye block.
+ *  - `heads-tall` — REFERENCE_TARGET §1's 3.0–3.5 band, measured against the
+ *    silhouette head mass (skull plus hair) rather than the skull alone,
+ *    because that is what a critic measures.
+ *
+ * @param {object|string} defOrId roster entry or id
+ * @returns {{id: string, headsTall: number, faceUvSpan: number,
+ *            faceNormalDeg: number, hairMinDepth: number,
+ *            hairFaceIntrusion: number, issues: string[]}}
+ */
+export function auditCharacter(defOrId) {
+  const def = typeof defOrId === 'string' ? characterDef(defOrId) : defOrId;
+  if (!def) throw new Error(`[CharacterFactory] unknown character "${defOrId}"`);
+  const m = computeMetrics(def);
+  const pal = def.palette;
+  const issues = [];
+
+  // ---- face plate ---------------------------------------------------------
+  const plate = buildFacePlate(m, pal);
+  let uMin = Infinity; let uMax = -Infinity;
+  let vMin = Infinity; let vMax = -Infinity;
+  for (let i = 0; i < plate.uv.length; i += 2) {
+    uMin = Math.min(uMin, plate.uv[i]); uMax = Math.max(uMax, plate.uv[i]);
+    vMin = Math.min(vMin, plate.uv[i + 1]); vMax = Math.max(vMax, plate.uv[i + 1]);
+  }
+  const faceUvSpan = Math.min(uMax - uMin, vMax - vMin);
+
+  // Area-weighted so the buried rim ring — which genuinely faces sideways —
+  // cannot outvote the flat centre the painting actually lands on.
+  const normal = new THREE.Vector3();
+  const va = new THREE.Vector3(); const vb = new THREE.Vector3(); const vc = new THREE.Vector3();
+  const ab = new THREE.Vector3(); const ac = new THREE.Vector3(); const cr = new THREE.Vector3();
+  const at = (id, out) => out.set(plate.pos[id * 3], plate.pos[id * 3 + 1], plate.pos[id * 3 + 2]);
+  for (let t = 0; t < plate.idx.length; t += 3) {
+    at(plate.idx[t], va); at(plate.idx[t + 1], vb); at(plate.idx[t + 2], vc);
+    ab.subVectors(vb, va); ac.subVectors(vc, va);
+    normal.add(cr.crossVectors(ab, ac));
+  }
+  const faceNormalDeg = normal.lengthSq() > 1e-20
+    ? THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(normal.normalize().z, -1, 1)))
+    : 180;
+
+  if (!(faceUvSpan > 0.6)) issues.push(`face-uv-island: span ${faceUvSpan.toFixed(3)} < 0.6`);
+  if (!(faceNormalDeg < 15)) issues.push(`face-normal: ${faceNormalDeg.toFixed(1)}° off head forward`);
+
+  // ---- hair ---------------------------------------------------------------
+  const parts = [];
+  buildHair(parts, m, def, pal);
+  let hairMinDepth = Infinity;
+  let hairFaceIntrusion = -Infinity;
+  let deepestAt = '';
+  let crown = m.head.crownY;
+  let hairWidth = m.head.rx * 2;
+  for (let p = 0; p < parts.length; p++) {
+    const pos = parts[p].surface.pos;
+    for (let i = 0; i < pos.length; i += 3) {
+      const d = skullDepth(m.head, pos[i], pos[i + 1], pos[i + 2]);
+      if (d < hairMinDepth) {
+        hairMinDepth = d;
+        // Naming the offending surface is the difference between a check that
+        // reports a number and one that tells you which builder to open.
+        deepestAt = `part ${p} at (${pos[i].toFixed(3)}, ${(pos[i + 1] - m.head.center.y).toFixed(3)}, ${pos[i + 2].toFixed(3)})`;
+      }
+      hairFaceIntrusion = Math.max(hairFaceIntrusion, faceIntrusion(m, pos[i], pos[i + 1], pos[i + 2]));
+      crown = Math.max(crown, pos[i + 1]);
+      hairWidth = Math.max(hairWidth, Math.abs(pos[i]) * 2);
+    }
+  }
+  // A shell wall sits at 1.045 and the clearance solver holds clumps above it;
+  // 1.02 is the tolerance for the radial metric ignoring `profile()`'s swell.
+  if (hairMinDepth < 1.02) {
+    issues.push(`hair-in-skull: min depth ${hairMinDepth.toFixed(3)} — ${deepestAt}`);
+  }
+  if (hairFaceIntrusion > 0) {
+    issues.push(`hair-over-eyes: ${(hairFaceIntrusion / m.head.ry).toFixed(3)} ry in front of the plate`);
+  }
+
+  // ---- proportion ---------------------------------------------------------
+  const headMass = crown - m.head.chinY;
+  const headsTall = m.height / headMass;
+  if (headsTall < 3.0 || headsTall > 3.5) {
+    issues.push(`heads-tall: ${headsTall.toFixed(2)} outside REFERENCE §1's 3.0–3.5`);
+  }
+
+  return {
+    id: def.id,
+    headsTall,
+    headMassWidth: hairWidth / m.head.ry,
+    faceUvSpan,
+    faceNormalDeg,
+    hairMinDepth,
+    hairFaceIntrusion: hairFaceIntrusion / m.head.ry,
+    issues,
+  };
+}
+
+/** {@link auditCharacter} across the whole roster. */
+export function auditRoster(defs = ROSTER) {
+  return defs.map((d) => auditCharacter(d));
 }
 
 export default buildCharacter;

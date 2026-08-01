@@ -39,6 +39,7 @@
  * OWNED BY: characters.
  */
 import * as THREE from 'three';
+import { FACE_LAYOUT } from './FaceTexture.js';
 
 /** The contractual core skeleton, in the order used for `skinIndex`. */
 export const BONE_NAMES = Object.freeze([
@@ -120,6 +121,78 @@ const FALLBACK_PROPORTIONS = Object.freeze({
 
 const v3 = (x, y, z) => ({ x, y, z });
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
+const pw = (x, e) => Math.sign(x) * Math.pow(Math.abs(x), e);
+
+/**
+ * The one definition of the skull surface, shared by every consumer.
+ *
+ * The head is a *profiled superellipsoid*: `eV` squares the vertical section
+ * slightly and `profile(v)` narrows the jaw and swells the cranium. Three
+ * separate places used to re-derive that shape — the mesh builder, the face
+ * projector and the hair shell — and each got it a little different. The hair
+ * shell in particular treated the head as a plain ellipsoid, so wherever
+ * `profile` swelled the cranium past the shell's inner wall the *scalp erupted
+ * through the hair*, which is the mottled "camo" blotching the review found on
+ * every head in the cast. There is now exactly one function.
+ *
+ * `scale` offsets the surface radially about the head centre. The skull is
+ * star-shaped about that point, so any `scale > 1` surface **strictly encloses**
+ * it: that is the property that makes a hair shell provably incapable of
+ * intersecting the scalp, rather than merely tuned not to.
+ *
+ * @param {object} head `metrics.head`
+ * @param {number} theta azimuth; +Z (the face direction) is θ = π/2
+ * @param {number} phi latitude in [-π/2, π/2]
+ * @param {number} [scale=1] radial offset factor about the head centre
+ * @param {{x:number,y:number,z:number}} [out]
+ */
+export function skullPoint(head, theta, phi, scale = 1, out = { x: 0, y: 0, z: 0 }) {
+  const cr = pw(Math.cos(phi), head.eV) * head.profile(phi / Math.PI + 0.5) * scale;
+  out.x = head.rx * cr * Math.cos(theta);
+  out.y = head.center.y + head.ry * scale * pw(Math.sin(phi), head.eV);
+  out.z = head.rz * cr * Math.sin(theta);
+  return out;
+}
+
+/**
+ * How far a point sits from the head centre, measured in skull radii.
+ *
+ * `1` is exactly on the scalp, `< 1` is buried inside it. Everything that has
+ * to keep clear of the head — a hair lock, a beard clump, a collar — tests
+ * against this rather than against a hand-written fraction of `head.rx`, which
+ * is how locks ended up anchored *inside* the skull and surfacing through the
+ * temple.
+ *
+ * The measure ignores `profile`, which swells the cranium by at most 4.5%; every
+ * caller therefore carries a clearance of at least that much on top.
+ */
+export function skullDepth(head, x, y, z) {
+  const dx = x / head.rx;
+  const dy = (y - head.center.y) / head.ry;
+  const dz = z / head.rz;
+  return Math.hypot(dx, dy, dz);
+}
+
+/**
+ * The hairline, as a function of azimuth — shared by the hair shell, the lock
+ * clearance solver and the ear placement.
+ *
+ * A revolved shell over the skull covers the *face*, so its lower boundary has
+ * to ride high across the forehead and drop away at the nape, exactly like a
+ * real hairline. `theta` follows `skullPoint`'s convention, so `sin(theta)` is
+ * +1 at the face and −1 at the nape.
+ *
+ * The blend is cubic in the front-facing fraction rather than linear: a linear
+ * blend puts the hairline halfway down the cheek at the ears, which reads as a
+ * swim cap — one of the specific things the review named.
+ */
+export function hairlinePhi(theta, frontPhi, backPhi, peak) {
+  const f = Math.sin(theta);
+  const t = (f + 1) * 0.5;
+  const k = t * t * (3 - 2 * t);
+  return backPhi + (frontPhi - backPhi) * k - peak * Math.max(0, f) ** 3;
+}
 
 /**
  * Resolve a definition's proportions into absolute body dimensions.
@@ -236,11 +309,11 @@ export function computeMetrics(def = {}) {
     crownY,
     /**
      * The skull is a *superellipsoid*, not an ellipsoid, and the exponent lives
-     * here rather than in the mesh builder for one specific reason: the face
-     * decals (eyes, brows, mouth) are projected onto the skull surface, and if
-     * the projector and the mesh disagree about the surface by even half a
-     * millimetre the decals sink into the head and the character renders with
-     * partial rings for eyes. There is exactly one definition of the skull.
+     * here rather than in the mesh builder for one specific reason: the painted
+     * face plate is projected onto the skull surface, and if the projector and
+     * the mesh disagree about the surface by even half a millimetre the plate
+     * sinks into the head and the face renders as fragments. There is exactly
+     * one definition of the skull.
      */
     eV: 0.94,
     /**
@@ -257,49 +330,169 @@ export function computeMetrics(def = {}) {
     },
   };
 
-  // Face layout. Eyes sit low on the face — the chibi convention that reads as
-  // "young" — and their size is the loudest single knob in the whole system.
+  // ------------------------------------------------------------- the face
   //
-  // REFERENCE_TARGET §1: "very large, high-contrast eyes [...] occupying much of
-  // the face". A pair at this width spans 1.38 head-radii of a 2.0-radius face,
-  // i.e. 69% of the visible face width is eye — which is what makes the read
-  // survive at 80 px, where the entire head is 30 px across.
-  const eye = {
-    halfSpan: head.rx * 0.44 * p.eyeSpacing,
-    y: headCY - head.ry * 0.17,
-    // 0.60 × 0.74 rather than 0.54 × 0.62. The pair now spans 1.48 head-radii of
-    // a 2.0-radius face and stands 0.74 of a head *radius* tall, so at the
-    // eighty-pixel battle read the eye block is ~9 px rather than ~7 — the
-    // difference between "the head has features" and "the head is an ovoid".
-    // Growing height faster than width is deliberate: the vertical dimension is
-    // what carries the iris, and an iris under about a third of the aperture
-    // stops registering as a colour before it stops registering as a shape.
-    width: head.rx * 0.60 * p.eye,
-    height: head.ry * 0.74 * p.eye,
-    // Lifted with the eye so the brow still clears the aperture: the eye's top
-    // edge is now at +0.20 ry, and a brow bar 0.115 ry thick centred at 0.46 ry
-    // leaves a clean 0.04 ry of skin between the two. They must not touch — a
-    // brow fused to the lash line reads as a single dark smear at distance,
-    // which is the one way a brow can make a face *less* legible.
-    browLift: head.ry * 0.46,
-    browAngle: p.browAngle,
-    browThickness: head.ry * 0.115,
+  // ANIME_PIPELINE §1 makes the face a **painted texture**, so the geometry's
+  // entire job is to present a correctly placed, correctly scaled square for
+  // `FaceTexture` to land on. That square is the "face plate" —
+  // `CharacterFactory.buildFacePlate` projects it onto the skull.
+  //
+  // Two decisions here are what make the painting land where the painter meant
+  // it to, and both are solved rather than authored:
+  //
+  //  - **The plate is square in world units.** `FaceTexture` draws into a square
+  //    canvas and positions every feature as a fraction of it, so a plate with
+  //    any other aspect stretches the eyes and nothing downstream can correct
+  //    for it. Height sets the scale: 1.90 head-radii runs from just below the
+  //    crown to just past the chin, which is the region a drawn face occupies.
+  //  - **The vertical placement is solved from the layout table.**
+  //    `FACE_LAYOUT.eyeY` puts the painted eye line 56% down the square, and
+  //    that has to coincide with the anatomical eye line — so the plate's top
+  //    edge is *derived* from the eye line, not guessed at. Retune either and
+  //    they stay locked together.
+  const faceSize = head.ry * 1.90;
+  // 0.17 ry below the head's centre. Eyes sit low on a chibi skull — the
+  // convention that reads as "young" — and this places the pair 58.5% of the
+  // way from crown to chin, which is what `FACE_LAYOUT.eyeY`'s 0.56 is aiming
+  // at once the plate's small overhang above the crown is accounted for.
+  const eyeY = headCY - head.ry * 0.17;
+  const face = {
+    /** Edge of the square the face texture maps onto, in world units. */
+    size: faceSize,
+    /** World Y of the texture's top edge (v = 1) and bottom edge (v = 0). */
+    top: eyeY + FACE_LAYOUT.eyeY * faceSize,
     /**
-     * Base stand-off of the face decal stack from the skull, and the spacing
-     * between its layers.
+     * Stand-off from the skull, applied purely along **+Z**.
      *
-     * These are not arbitrary: the eye is a stack of seven coplanar-ish sheets
-     * (outline, sclera, iris rim, iris, pupil, upper lash, catch-light) plus the
-     * blink lid, and the mobile ones are a *rigid* mesh on the head bone while
-     * the outline is *skinned*, so under a neck bend the two surfaces separate
-     * slightly. A gap of 0.85% of a head radius is under a pixel at battle
-     * distance, comfortably past depth-buffer precision at closeup range, and
-     * small enough that the whole stack still stands under 8% of a head radius
-     * proud of the skull — i.e. it reads as painted on rather than as a bundle
-     * of floating discs.
+     * Along the normal — which is what this used to do — the offset carries an
+     * x and y component that shifts the plate's world position away from the
+     * plate coordinate it was solved for, so the UV stops being an exact affine
+     * function of position and the painted eye smears by a fraction of a
+     * millimetre that grows toward the outer canthus. Along +Z the plate's `x`
+     * and `y` are *identically* the texture coordinates, at any tessellation,
+     * which is what makes the two eyes provably the same size and the same
+     * height. It costs a cosine of the local slope in effective clearance, and
+     * the flattening below has already made that slope small where it matters.
      */
-    lift: headR * 0.018,
-    layerGap: headR * 0.0085,
+    lift: headR * 0.016,
+    /**
+     * Plate extent. Deliberately *not* square.
+     *
+     * The face texture is square, but the region of skull that can carry it
+     * without the projector running out of cross-section is not: the skull
+     * narrows hard toward the chin, so a plate as tall as it is wide runs its
+     * lower corners past the jaw's half-width, where the projection's `acos`
+     * saturates and the texture piles up into the smear the review saw as a
+     * "truncated" eye. Capping the height at 0.88 ry and solving the width
+     * against the *local* cross-section (see `CharacterFactory.buildFacePlate`)
+     * removes the saturation entirely rather than tuning around it.
+     */
+    halfX: head.ry * 0.98,
+    halfY: head.ry * 0.88,
+    /**
+     * How far the plate is flattened toward a plane, 0–1.
+     *
+     * A face painted flat and wrapped onto a sphere foreshortens toward the
+     * temples: across the eye pair the skull recedes about 0.19 head-radii, so
+     * one eye compresses relative to the other the moment the head turns even
+     * slightly — which is exactly the "different sizes at different heights"
+     * the review measured. Anime 3D solves this with a deliberately flattened
+     * face front (the "face shield"), and so do we: each row of the plate is
+     * pulled 62% of the way toward the depth of its own centre column.
+     *
+     * The construction is bounded by design. The correction is zero on the
+     * centreline and can never exceed the row's centre depth, so the plate is
+     * incapable of breaking the head's profile silhouette no matter what the
+     * proportions are.
+     */
+    flatten: 0.62,
+    /** Radii (as a fraction of plate radius) over which the flattening fades. */
+    flatFrom: 0.86,
+    flatTo: 0.96,
+    /**
+     * Where the plate starts diving inside the skull, and by how much.
+     *
+     * The rim has to be *buried*, not merely coincident: a plate edge on the
+     * silhouette prints a bright hard line across the cheek under the mandatory
+     * rim light. Scaling the rim ring 8% toward the head centre puts it
+     * unambiguously inside a star-shaped solid, so there is no tuning to get
+     * wrong. Every painted feature sits inside r = 0.84 (measured across the
+     * whole roster), so the dive never touches one.
+     */
+    buryFrom: 0.92,
+    buryDepth: 0.08,
+  };
+  face.bottom = face.top - faceSize;
+  face.centerY = face.top - faceSize * 0.5;
+
+  // Where the painted features land, in world units.
+  //
+  // Nothing in this file draws them — `FaceTexture` does — but the hair builder
+  // has to know: a fringe lock hanging through an eye is the one hair failure
+  // that cannot be shaded away. Deriving the clearance from `FACE_LAYOUT`
+  // rather than authoring it means no roster value and no retune of the painted
+  // layout can put hair over the eyes.
+  const eye = {
+    y: eyeY,
+    halfSpan: (0.5 - FACE_LAYOUT.eyeX) * faceSize * p.eyeSpacing,
+    width: FACE_LAYOUT.eyeW * faceSize * p.eye,
+    height: FACE_LAYOUT.eyeH * faceSize * p.eye,
+    browAngle: p.browAngle,
+  };
+  // Top of the brow stroke: the eye's upper edge, plus the layout's clearance,
+  // plus a half-thickness generous enough for the thickest brow the painter
+  // draws (`FaceTexture` tops out near 0.072 of the square).
+  eye.browTop = eye.y + eye.height * 0.5 + (FACE_LAYOUT.browGap + 0.045) * faceSize;
+
+  // The region nothing is ever allowed to occlude: the painted eye envelope and
+  // a small margin, and nothing else.
+  //
+  // Deliberately *not* the whole plate, and deliberately not up to the brow. A
+  // fringe belongs in front of the forehead, a beard in front of the chin, and
+  // an anime fringe routinely crosses the outer corner of the eye — a guard
+  // covering those would flatten all three back into the skull and produce a
+  // bald forehead. What cannot happen, at any tessellation or proportion, is
+  // hair in front of the iris, which is the whole face (REFERENCE §1).
+  face.guardTop = eye.y + eye.height * 0.52;
+  face.guardBottom = eye.y - eye.height * 0.58;
+  /** Half-width of the protected column: the iris pair plus a margin. */
+  face.guardX = eye.halfSpan + eye.width * 0.34;
+
+  // ---------------------------------------------------- hairline and ears
+  //
+  // The hairline is solved here, once, because three consumers need the *same*
+  // curve: the hair shell is bounded by it, the lock-clearance solver switches
+  // its minimum radius across it, and the ears have to sit below it or they
+  // erupt through the hair. Previously only the shell knew where it was.
+  const hp = def.hair ?? {};
+  const hairline = {
+    // Pinned to the painted brow, never authored: clearance above the brow is
+    // 7% of a head radius — enough that the shell never touches the stroke,
+    // tight enough that no band of bare forehead opens up under it.
+    frontPhi: Math.asin(clamp(
+      (eye.browTop + head.ry * 0.07 - headCY) / head.ry, -0.98, 0.98,
+    )),
+    backPhi: -(0.32 + (hp.capDrop ?? 0.5) * 0.95),
+    peak: 0.10,
+  };
+  /** Latitude of the hairline at the ears (θ = 0, the pure side). */
+  hairline.earPhi = hairlinePhi(0, hairline.frontPhi, hairline.backPhi, hairline.peak);
+
+  // Ears: small nubs whose only job is to stop the head silhouetting as a
+  // perfect circle. They must sit **entirely below the hairline** — an ear that
+  // pokes above it punches through the hair shell and mottles the temple, which
+  // is half of the blotching the review reported. Solving the top edge from
+  // `earPhi` rather than from a fixed fraction of `ry` means no `capDrop` in the
+  // roster can reintroduce the defect.
+  const earR = head.ry * 0.155;
+  const earTop = head.ry * pw(Math.sin(hairline.earPhi), head.eV);
+  const ear = {
+    cx: head.rx * 0.93,
+    cy: headCY + earTop - earR * 1.30,
+    cz: -head.rz * 0.06,
+    rx: head.rx * 0.17,
+    ry: earR,
+    rz: head.rz * 0.10,
   };
 
   return Object.freeze({
@@ -309,7 +502,10 @@ export function computeMetrics(def = {}) {
     girth,
     foot,
     head,
+    ear,
+    hairline: Object.freeze(hairline),
     eye,
+    face,
     segments: {
       upperArm: upper, foreArm: fore,
       thigh: legDrop * F.upperLeg, shin: legDrop * (1 - F.upperLeg),
@@ -342,12 +538,17 @@ function buildChainMetrics(def, { head, joints, girth, H }) {
     // defect. `capScale` is the hair shell's outer radius multiplier, so
     // clearing it by a further 6% guarantees the first link of every chain
     // begins in open air behind the nape regardless of style.
-    const shell = (hair.capScale ?? 1.08) * 1.06;
+    const shell = Math.max(hair.capScale ?? 1.08, 1.10) * 1.08;
     const start = v3(0, head.center.y + head.ry * 0.22, -head.rz * shell);
     // A braided style keeps a short `backLength` for the mass at the nape *and*
     // a long `braidLength` for the plait itself; the chain must measure the
     // plait, so the braid wins wherever both are present.
-    const total = (hair.braidLength ?? hair.backLength ?? 0.4) * H;
+    //
+    // Measured in **head diameters**, matching every other hair length in the
+    // system. Hair is a function of the skull it grows on: the same fraction of
+    // body height gives Emrys (head 0.32 of height) and Yshara (0.28) visibly
+    // different-looking hair for no authored reason.
+    const total = (hair.braidLength ?? hair.backLength ?? 1.2) * head.ry * 2;
     const step = total / hairCount;
     chains.hair.push(start);
     for (let i = 1; i <= hairCount; i++) {

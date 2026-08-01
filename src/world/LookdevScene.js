@@ -210,6 +210,15 @@ function stagePlacement(slot) {
  * edge in every stage capture. 0.84 leaves a ~0.05 margin, which survives the
  * widest cape in the roster.
  *
+ * The **spacing** was then opened from 0.115 to 0.134 against that same ceiling,
+ * by starting the run at 0.17 instead of 0.26. That is not aesthetics either: at
+ * 4.6 m the battle frustum is 3.64 m of half-width, so a 0.6 m chibi-plus-hair
+ * is 0.165 of `ndc` wide and the old pitch guaranteed every neighbour overlapped.
+ * The staged captures show the consequence — the rear three fused into one mass
+ * and three of the six faces were behind someone else's hair. At 0.134 the
+ * overlap is a shoulder rather than a head, which is what a staggered diagonal
+ * is supposed to look like.
+ *
  * `turn` is how far the figure rotates **back toward the lens** from the axis
  * it would face if it squared up to the threat, and it is the single control
  * over whether this stage has faces in it. A party that simply addresses the
@@ -222,12 +231,12 @@ function stagePlacement(slot) {
  * cheat a stage director uses to keep an actor open to the house.
  */
 const PARTY = [
-  { id: 'auren',  ndc: 0.26, depth: 4.40, turn: 0.30 },
-  { id: 'kite',   ndc: 0.38, depth: 4.85, turn: 0.40 },
-  { id: 'yshara', ndc: 0.50, depth: 4.55, turn: 0.27 },
-  { id: 'bramm',  ndc: 0.62, depth: 5.05, turn: 0.36 },
-  { id: 'seren',  ndc: 0.73, depth: 4.68, turn: 0.26 },
-  { id: 'emrys',  ndc: 0.84, depth: 5.15, turn: 0.38 },
+  { id: 'auren',  ndc: 0.17, depth: 4.40, turn: 0.40 },
+  { id: 'kite',   ndc: 0.31, depth: 4.92, turn: 0.52 },
+  { id: 'yshara', ndc: 0.45, depth: 4.52, turn: 0.36 },
+  { id: 'bramm',  ndc: 0.58, depth: 5.12, turn: 0.48 },
+  { id: 'seren',  ndc: 0.71, depth: 4.62, turn: 0.34 },
+  { id: 'emrys',  ndc: 0.84, depth: 5.20, turn: 0.50 },
 ];
 
 /**
@@ -378,20 +387,41 @@ const CAMERA_POSES = {
    */
   'hero-closeup': {
     subject: 'auren',
-    swing: 0.55,
-    // 1.55 m, not 1.12. `range` is measured to the **head bone**, which sits at
-    // the top of the neck — roughly half a head-radius below the crown — so a
-    // station solved to put the bone at frame centre puts the top of a chibi's
-    // skull outside it. At 1.55 m the 34° lens frames 0.95 m of subject height,
-    // the head fills ~44% of it, and the whole silhouette from crown to belt is
-    // inside the frame with room for the diagonal behind.
-    range: 1.55,
-    rise: -0.03,
-    // `up` is positive for the same reason: the aim point sits *above* the head
-    // bone, which drops the subject in frame until the crown clears the top
-    // edge and lands the eyes just over the upper third (ART_BIBLE §5.2).
-    aim: { right: 0.20, up: 0.05 },
-    fov: 34, aperture: 8.0, grade: 'dusk',
+    // The lens sits 45% of the way from the face's own normal round to the
+    // battle camera's bearing, i.e. ~22° off axis. Enough that the skull reads
+    // as a volume with a lit side and a shadow side; close enough that both
+    // eyes, both brows and both lash flicks are fully presented, which is the
+    // only reason this frame exists. Anything past ~35° starts to foreshorten
+    // the far eye, and a painted face has no geometry to compensate with.
+    swing: 0.45,
+    /**
+     * Metres of subject height the lens covers — the framing is authored as a
+     * *size*, not as a station distance, because "head and shoulders" is a
+     * statement about the subject and the range that produces it depends on the
+     * focal length and on whose head it is.
+     *
+     * A chibi's crown-to-shoulder run is ~0.50 m and the head alone ~0.44 m, so
+     * 0.72 m frames the portrait with a shoulder's worth of costume under it
+     * and the head at ~61% of frame height. The previous 0.95 m put the head at
+     * 44% — a torso shot with a face in it, which is not enough face to judge
+     * an eye build on, and this frame's entire job is judging the eye build.
+     */
+    frame: 0.72,
+    // Camera 5 cm under the eye line: ART_BIBLE §5.4's "hero shots slightly
+    // low", and on a chibi it also stops the 12°-down battle habit from
+    // reading as a look down at a child.
+    rise: -0.05,
+    // Aim below and to one side of the eyes, which pushes the subject up and to
+    // frame left: eyes land just over the upper third and the head is off the
+    // centreline (§5.2). Signs matter — the aim point *is* frame centre, so a
+    // negative `up` puts the eyes above it.
+    aim: { right: 0.12, up: -0.10 },
+    // f/11, not f/8. Focus rides the head bone (see `poseCamera`), so the plane
+    // is on the eyes by construction; what the stop has to buy is enough depth
+    // that the whole 0.44 m skull — brow to ear to jaw — is inside it. At this
+    // range everything past two metres is still gone entirely, so the
+    // background stays as soft as REFERENCE §3 requires.
+    fov: 34, aperture: 11.0, grade: 'dusk',
   },
   /**
    * The reverse angle — the enemy reveal, and deliberately *not* a second
@@ -456,6 +486,20 @@ const FOG_COOLING = 0.34;
 
 /** Ambient fill left burning in silhouette mode: enough to see form, not value. */
 const SILHOUETTE_FILL = 0.015;
+
+/**
+ * Party outline weight, in device pixels at the capture's 1080p.
+ *
+ * ANIME_PIPELINE §4 gives 1.5–2.5 and `Outline.js` defaults to 2.0. The cast
+ * sits at the top of that band rather than the middle for a reason specific to
+ * this staging: a chibi in the battle frame is ~300 px tall and almost entirely
+ * convex, so the hull is only ever seen edge-on across a very shallow contour,
+ * and at 2.0 px it disappeared into the rim in every staged capture. 2.5 px is
+ * ~0.8% of the figure's height — an unmistakable ink line at battle distance,
+ * and still short of the cartoon border that a heavier value gives a face at
+ * portrait range.
+ */
+const OUTLINE_PIXELS = 2.5;
 
 export class LookdevScene extends Scene {
   /**
@@ -1117,7 +1161,9 @@ export class LookdevScene extends Scene {
     group.name = 'cast';
     PARTY.forEach((slot, i) => {
       const place = PARTY_PLACES[i];
-      const character = buildCharacter(slot.id, forge, { lighting: this.lighting, outline: true });
+      const character = buildCharacter(slot.id, forge, {
+        lighting: this.lighting, outline: true, outlineWidth: OUTLINE_PIXELS,
+      });
       character.root.position.set(place.x, groundHeight(place.x, place.z), place.z);
       // Square up to the vanguard husk, then open `turn` radians back toward the
       // lens. Deriving the base heading from the threat's actual position rather
@@ -1694,7 +1740,11 @@ export class LookdevScene extends Scene {
     this.focusDistance = solved.focus;
     const postfx = this.engine.get('postfx');
     if (postfx) {
+      // Order matters: `setDof` clears any tracked target, so the subject
+      // hand-off has to follow it. A station pose leaves the target cleared,
+      // which is correct — its focal plane is a place in the world, not a face.
       postfx.setDof(solved.focus, pose.aperture);
+      if (solved.focusTarget) postfx.focusOn(solved.focusTarget);
       postfx.setGrade(pose.grade ?? 'dusk', 0);
     }
     // The rig fits its cascades to the active camera; a cut without this leaves
@@ -1731,9 +1781,30 @@ export class LookdevScene extends Scene {
     // The animator writes bone rotations during `update`, so the matrices are
     // one flush behind whenever a pose change lands between ticks.
     subject.root.updateMatrixWorld(true);
-    const eye = new THREE.Vector3().setFromMatrixPosition(head.matrixWorld);
-    const facing = new THREE.Vector3(0, 0, 1)
-      .applyQuaternion(head.getWorldQuaternion(new THREE.Quaternion()));
+    const quat = head.getWorldQuaternion(new THREE.Quaternion());
+
+    // Aim at the **painted eye line**, not at the head bone.
+    //
+    // The bone sits at the top of the neck, roughly a third of a head-radius
+    // below where the eyes are drawn, and `Rig.computeMetrics` already solves
+    // the eye line's height from `FACE_LAYOUT.eyeY` so the geometry and the
+    // texture cannot disagree about it. Reading it back here is what makes this
+    // a portrait of a face rather than of a jaw: the framing, the thirds
+    // placement and — most importantly — the focal plane are all measured to
+    // the feature the frame exists to show. Carrying the offset through the
+    // head's world quaternion keeps it correct while the idle clip and the
+    // look-at are turning the skull.
+    const m = subject.metrics;
+    const eye = new THREE.Vector3(
+      0,
+      (m?.eye?.y ?? 0) - (m?.joints?.head?.y ?? 0),
+      // Forward to the skull surface, so the plane sits on the painted eye
+      // rather than inside the cranium — at f/11 that is a third of the
+      // available depth of field.
+      m?.head?.rz ? m.head.rz * 0.86 : 0,
+    ).applyQuaternion(quat).add(new THREE.Vector3().setFromMatrixPosition(head.matrixWorld));
+
+    const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(quat);
     facing.y = 0;
     if (facing.lengthSq() < 1e-6) facing.set(0, 0, 1);
     facing.normalize();
@@ -1749,10 +1820,17 @@ export class LookdevScene extends Scene {
     delta = Math.atan2(Math.sin(delta), Math.cos(delta));
     const bearing = faceBearing + delta * pose.swing;
 
+    // `frame` is metres of subject height; the range that delivers it is pure
+    // trigonometry on the pose's own lens, so changing the focal length
+    // re-solves the distance instead of silently re-cropping the portrait.
+    const range = pose.frame !== undefined
+      ? pose.frame / (2 * Math.tan((pose.fov * Math.PI) / 360))
+      : pose.range;
+
     const pos = [
-      eye.x + Math.sin(bearing) * pose.range,
+      eye.x + Math.sin(bearing) * range,
       eye.y + pose.rise,
-      eye.z + Math.cos(bearing) * pose.range,
+      eye.z + Math.cos(bearing) * range,
     ];
     // Camera right on the ground plane. The view axis is -(sin b, 0, cos b),
     // so `cross(view, up)` is (cos b, 0, -sin b): pushing the aim point along
@@ -1766,7 +1844,11 @@ export class LookdevScene extends Scene {
       eye.z + rz * pose.aim.right,
     ];
     const focus = Math.hypot(pos[0] - eye.x, pos[1] - eye.y, pos[2] - eye.z);
-    return { pos, look, focus };
+    // `focusOn` is what actually keeps the eyes sharp: the subject breathes and
+    // the look-at springs, so a focal plane pinned to one frame's measurement
+    // drifts off the face within a second. The scalar is still returned because
+    // PostFX needs somewhere to start from before the tracker's first tick.
+    return { pos, look, focus, focusTarget: head };
   }
 
   /**
@@ -1914,6 +1996,10 @@ export class LookdevScene extends Scene {
   }
 
   async unmount() {
+    // The portrait pose hands PostFX a live head bone to track. Dropping the
+    // cast without clearing it would leave the composer measuring its focal
+    // plane against a disposed skeleton in whatever scene comes next.
+    this.engine.get('postfx')?.focusOn(null);
     for (const c of this.cast) c.dispose();
     this.cast.length = 0;
     // The husks own nothing `track` is not already holding — geometry,

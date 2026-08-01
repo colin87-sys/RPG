@@ -2,32 +2,61 @@
  * roster.js — the six playable characters of AETHERWIND SAGA, as pure data.
  *
  * This file is the single source of truth `CharacterFactory` reads to build a
- * body, `Rig` reads to size a skeleton, `Animation` reads for per-character
- * motion bias, and the battle layer reads for stats. It contains **no logic**
- * beyond one id lookup: everything here must stay serialisable so a save file
- * can reference it by id and a designer can retune a character without
- * touching a line of graphics code.
+ * body, `Rig` reads to size a skeleton, `FaceTexture` reads to paint a face,
+ * `Animation` reads for per-character motion bias, and the battle layer reads
+ * for stats. It contains **no logic** beyond one id lookup: everything here must
+ * stay serialisable so a save file can reference it by id and a designer can
+ * retune a character without touching a line of graphics code.
  *
- * Two conventions that are load-bearing across the whole system:
+ * Three conventions that are load-bearing across the whole system:
  *
  * 1. **Every length is a fraction of the character's own height**, except
- *    `proportions.height`, which is in world units. That is what lets Bramm
- *    (short, wide) and Yshara (tall, narrow) share one geometry generator: the
- *    generator never sees an absolute number it could get wrong for a body
- *    type it wasn't tuned against.
+ *    `proportions.height`, which is in world units, and the `hair` block, which
+ *    is in **head diameters**. That is what lets Bramm (short, wide) and Yshara
+ *    (tall, narrow) share one geometry generator: the generator never sees an
+ *    absolute number it could get wrong for a body type it wasn't tuned against.
+ *
+ *    The hair exception is a bug fix, not a convenience. Hair is a function of
+ *    the skull it grows on and of nothing else, and the head is between 0.28 and
+ *    0.32 of body height across this roster — so the *same* fraction of body
+ *    height produces visibly different hairstyles for no authored reason. It
+ *    also produced an outright failure: Bramm's beard, at 0.50 of body height,
+ *    came out three and a half head-radii long with its top edge above his eyes,
+ *    and he shipped as a blank oval with no face. `backLength`, `beardLength`,
+ *    `spikeLength`, `topknot`, `fringeLength` and `braidLength` are all head
+ *    diameters; `capScale` is a radial multiple of the skull.
  *
  * 2. **Silhouette parameters come first.** REFERENCE_TARGET §1 requires the six
- *    to be distinguishable as flat black shapes at 80 px. At that size the face
- *    is roughly four pixels, so the only channels that actually carry identity
- *    are hair mass, weapon outline, and the cloth outline below the waist —
- *    which is why those three sub-objects are the most detailed things here and
- *    the facial parameters are three numbers.
+ *    to be distinguishable as flat black shapes at 80 px, so hair mass, weapon
+ *    outline and cloth hem are the most detailed things here.
  *
- * Palettes are contractual with WORLD_BIBLE §3; the hex values there appear
- * verbatim below. Derived tints (shade/highlight) are authored rather than
- * computed because a hue-rotated shade reads muddy on the low-band toon ramp —
- * the shadow of an amber coat wants to go teal-ward, not brown-ward, and no
- * generic darkening function knows that.
+ * 3. **Colour blocking is a hard requirement, not decoration.** ANIME_PIPELINE
+ *    §5: every character must read as three or four *flat* colour zones and be
+ *    identifiable "by colour alone" at battle distance. The first cast failed
+ *    this outright — five of the six wore a dark desaturated coat and the party
+ *    read as one navy mass. The `palette` block below is therefore organised
+ *    around four named zones rather than around a costume description:
+ *
+ *      `identity`  the dominant garment. Saturated, mid-value, and the six are
+ *                  spread around the hue wheel — cobalt, ivory, ochre, scarlet,
+ *                  violet, jade — deliberately *avoiding* the 150–200° band the
+ *                  environment's mist and sky already own (REFERENCE §4), so a
+ *                  character never dissolves into their own backdrop.
+ *      `secondary` the second-largest zone: trousers, underlayer, skirt. Chosen
+ *                  to break the trunk into two values rather than to harmonise.
+ *      `trim`      a small, *high-contrast* zone — cuffs, collar, cape lining,
+ *                  boot tops. This is the one that survives to 80 px as a spark
+ *                  of colour on an otherwise flat mass.
+ *      `accent`    metal or leather. Smallest area, highest value (§5).
+ *
+ *    Everything else in the palette exists for one named consumer, and the
+ *    comment says which.
+ *
+ * Palette values are authored in sRGB hex and consumed in linear light.
+ * Derived tints (shade / lining) are authored rather than computed because a
+ * hue-rotated shade reads muddy on a two-band cel ramp — the shadow of an amber
+ * coat wants to go teal-ward, not brown-ward, and no generic darkening function
+ * knows that.
  *
  * OWNED BY: characters.
  */
@@ -38,10 +67,22 @@
  * REFERENCE_TARGET §1 puts the party at 3.0–3.5 heads and ~1.1–1.2 units tall;
  * the spread below stays inside that with Emrys (a fourteen-year-old) at the
  * bottom of the band and Yshara at the top, so relative age reads in a lineup.
+ *
+ * The face channels need a word about which of them is authoritative.
+ * `FaceTexture.faceTraits` paints from the **numbers** — `eye`, `eyeSpacing`
+ * and `browAngle` — and derives everything else (lash weight, corner drop, brow
+ * arch, lid depth) from them. `eyeShape` and `brow` are the authoring *intent*
+ * those numbers encode, written down so that a designer retuning `eye` from
+ * 1.12 to 0.9 can see immediately that the character no longer matches the word
+ * next to it. They are documentation with a schema, not a second input.
+ *
+ * Sign convention for `browAngle`, fixed by ANIME_PIPELINE §1 ("down-inner =
+ * determined, up-inner = gentle") and matched by `FaceTexture`: **positive
+ * raises the inner end**, i.e. positive is gentle and negative is hard.
  */
 const BASE_PROPORTIONS = Object.freeze({
   height: 1.16,
-  headScale: 1.0,   // head diameter multiplier; 1.0 == 0.32 * height
+  headScale: 1.0,   // head diameter multiplier; 1.0 == 0.295 * height
   legLength: 1.0,   // shifts the hips, crown stays pinned to `height`
   shoulder: 1.0,
   chest: 1.0,
@@ -50,9 +91,11 @@ const BASE_PROPORTIONS = Object.freeze({
   arm: 1.0,         // arm segment length
   hand: 1.0,
   foot: 1.0,
-  eye: 1.0,         // eye size multiplier — the dominant facial channel
+  eye: 1.0,         // painted eye size multiplier — the dominant facial channel
   eyeSpacing: 1.0,
-  browAngle: 0.0,   // radians; positive = outer end lifted (open/kind)
+  browAngle: 0.0,   // radians; positive raises the inner end (gentle)
+  eyeShape: 'almond', // 'narrow' | 'sharp' | 'almond' | 'round'
+  brow: 'level',      // 'hard' | 'level' | 'gentle'
 });
 
 function proportions(overrides) {
@@ -68,34 +111,47 @@ export const ROSTER = Object.freeze([
     element: 'light',
     limit: { id: 'daybreak-chain', name: 'Daybreak Chain' },
 
-    proportions: proportions({ height: 1.19, shoulder: 1.07, chest: 1.04, legLength: 1.02, eye: 0.96, browAngle: -0.10 }),
+    proportions: proportions({
+      height: 1.19, shoulder: 1.07, chest: 1.04, legLength: 1.02,
+      eye: 0.96, browAngle: -0.10, eyeShape: 'sharp', brow: 'hard',
+    }),
 
+    // **Cobalt and bone.** The party's only blue, and it is a *bright* one:
+    // the failed cast's slate #3D4A5C sat at linear luminance 0.06, which is
+    // where every other costume also sat. Pale trousers under a saturated coat
+    // give him a value break at the belt that survives being 80 px tall.
     palette: Object.freeze({
       skin: 0xd9a882, skinShade: 0x9c6f56,
-      hair: 0x4a3d33, hairShade: 0x241f1c, hairLight: 0x8a705a,
-      eye: 0xc9924a, eyeCore: 0xffe0a8, sclera: 0xf2ede2, lash: 0x14181f,
-      primary: 0x3d4a5c,    // slate coat
-      secondary: 0x1e262e,  // undercoat
-      trim: 0xc9924a,       // worn amber
-      metal: 0xb8bfc7,      // steel
-      leather: 0x2b2320,
-      accent: 0xc9924a,
-      cape: 0x3d4a5c, capeLining: 0x1e262e,
+      hair: 0x4a3d33, hairShade: 0x241f1c,
+      // Iris hues are one-per-character and saturated: at closeup the eye is
+      // the largest single colour in frame (ANIME_PIPELINE §1).
+      eye: 0xefc24a, eyeCore: 0xfff0c4, sclera: 0xf2ede2, lash: 0x14181f,
+
+      identity: 0x3e6fd6,   // cobalt storm-coat
+      secondary: 0xd6c9a6,  // bone canvas trousers
+      trim: 0xf0b93c,       // gold facing, cuffs and cape lining
+      accent: 0xc6ced8,     // steel
+
+      leather: 0x3a2e26,    // belt, boot body
+      metal: 0xc6ced8,
+      cape: 0x3e6fd6, capeLining: 0xf0b93c,
       weaponA: 0xd6e4ee,    // pale moonglass
       weaponB: 0x8f9ba8,
       glow: 0xfff0b8,
     }),
 
     // Mass class: **swept wedge**. Narrowest crown in the party (0.82 heads
-    // wide) with the volume thrown backwards and down the -Z axis, so the head silhouettes as an
-    // arrowhead pointing forward — the exact inverse of Emrys's outward
-    // starburst, which is the pair most at risk of colliding at 80 px.
+    // wide) with the volume thrown backwards and down the -Z axis, so the head
+    // silhouettes as an arrowhead pointing forward — the exact inverse of
+    // Emrys's outward starburst, which is the pair most at risk of colliding at
+    // 80 px. Four fringe clumps rather than five: ANIME_PIPELINE §3 wants a few
+    // broad tapered forms with clear points, and five was one short of the
+    // width where neighbouring locks fuse into a single carved mass.
     hair: Object.freeze({
       style: 'swept',
-      capScale: 1.05, capDrop: 0.55,
-      fringe: 5, fringeLength: 0.32, fringeSweep: 0.95, fringeSpread: 1.0,
-      backLength: 0.30, backWidth: 0.82, backDepth: 1.15,
-      highlightBand: 0.62, highlightWidth: 0.14,
+      capScale: 1.12, capDrop: 0.55,
+      fringe: 3, fringeLength: 0.40, fringeSweep: 0.95, fringeSpread: 1.0,
+      backLength: 1.20, backWidth: 0.86, backDepth: 1.30,
       boneCount: 0,
     }),
 
@@ -133,35 +189,45 @@ export const ROSTER = Object.freeze([
     element: 'light',
     limit: { id: 'aubade', name: 'Aubade' },
 
-    proportions: proportions({ height: 1.08, headScale: 1.05, shoulder: 0.87, chest: 0.92, hip: 0.96, limb: 0.90, foot: 0.78, eye: 1.12, eyeSpacing: 1.03, browAngle: 0.14 }),
+    proportions: proportions({
+      height: 1.06, headScale: 1.05, shoulder: 0.87, chest: 0.92, hip: 0.96,
+      limb: 0.90, foot: 0.78,
+      eye: 1.12, eyeSpacing: 1.03, browAngle: 0.14, eyeShape: 'round', brow: 'gentle',
+    }),
 
+    // **Ivory.** Her separation is by *value* rather than hue: she is the only
+    // near-white costume in the party and the brightest thing on the stage that
+    // is not a spell, which is the read a healer wants. The teal underlayer is
+    // her element and is the one place the party is allowed into the mist's own
+    // hue band, because it sits against white.
     palette: Object.freeze({
       skin: 0xe8d3c4, skinShade: 0xab8b83,
-      hair: 0xece6da, hairShade: 0x9aa6a8, hairLight: 0xffffff,
-      eye: 0x5fb8b0, eyeCore: 0xd8fbf6, sclera: 0xf6f2ea, lash: 0x263038,
-      primary: 0xeae2d4,    // ivory robe
-      secondary: 0x5fb8b0,  // teal underlayer
+      hair: 0xece6da, hairShade: 0x9aa6a8,
+      eye: 0x4fc8be, eyeCore: 0xd8fbf6, sclera: 0xf6f2ea, lash: 0x263038,
+
+      identity: 0xf2ead8,   // ivory robe
+      secondary: 0x2fa89e,  // teal underlayer and skirt
       trim: 0xffc24d,       // gold thread
+      accent: 0xffc24d,
+
+      leather: 0xc0a87c,
       metal: 0xffc24d,
-      leather: 0xc9b79a,
-      accent: 0x5fb8b0,
-      cape: 0xeae2d4, capeLining: 0x5fb8b0,
+      cape: 0xf2ead8, capeLining: 0x2fa89e,
       weaponA: 0xd9cfc0,
       weaponB: 0xffc24d,
       glow: 0x5fb8b0,
     }),
 
     // Mass class: **long straight sheet**. Widest and longest hair in the party
-    // by a margin — 1.35 head-widths of solid slab against Auren's 0.82, past the
-    // 25% divergence the lineup test demands — and the only one bone-driven
+    // by a margin — 1.35 head-widths of solid slab against Auren's 0.82, past
+    // the 25% divergence the lineup test demands — and the only one bone-driven
     // along its full length so it never stops moving (ART_BIBLE §7.9).
     hair: Object.freeze({
       style: 'sheet',
-      capScale: 1.12, capDrop: 0.66,
-      fringe: 7, fringeLength: 0.26, fringeSweep: 0.10, fringeSpread: 1.45,
-      backLength: 0.44, backWidth: 1.35, backFlare: 1.15,
+      capScale: 1.14, capDrop: 0.66,
+      fringe: 3, fringeLength: 0.34, fringeSweep: 0.10, fringeSpread: 1.45,
+      backLength: 1.55, backWidth: 1.55, backFlare: 1.20,
       braidWidth: 0.80,
-      highlightBand: 0.58, highlightWidth: 0.18,
       boneCount: 4, boneStiffness: 0.34,
     }),
 
@@ -202,25 +268,30 @@ export const ROSTER = Object.freeze([
     // "a keg on bowed legs" — the only party member whose girth multipliers
     // exceed 1.2, and the only one with legLength below 0.9. Together those two
     // numbers do all the work; the costume just decorates the result.
-    proportions: proportions({ height: 1.13, headScale: 0.95, legLength: 0.84, shoulder: 1.26, chest: 1.34, hip: 1.28, limb: 1.26, arm: 0.94, hand: 1.18, foot: 1.20, eye: 0.84, browAngle: -0.26 }),
+    proportions: proportions({
+      height: 1.13, headScale: 0.95, legLength: 0.84, shoulder: 1.26, chest: 1.34,
+      hip: 1.28, limb: 1.26, arm: 0.94, hand: 1.18, foot: 1.20,
+      eye: 0.84, browAngle: -0.26, eyeShape: 'narrow', brow: 'hard',
+    }),
 
+    // **Ochre and oxblood.** A forge apron in hot brass over iron work clothes:
+    // the warmest large mass in the party and the only ochre, which is what
+    // keeps him off Kite's scarlet at distance even though both are warm.
     palette: Object.freeze({
       skin: 0xc08a63, skinShade: 0x855239,
-      hair: 0xa9a49a, hairShade: 0x5e5a54, hairLight: 0xe0dcd2,
-      // Iris = the element accent (ART_BIBLE §2.2 `LOAM`). Six characters, six
-      // saturated iris hues: the cheapest thing in the whole pipeline that makes
-      // a closeup instantly identifiable, and the reason this is not the
-      // desaturated blue-grey it used to be.
-      eye: 0xc98f3f, eyeCore: 0xf2d9a6, sclera: 0xeee7dc, lash: 0x1b1f24,
-      primary: 0x4a4440,    // iron
-      secondary: 0x6b3328,  // oxblood apron
-      trim: 0xb8863b,       // brass
-      metal: 0xb8863b,
-      leather: 0x6b3328,
-      accent: 0xb8863b,
-      cape: 0x6b3328, capeLining: 0x3a2420,
-      weaponA: 0xb8863b,
-      weaponB: 0x4a4440,
+      hair: 0xa9a49a, hairShade: 0x5e5a54,
+      eye: 0x86b23c, eyeCore: 0xdff0a8, sclera: 0xeee7dc, lash: 0x1b1f24,
+
+      identity: 0xc0862e,   // brass-ochre apron
+      secondary: 0x4e5462,  // iron work clothes
+      trim: 0x8a3427,       // oxblood straps and cuffs
+      accent: 0xd9a03c,     // polished brass
+
+      leather: 0x53372c,
+      metal: 0xd9a03c,
+      cape: 0xc0862e, capeLining: 0x8a3427,
+      weaponA: 0xd9a03c,
+      weaponB: 0x4e5462,
       glow: 0xff6b2b,
     }),
 
@@ -230,10 +301,19 @@ export const ROSTER = Object.freeze([
     hair: Object.freeze({
       style: 'beard',
       capScale: 1.16, capDrop: 0.28,
-      fringe: 0, fringeLength: 0.0, fringeSweep: 0.0, fringeSpread: 1.0,
-      backLength: 0.10, backWidth: 0.8,
-      beardLength: 0.50, beardWidth: 1.30, beardFork: 0.30,
-      highlightBand: 0.70, highlightWidth: 0.10,
+      // Two short clumps rather than none. With a bare shell his crown rendered
+      // as one smooth unbroken dome — a helmet, not hair — and the clumps are
+      // what break the outline without giving him a hairstyle he is not
+      // supposed to have.
+      fringe: 2, fringeLength: 0.20, fringeSweep: 0.30, fringeSpread: 0.95,
+      backLength: 0.34, backWidth: 0.8,
+      // Head diameters, like every other hair length. At the old 0.50 of *body*
+      // height this was three and a half head-radii of mass whose top edge
+      // closed over his eyes — the review's "blank oval with a single dot".
+      // 1.05 head-diameters is a beard to the middle of the chest, which is the
+      // read WORLD_BIBLE §3.3 asks for and the one that inverts his head mass
+      // against everyone else's.
+      beardLength: 1.05, beardWidth: 1.30, beardFork: 0.30,
       boneCount: 2, boneStiffness: 0.62,
     }),
 
@@ -267,37 +347,44 @@ export const ROSTER = Object.freeze([
     element: 'water',
     limit: { id: 'ricochet-storm', name: 'Ricochet Storm' },
 
-    proportions: proportions({ height: 1.15, headScale: 0.98, legLength: 1.08, shoulder: 0.97, chest: 0.95, hip: 1.0, limb: 0.93, arm: 1.05, foot: 1.06, eye: 1.0, browAngle: -0.16 }),
+    proportions: proportions({
+      height: 1.15, headScale: 0.98, legLength: 1.08, shoulder: 0.97, chest: 0.95,
+      hip: 1.0, limb: 0.93, arm: 1.05, foot: 1.06,
+      eye: 1.0, browAngle: -0.16, eyeShape: 'sharp', brow: 'hard',
+    }),
 
+    // **Scarlet.** The sister's sash was the only red in the party and it was
+    // four pixels wide; promoting it to the whole coat gives the fastest
+    // character the loudest colour, which is how the eye finds her when she
+    // crosses the stage. Sea-blue trousers keep her element in the block.
     palette: Object.freeze({
       skin: 0x8a5a44, skinShade: 0x53321f,
-      hair: 0x1f2830, hairShade: 0x0e151b, hairLight: 0x5d7688,
-      // Iris = `TIDE`, her element. A cream iris on a cream sclera has no
-      // contrast at all and the eye reads as blank at any distance.
+      hair: 0x1f2830, hairShade: 0x0e151b,
       eye: 0x3fa9f5, eyeCore: 0xa8e4ff, sclera: 0xf0ece2, lash: 0x0d1116,
-      primary: 0x2e4a5f,    // storm-blue coat
-      secondary: 0x1a2c39,
-      trim: 0xd9cba6,       // bleached rope
+
+      identity: 0xd2402f,   // her sister's red, worn as a stormcoat
+      secondary: 0x235d8a,  // sea-blue trousers
+      trim: 0xe3d3a8,       // bleached rope
+      accent: 0xb8bfc7,     // steel
+
+      leather: 0x2a2a30,
       metal: 0xb8bfc7,
-      leather: 0x24333d,
-      accent: 0xc9403a,     // the party's only red — her sister's sash
-      cape: 0x2e4a5f, capeLining: 0xc9403a,
+      cape: 0xd2402f, capeLining: 0xe3d3a8,
       weaponA: 0x9fd8cf,    // keel-glass chakram
-      weaponB: 0xd9cba6,
+      weaponB: 0xe3d3a8,
       glow: 0x7de3ff,
     }),
 
     // Mass class: **bob with side flare**. A bell that is widest at the jaw —
     // nobody else in the party carries mass at ear level — cut on a hard
-    // diagonal with the outboard flares kicking past the shoulder line, which is
-    // WORLD_BIBLE §3.4's "everything about her is diagonals" made into outline.
+    // diagonal with the outboard flares kicking past the shoulder line, which
+    // is WORLD_BIBLE §3.4's "everything about her is diagonals" made outline.
     hair: Object.freeze({
       style: 'bob',
-      capScale: 1.07, capDrop: 0.44,
-      fringe: 6, fringeLength: 0.24, fringeSweep: 0.55, fringeSpread: 1.1,
-      backLength: 0.24, backWidth: 1.38, braidWidth: 0.50,
-      lean: 0.40, cutAngle: 0.50,
-      highlightBand: 0.60, highlightWidth: 0.12,
+      capScale: 1.11, capDrop: 0.44,
+      fringe: 3, fringeLength: 0.30, fringeSweep: 0.55, fringeSpread: 1.1,
+      backLength: 0.82, backWidth: 1.46, braidWidth: 0.50,
+      lean: 0.40, cutAngle: 0.62,
       boneCount: 1, boneStiffness: 0.5,
     }),
 
@@ -337,19 +424,30 @@ export const ROSTER = Object.freeze([
     // Fourteen, and drawn as a child: the largest head ratio and the smallest
     // frame in the party. `eye` at 1.16 is the top of the band — at 80 px the
     // eye block is the only thing that says "kid".
-    proportions: proportions({ height: 1.02, headScale: 1.08, legLength: 0.94, shoulder: 0.83, chest: 0.88, hip: 0.90, limb: 0.85, arm: 0.92, hand: 0.92, foot: 0.94, eye: 1.16, eyeSpacing: 1.05, browAngle: 0.06 }),
+    proportions: proportions({
+      height: 1.00, headScale: 1.08, legLength: 0.94, shoulder: 0.83, chest: 0.88,
+      hip: 0.90, limb: 0.85, arm: 0.92, hand: 0.92, foot: 0.94,
+      eye: 1.16, eyeSpacing: 1.05, browAngle: 0.06, eyeShape: 'round', brow: 'gentle',
+    }),
 
+    // **Violet with an ember lining.** The coat is an adult's and swamps him,
+    // so it is nearly his whole silhouette — which makes it the one costume in
+    // the party that has to carry identity on its own. Charcoal was the wrong
+    // answer twice over: it hid the child inside it and it matched four other
+    // party members. The ember trim is his element and the only warm note.
     palette: Object.freeze({
       skin: 0xe0b394, skinShade: 0xa06f56,
-      hair: 0xe4e0d6, hairShade: 0x8d8c8a, hairLight: 0xffffff,
+      hair: 0xe4e0d6, hairShade: 0x8d8c8a,
       eye: 0xff6b2b, eyeCore: 0xffd08a, sclera: 0xf4efe4, lash: 0x191418,
-      primary: 0x26221e,    // charcoal scholar's coat
-      secondary: 0x39322a,
-      trim: 0xff6b2b,       // ember lining
-      metal: 0xb8863b,
+
+      identity: 0x6b4aa8,   // inherited violet scholar's coat
+      secondary: 0x35313c,  // charcoal under-tunic
+      trim: 0xff6b2b,       // ember lining, cuffs and collar
+      accent: 0xc08a3a,     // worn brass buckles
+
       leather: 0x2f2822,
-      accent: 0xff6b2b,
-      cape: 0x26221e, capeLining: 0xff6b2b,
+      metal: 0xc08a3a,
+      cape: 0x6b4aa8, capeLining: 0xff6b2b,
       weaponA: 0x6b5a45,
       weaponB: 0xd9cba6,
       glow: 0xff6b2b,
@@ -358,14 +456,14 @@ export const ROSTER = Object.freeze([
     // Mass class: **spiked crown**. Splayed outward rather than upward: a
     // vertical starburst adds head height, and REFERENCE_TARGET §1's 3.0–3.5
     // heads charges for every millimetre of it. Wide costs nothing in the ratio
-    // and the outline is just as unmistakable.
+    // and the outline is just as unmistakable. Eight fat spikes rather than
+    // ten thin ones — ANIME_PIPELINE §3's "chunky clumps with a clear point".
     hair: Object.freeze({
       style: 'spike',
-      capScale: 1.08, capDrop: 0.42,
-      fringe: 4, fringeLength: 0.22, fringeSweep: 0.20, fringeSpread: 1.2,
-      spikes: 10, spikeLength: 0.155, spikeSpread: 1.45, spikeJitter: 0.35,
-      backLength: 0.14, backWidth: 0.95,
-      highlightBand: 0.56, highlightWidth: 0.16,
+      capScale: 1.13, capDrop: 0.42,
+      fringe: 3, fringeLength: 0.30, fringeSweep: 0.20, fringeSpread: 1.2,
+      spikes: 7, spikeLength: 0.60, spikeSpread: 1.55, spikeJitter: 0.35,
+      backLength: 0.48, backWidth: 0.95,
       boneCount: 0,
     }),
 
@@ -386,7 +484,10 @@ export const ROSTER = Object.freeze([
       stiffness: 0.34, mass: 1.25, drag: 0.034, boneCount: 0,
     }),
 
-    accessories: Object.freeze({ pauldron: null, collar: 'oversized', rolledSleeves: 6, satchel: 'L' }),
+    // The belt ring is his only metal: §5 asks every character for a small,
+    // higher-value metal or leather accent, and without it he is violet, ember
+    // and charcoal with nothing to catch a specular.
+    accessories: Object.freeze({ pauldron: null, collar: 'oversized', rolledSleeves: 6, satchel: 'L', beltRing: true }),
 
     stats: Object.freeze({
       hp: 470, mp: 210, atk: 30, mag: 112, def: 38, spr: 60, spd: 66, luck: 54,
@@ -402,19 +503,29 @@ export const ROSTER = Object.freeze([
     element: 'wind',
     limit: { id: 'skyfall', name: 'Skyfall' },
 
-    proportions: proportions({ height: 1.22, headScale: 0.96, legLength: 1.10, shoulder: 1.02, chest: 0.98, hip: 0.98, limb: 0.94, arm: 1.08, foot: 1.02, eye: 0.94, browAngle: -0.06 }),
+    proportions: proportions({
+      height: 1.26, headScale: 0.96, legLength: 1.10, shoulder: 1.02, chest: 0.98,
+      hip: 0.98, limb: 0.94, arm: 1.08, foot: 1.02,
+      eye: 0.98, browAngle: 0.0, eyeShape: 'almond', brow: 'level',
+    }),
 
+    // **Jade and bone.** The party's only green and the only cool costume that
+    // is not blue, sitting a clean 70° off Auren on the wheel. Bone trim on a
+    // saturated mid-green is the highest-contrast trim pairing in the roster,
+    // which is what a mostly-bare-legged silhouette needs to stay readable.
     palette: Object.freeze({
       skin: 0x9c6a55, skinShade: 0x5d3a2f,
-      hair: 0x3a2f3f, hairShade: 0x1d1823, hairLight: 0x8f7fa0,
+      hair: 0x3a2f3f, hairShade: 0x1d1823,
       eye: 0x8fe6a0, eyeCore: 0xe6ffee, sclera: 0xefe9e0, lash: 0x14121a,
-      primary: 0x5c4a66,    // ash-violet
-      secondary: 0x3a2f42,
-      trim: 0xd9d2c4,       // bone
-      metal: 0xd9d2c4,
+
+      identity: 0x35915f,   // jade feather-mantle and wrap
+      secondary: 0x1e4a38,  // deep moss underwrap
+      trim: 0xe3dcc8,       // bone
+      accent: 0xc9403a,     // ember-fleck bindings
+
       leather: 0x4a3d3a,
-      accent: 0xc9403a,     // ember-fleck in the mantle
-      cape: 0x5c4a66, capeLining: 0x3a2f42,
+      metal: 0xe3dcc8,
+      cape: 0x35915f, capeLining: 0xe3dcc8,
       weaponA: 0xd9d2c4,    // rib-bone lance
       weaponB: 0x8a8073,
       glow: 0x8fe6a0,       // tattoo lines that light when an Esper answers
@@ -422,16 +533,15 @@ export const ROSTER = Object.freeze([
 
     // Mass class: **top-knot with trailing tie**. The only vertical mass in the
     // party, on the tallest frame, plus a long braid that the cloth solver keeps
-    // in motion. Kept to 0.10 H above the binding ring: taller reads better in
+    // in motion. Kept to 0.09 H above the binding ring: taller reads better in
     // isolation and immediately puts her outside the heads-tall band.
     hair: Object.freeze({
       style: 'topknot',
-      capScale: 1.02, capDrop: 0.48,
-      fringe: 5, fringeLength: 0.20, fringeSweep: 0.45, fringeSpread: 1.15,
-      topknot: 0.09, topknotWidth: 0.52,
-      braidLength: 0.70, braidWidth: 0.11, braidSegments: 6,
-      backLength: 0.12, backWidth: 0.85, backDepth: 0.55,
-      highlightBand: 0.64, highlightWidth: 0.11,
+      capScale: 1.10, capDrop: 0.48,
+      fringe: 2, fringeLength: 0.28, fringeSweep: 0.45, fringeSpread: 1.15,
+      topknot: 0.42, topknotWidth: 0.52,
+      braidLength: 2.40, braidWidth: 0.11, braidSegments: 6,
+      backLength: 0.40, backWidth: 0.85, backDepth: 0.55,
       boneCount: 5, boneStiffness: 0.5,
     }),
 
