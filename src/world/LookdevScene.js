@@ -202,8 +202,6 @@ function stagePlacement(slot) {
  * the size the reference stages a party at. Order is front-line first, exactly
  * like `gameState.party`.
  *
- * `yaw` turns each figure back toward the viewer from a flat profile.
- *
  * The band tops out at 0.84 rather than 0.90, and that ceiling is measured, not
  * chosen: `ndc` positions a figure's *root*, and at these depths a chibi plus
  * its weapon and cape spans about ±0.11 either side of it. The previous 0.90
@@ -211,35 +209,101 @@ function stagePlacement(slot) {
  * character in the diagonal shipped with its shoulder sliced off by the frame
  * edge in every stage capture. 0.84 leaves a ~0.05 margin, which survives the
  * widest cape in the roster.
+ *
+ * `turn` is how far the figure rotates **back toward the lens** from the axis
+ * it would face if it squared up to the threat, and it is the single control
+ * over whether this stage has faces in it. A party that simply addresses the
+ * enemy line presents its cheek to a side camera at best and the back of its
+ * skull at worst, which is exactly what the previous build shipped: the eye
+ * build, the brows and every gram of the chibi read live on the front hemisphere
+ * of a near-spherical head, so a figure 60°-plus off the lens is, visually, an
+ * ovoid. Turning the body 15–23° off the threat axis puts every leading eye on
+ * camera while leaving the address to the enemy legible, and it is the same
+ * cheat a stage director uses to keep an actor open to the house.
  */
 const PARTY = [
-  { id: 'auren',  ndc: 0.26, depth: 4.40, yaw: 0.62 },
-  { id: 'kite',   ndc: 0.38, depth: 4.85, yaw: 0.78 },
-  { id: 'yshara', ndc: 0.50, depth: 4.55, yaw: 0.54 },
-  { id: 'bramm',  ndc: 0.62, depth: 5.05, yaw: 0.70 },
-  { id: 'seren',  ndc: 0.73, depth: 4.68, yaw: 0.46 },
-  { id: 'emrys',  ndc: 0.84, depth: 5.15, yaw: 0.66 },
+  { id: 'auren',  ndc: 0.26, depth: 4.40, turn: 0.30 },
+  { id: 'kite',   ndc: 0.38, depth: 4.85, turn: 0.40 },
+  { id: 'yshara', ndc: 0.50, depth: 4.55, turn: 0.27 },
+  { id: 'bramm',  ndc: 0.62, depth: 5.05, turn: 0.36 },
+  { id: 'seren',  ndc: 0.73, depth: 4.68, turn: 0.26 },
+  { id: 'emrys',  ndc: 0.84, depth: 5.15, turn: 0.38 },
 ];
 
 /**
  * The enemy side. REFERENCE §2: enemies on the **left**, "generally larger
  * than the party — bosses are dramatically larger, occupying 40–60% of frame
- * height". The boss lands at 41%, and it is 3.4 m against a 1.15 m chibi, so
- * the frame carries the scale contrast the staging exists to show. The two
- * lesser husks are there so the left half reads as a *mass* with an internal
- * depth gradient (25% and 17%) rather than as one lonely statue.
+ * height". The boss lands at 46%, and it is 3.5 m against a 1.15 m chibi, so
+ * the frame carries the scale contrast the staging exists to show.
+ *
+ * The `lead` husk is the reason the party has faces. Where a figure looks is
+ * set by where the thing it is looking *at* stands, and a threat parked deeper
+ * in frame than the party can only ever rotate them away from the lens — no
+ * camera move fixes that, because the party would simply turn its back on
+ * whichever side the camera moved to. So the pack has a vanguard: a lesser husk
+ * that has broken forward of the boss and now stands **nearer the lens than the
+ * party is**, at the left edge. Addressing it turns every head toward the
+ * camera's side of the stage, and the same body doubles as the ART_BIBLE §5.1
+ * foreground occluder the left of this frame was missing — a dark, cropped mass
+ * in the near layer with the party crisp behind it.
  *
  * `height` is the full silhouette including the shard crown, so the frame
- * fractions above are the ones actually measured off the render.
+ * fractions above are the ones actually measured off the render. `turn` is a
+ * deviation from squaring up to the party centroid, so no husk stares down the
+ * same line as its neighbour.
  */
 const ENEMIES = [
-  { id: 'husk-alpha', ndc: -0.44, depth: 9.70, height: 3.40, yaw: 0.34, crest: 1.00 },
-  { id: 'husk-beta',  ndc: -0.74, depth: 8.60, height: 1.85, yaw: 0.12, crest: 0.82 },
-  { id: 'husk-gamma', ndc: -0.22, depth: 11.20, height: 1.70, yaw: 0.52, crest: 0.74 },
+  { id: 'husk-alpha', ndc: -0.44, depth: 8.60, height: 3.50, turn: -0.22, crest: 1.00 },
+  { id: 'husk-beta',  ndc: -1.18, depth: 3.45, height: 1.30, turn: 0.16, crest: 0.86, lead: true },
+  { id: 'husk-gamma', ndc: -0.20, depth: 11.20, height: 1.70, turn: 0.44, crest: 0.74 },
 ];
 
-/** Ground position of the boss, which the whole party's gaze converges on. */
-const BOSS_ANCHOR = stagePlacement(ENEMIES[0]);
+/** Ground positions of every staged figure, solved once against the frame. */
+const PARTY_PLACES = PARTY.map(stagePlacement);
+const ENEMY_PLACES = ENEMIES.map(stagePlacement);
+
+/** Centre of mass of the line, which is what the enemy pack squares up to. */
+const PARTY_CENTROID = {
+  x: PARTY_PLACES.reduce((a, p) => a + p.x, 0) / PARTY_PLACES.length,
+  z: PARTY_PLACES.reduce((a, p) => a + p.z, 0) / PARTY_PLACES.length,
+};
+
+/** Heading from `a` to `b` in the rig's convention, where +Z is forward. */
+function headingTo(a, b) {
+  return Math.atan2(b.x - a.x, b.z - a.z);
+}
+
+const LEAD_INDEX = ENEMIES.findIndex((e) => e.lead);
+const LEAD_HEADING = headingTo(ENEMY_PLACES[LEAD_INDEX], PARTY_CENTROID)
+  + ENEMIES[LEAD_INDEX].turn;
+
+/**
+ * What the party is looking at: the vanguard husk's **head**, not its root.
+ *
+ * The husk's skull is thrust forward of its mass (see `_huskSpine`), and at
+ * this range the 0.65 m between the two is a visible difference in where six
+ * gazes converge — aiming at the root sends every eyeline into the creature's
+ * flank. The offsets are the same normalised body coordinates its eyes are
+ * placed at, so the anchor tracks the geometry rather than duplicating it.
+ */
+const HUSK_EYE = { y: 0.598, forward: 0.492 };
+const GAZE_ANCHOR = new THREE.Vector3(
+  ENEMY_PLACES[LEAD_INDEX].x + Math.sin(LEAD_HEADING) * HUSK_EYE.forward * ENEMIES[LEAD_INDEX].height,
+  HUSK_EYE.y * ENEMIES[LEAD_INDEX].height,
+  ENEMY_PLACES[LEAD_INDEX].z + Math.cos(LEAD_HEADING) * HUSK_EYE.forward * ENEMIES[LEAD_INDEX].height,
+);
+
+/**
+ * How much of the way to the gaze anchor the head is allowed to travel.
+ *
+ * Not 1. `Animator._applyLook` distributes the aim across chest, neck and head,
+ * so a full-weight look drags the whole upper body around with it and cancels
+ * the `turn` that opened the figure to camera in the first place. At 0.6 the
+ * head leads the body toward the threat by ~8° — enough that the party reads as
+ * watching something rather than posing — while the face stays inside 45° of
+ * the lens, which is where a chibi's eyes still read as eyes.
+ */
+const GAZE_WEIGHT = 0.6;
 
 /**
  * A camera pose is a composition (ART_BIBLE §5), so each entry carries its
@@ -250,16 +314,17 @@ const CAMERA_POSES = {
   /**
    * REFERENCE §2's fixed side-view battle framing — the shipped frame.
    *
-   * Party right at 23–30% of frame height, enemy mass left with the boss at
-   * 41%, horizon on the upper third at 74%, the near grass bank blurred across
-   * the bottom-left as the §5.1 occluder. Focus sits at 5.0 m, between the
-   * party's 4.4–5.2 m band and the boss at 9.7 m, and f/5.6 keeps the boss
-   * legible rather than a violet smear — the reference's backgrounds are soft,
-   * its combatants are not.
+   * Party right at 23–30% of frame height in a three-quarter front address,
+   * enemy mass left with the boss at 46% and the vanguard husk cropped into the
+   * near-left corner, horizon on the upper third at 74%. Focus sits at 4.8 m,
+   * on the party's 4.4–5.2 m band rather than split between it and the boss:
+   * the faces are the subject of this frame, and f/5.6 still leaves the boss at
+   * 8.6 m legible — the reference's backgrounds are soft, its combatants are
+   * not.
    */
   battle: {
     pos: [STAGE.camX, STAGE.camY, STAGE.camZ], look: STAGE_LOOK,
-    fov: STAGE.fov, focus: 5.0, aperture: 5.6, grade: 'battle',
+    fov: STAGE.fov, focus: 4.8, aperture: 5.6, grade: 'battle',
   },
   /**
    * Command framing: the same axis pushed in one lens stop.
@@ -278,23 +343,46 @@ const CAMERA_POSES = {
     pos: [STAGE.camX, STAGE.camY, STAGE.camZ], look: STAGE_LOOK,
     fov: STAGE.fov, focus: 5.0, aperture: 22, grade: 'neutral', silhouette: true,
   },
-  /** Auren, three-quarter front, slightly low so he reads heroic. */
+  /**
+   * Auren, head and shoulders, front three-quarter — the portrait.
+   *
+   * Solved at pose time from the live head bone rather than authored as a
+   * station point, and that is not convenience: this frame's entire job is to
+   * put one face on screen large enough to judge the eye build, so the one
+   * thing it cannot afford is to be aimed at where the head *used* to be. A
+   * hard-coded station is correct only until someone re-solves the diagonal,
+   * changes a `turn`, or moves the gaze anchor — and every one of those has
+   * happened at least once already, which is how the previous build ended up
+   * framing the back of a skull. Deriving the station from `bones.head` means
+   * the shot cannot come loose from its subject.
+   *
+   * `swing` is the fraction of the way from the head's own facing axis around
+   * to the battle camera's bearing. At 0.55 the lens sits ~28° off the face
+   * normal: far enough that the head reads as a volume with a lit side and a
+   * shadow side rather than as a flat mask, close enough that both eyes and
+   * both brows are fully presented. The remaining terms place him on the
+   * upper-left thirds intersection (ART_BIBLE §5.2) and just under eye line
+   * (§5.4, "hero shots slightly low").
+   *
+   * Focus is the camera-to-eye distance, computed with the station — not a
+   * constant that a later staging change could leave sitting on the treeline.
+   * f/8 on a 34 mm lens at ~1.1 m has ~6 cm of depth at the focal plane, so the
+   * face is crisp from brow to chin while the 40 m background is gone entirely.
+   *
+   * Graded `dusk`, not `memory`. `memory` is the flashback timing — lifted
+   * milky blacks, saturation 0.68, contrast 0.90 — and this is the one frame
+   * in the sheet whose job is to let someone judge the toon terminator, the
+   * rim envelope and the eye build. Judging any of those through a faded
+   * print is judging the grade. `dusk` is the key the scene is actually lit
+   * at (ART_BIBLE §3, t = 0.72), so the portrait is timed to its own hour.
+   */
   'hero-closeup': {
-    // Solved against the *head's* world axis, not the body's. The idle look-at
-    // sends every party member's gaze to the boss, and the boss sits well left
-    // of and behind the line, so the head carries ~35° of yaw the body does not
-    // — a station derived from `PARTY[0].yaw` alone lands behind the cheek.
-    // This one sits on the head's facing axis swung 22° back toward the battle
-    // camera, 2.1 m out and just under eye line (ART_BIBLE §5.4's "hero shots
-    // slightly low"), with the aim point pushed right and down so the head
-    // lands on the upper-left third and the rest of the diagonal fills the
-    // frame behind it rather than crowding the edge.
-    //
-    // f/8 rather than a portrait aperture: the point of this frame is to read
-    // the toon banding and the eye build, and a 34 mm lens at 2.1 m already
-    // separates the subject from a treeline 40 m behind it.
-    pos: [1.14, 0.80, 5.62], look: [3.03, 0.68, 4.63],
-    fov: 34, focus: 2.1, aperture: 8.0, grade: 'memory',
+    subject: 'auren',
+    swing: 0.55,
+    range: 1.12,
+    rise: -0.035,
+    aim: { right: 0.145, up: -0.072 },
+    fov: 34, aperture: 8.0, grade: 'dusk',
   },
   /**
    * The reverse angle — the enemy reveal, and deliberately *not* a second
@@ -312,7 +400,7 @@ const CAMERA_POSES = {
    * 9.5 m splits the party and the boss so both stay readable.
    */
   wide: {
-    pos: [8.80, 2.85, 8.40], look: [-1.40, 0.80, -1.20],
+    pos: [8.80, 2.85, 8.40], look: [ENEMY_PLACES[0].x, 0.90, ENEMY_PLACES[0].z],
     fov: 48, focus: 9.5, aperture: 8.0, grade: 'battle',
   },
   /** Sky-dominant landscape for the day-cycle sweep; party on the right third. */
@@ -1018,23 +1106,29 @@ export class LookdevScene extends Scene {
   _buildCast(forge) {
     const group = new THREE.Group();
     group.name = 'cast';
-    for (const slot of PARTY) {
-      const place = stagePlacement(slot);
+    PARTY.forEach((slot, i) => {
+      const place = PARTY_PLACES[i];
       const character = buildCharacter(slot.id, forge, { lighting: this.lighting, outline: true });
       character.root.position.set(place.x, groundHeight(place.x, place.z), place.z);
-      // Facing is screen-left (-X) plus `yaw` radians back toward camera, so the
-      // cast reads as a three-quarter front rather than a flat profile. The
-      // rig's forward is **+Z** — `CharacterFactory.hairlinePhi` states the
-      // convention outright, "+Z (forward) is theta = pi/2" — so -X is a -90°
-      // yaw and the turn toward the viewer adds to it.
-      character.root.rotation.y = -Math.PI / 2 + slot.yaw;
+      // Square up to the vanguard husk, then open `turn` radians back toward the
+      // lens. Deriving the base heading from the threat's actual position rather
+      // than from a hard-coded -90° is what keeps the address honest when the
+      // enemy line moves: the previous constant assumed the threat sat due west
+      // of every slot, which it never has. The rig's forward is **+Z** —
+      // `CharacterFactory.hairlinePhi` states the convention outright, "+Z
+      // (forward) is theta = pi/2" — so `headingTo` is already in rig space, and
+      // a *positive* turn swings the figure toward the camera because the camera
+      // stands on the +Z side of the battle axis.
+      character.root.rotation.y = headingTo(place, GAZE_ANCHOR) + slot.turn;
       // Idle is already playing from the factory; restate it so the clip is
       // explicit at the call site and a future pose change is one edit.
       character.animator.play('idle', { fade: 0 });
-      // Every head tracks the boss rather than a nominal point off-stage: six
-      // chibi staring past the thing that is about to eat them is the single
-      // cheapest way to make a battle frame look unstaged.
-      character.animator.lookAt?.(new THREE.Vector3(BOSS_ANCHOR.x, 1.6, BOSS_ANCHOR.z));
+      // Every head tracks the vanguard rather than a nominal point off-stage:
+      // six chibi staring past the thing that is about to eat them is the single
+      // cheapest way to make a battle frame look unstaged. Partial weight, so
+      // the look leads the body without dragging the chest round with it and
+      // undoing `turn` — see GAZE_WEIGHT.
+      character.animator.lookAt?.(GAZE_ANCHOR, GAZE_WEIGHT);
       group.add(character.root);
       // No stage decal here. `buildCharacter` now ships its own contact shadow —
       // a body blob plus two foot blobs that track the feet and fade as they
@@ -1043,7 +1137,7 @@ export class LookdevScene extends Scene {
       // and, at 1.35 × height, drawing a pool wider than the figure standing in
       // it. The husks keep `_contactDecal` because they have no rig to carry one.
       this.cast.push(character);
-    }
+    });
     this.scene.add(group);
     this.castGroup = group;
     this.hero = this.cast[0];
@@ -1142,14 +1236,17 @@ export class LookdevScene extends Scene {
     // is gone at 10.
     const outlineMat = this.track(createToonOutlineMaterial({ name: 'husk-outline', width: 0.0019 }));
 
-    for (const spec of ENEMIES) {
-      const place = stagePlacement(spec);
+    ENEMIES.forEach((spec, i) => {
+      const place = ENEMY_PLACES[i];
       const root = new THREE.Group();
       root.name = `enemy:${spec.id}`;
       root.position.set(place.x, groundHeight(place.x, place.z), place.z);
-      // Husks face the party: +Z is forward, the party is at +X, so a quarter
-      // turn plus `yaw` gives each one a slightly different address to the line.
-      root.rotation.y = Math.PI / 2 + spec.yaw;
+      // Husks square up to the party's centre of mass and then deviate by
+      // `turn`, so no two stare down the same line. Solved from the placements
+      // rather than from a fixed quarter-turn because the pack is no longer a
+      // single rank: the vanguard stands *in front of* the party's depth band
+      // and a constant heading would have it addressing empty stage.
+      root.rotation.y = headingTo(place, PARTY_CENTROID) + spec.turn;
       root.scale.setScalar(spec.height);
 
       const shell = new THREE.Mesh(body, bodyMat);
@@ -1190,7 +1287,7 @@ export class LookdevScene extends Scene {
         baseY: root.position.y,
         baseYaw: root.rotation.y,
       });
-    }
+    });
 
     this.scene.add(group);
     this.enemyGroup = group;
@@ -1565,9 +1662,19 @@ export class LookdevScene extends Scene {
     this._pose = name in CAMERA_POSES ? name : 'battle';
     this._setSilhouette(pose.silhouette === true);
 
-    this.camera.position.set(...pose.pos);
+    // Two kinds of entry live in the table. Most are station points, authored
+    // in world metres because their subject is the stage itself and the stage
+    // does not move. `subject` poses are solved here instead, against the live
+    // head bone of a named character, because their subject is a face and a
+    // face's world position is downstream of the diagonal, of `turn`, and of
+    // wherever the gaze anchor ended up — three numbers that have each moved
+    // more than once. A portrait aimed at a constant is a portrait that goes
+    // stale silently.
+    const solved = pose.subject ? this._solveSubjectPose(pose) : pose;
+
+    this.camera.position.set(...solved.pos);
     this.camera.up.set(0, 1, 0);
-    this.camera.lookAt(...pose.look);
+    this.camera.lookAt(...solved.look);
     this.camera.fov = pose.fov;
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld(true);
@@ -1575,15 +1682,82 @@ export class LookdevScene extends Scene {
     // PostFX reads `scene.focusDistance` every frame; setting both it and the
     // aperture means a pose change is a lens change, which is what the bible's
     // "a pose is a composition" clause actually asks for.
-    this.focusDistance = pose.focus;
+    this.focusDistance = solved.focus;
     const postfx = this.engine.get('postfx');
     if (postfx) {
-      postfx.setDof(pose.focus, pose.aperture);
+      postfx.setDof(solved.focus, pose.aperture);
       postfx.setGrade(pose.grade ?? 'dusk', 0);
     }
     // The rig fits its cascades to the active camera; a cut without this leaves
     // the first frame after the cut shadowed for the previous framing.
     this.lighting?.sync();
+  }
+
+  /**
+   * Turn a subject-relative portrait spec into a station point and an aim.
+   *
+   * The head bone's world quaternion already carries everything that decides
+   * where the face points — the root's `turn`, the idle clip's own upper-body
+   * motion, and the spring-damped look-at — so taking its forward axis is the
+   * only way to be sure the lens ends up in front of a face rather than in
+   * front of where the body happens to be aimed. `swing` then slews that axis
+   * a fraction of the way round to the battle camera's bearing, which is what
+   * turns a flat frontal mugshot into a lit three-quarter without needing a
+   * second key light.
+   *
+   * `range` is measured from the head, not from the feet, so the frame does not
+   * change size when the roster's heights do; `rise` and `aim` are in the same
+   * units, i.e. metres at the subject, so the thirds placement holds at any
+   * focal length.
+   *
+   * Falls back to the battle frame if the named subject is not on stage — a
+   * portrait of nobody would otherwise point the camera at the origin and ship
+   * a frame of empty grass.
+   */
+  _solveSubjectPose(pose) {
+    const subject = this.cast.find((c) => c.def?.id === pose.subject) ?? this.hero;
+    const head = subject?.bones?.head;
+    if (!head) return CAMERA_POSES.battle;
+
+    // The animator writes bone rotations during `update`, so the matrices are
+    // one flush behind whenever a pose change lands between ticks.
+    subject.root.updateMatrixWorld(true);
+    const eye = new THREE.Vector3().setFromMatrixPosition(head.matrixWorld);
+    const facing = new THREE.Vector3(0, 0, 1)
+      .applyQuaternion(head.getWorldQuaternion(new THREE.Quaternion()));
+    facing.y = 0;
+    if (facing.lengthSq() < 1e-6) facing.set(0, 0, 1);
+    facing.normalize();
+
+    // Bearings, not vectors: slerping two horizontal directions is an angular
+    // lerp, and doing it in angle space keeps the result unit-length for free
+    // and cannot degenerate when the two happen to be antiparallel.
+    const faceBearing = Math.atan2(facing.x, facing.z);
+    const camBearing = Math.atan2(STAGE.camX - eye.x, STAGE.camZ - eye.z);
+    // Shortest way round, so a subject facing near the ±π seam does not swing
+    // the long way and put the lens behind its own head.
+    let delta = camBearing - faceBearing;
+    delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+    const bearing = faceBearing + delta * pose.swing;
+
+    const pos = [
+      eye.x + Math.sin(bearing) * pose.range,
+      eye.y + pose.rise,
+      eye.z + Math.cos(bearing) * pose.range,
+    ];
+    // Camera right on the ground plane. The view axis is -(sin b, 0, cos b),
+    // so `cross(view, up)` is (cos b, 0, -sin b): pushing the aim point along
+    // it slides the subject to frame *left*, which is the direction `aim.right`
+    // is authored in.
+    const rx = Math.cos(bearing);
+    const rz = -Math.sin(bearing);
+    const look = [
+      eye.x + rx * pose.aim.right,
+      eye.y + pose.aim.up,
+      eye.z + rz * pose.aim.right,
+    ];
+    const focus = Math.hypot(pos[0] - eye.x, pos[1] - eye.y, pos[2] - eye.z);
+    return { pos, look, focus };
   }
 
   /**

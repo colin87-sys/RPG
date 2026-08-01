@@ -265,27 +265,41 @@ export function computeMetrics(def = {}) {
   // i.e. 69% of the visible face width is eye — which is what makes the read
   // survive at 80 px, where the entire head is 30 px across.
   const eye = {
-    halfSpan: head.rx * 0.42 * p.eyeSpacing,
-    y: headCY - head.ry * 0.16,
-    width: head.rx * 0.54 * p.eye,
-    height: head.ry * 0.62 * p.eye,
-    browLift: head.ry * 0.42,
+    halfSpan: head.rx * 0.44 * p.eyeSpacing,
+    y: headCY - head.ry * 0.17,
+    // 0.60 × 0.74 rather than 0.54 × 0.62. The pair now spans 1.48 head-radii of
+    // a 2.0-radius face and stands 0.74 of a head *radius* tall, so at the
+    // eighty-pixel battle read the eye block is ~9 px rather than ~7 — the
+    // difference between "the head has features" and "the head is an ovoid".
+    // Growing height faster than width is deliberate: the vertical dimension is
+    // what carries the iris, and an iris under about a third of the aperture
+    // stops registering as a colour before it stops registering as a shape.
+    width: head.rx * 0.60 * p.eye,
+    height: head.ry * 0.74 * p.eye,
+    // Lifted with the eye so the brow still clears the aperture: the eye's top
+    // edge is now at +0.20 ry, and a brow bar 0.115 ry thick centred at 0.46 ry
+    // leaves a clean 0.04 ry of skin between the two. They must not touch — a
+    // brow fused to the lash line reads as a single dark smear at distance,
+    // which is the one way a brow can make a face *less* legible.
+    browLift: head.ry * 0.46,
     browAngle: p.browAngle,
-    browThickness: head.ry * 0.085,
+    browThickness: head.ry * 0.115,
     /**
      * Base stand-off of the face decal stack from the skull, and the spacing
      * between its layers.
      *
-     * These are not arbitrary: the eye is five coplanar-ish sheets (outline,
-     * sclera, iris, pupil, catch-light) and the mobile ones are a *rigid* mesh
-     * on the head bone while the outline is *skinned*, so under a neck bend the
-     * two surfaces separate slightly. A gap of 0.9% of a head radius is under a
-     * pixel at battle distance, comfortably past depth-buffer precision at
-     * closeup range, and small enough that the eye still reads as painted on
-     * rather than as a stack of floating discs.
+     * These are not arbitrary: the eye is a stack of seven coplanar-ish sheets
+     * (outline, sclera, iris rim, iris, pupil, upper lash, catch-light) plus the
+     * blink lid, and the mobile ones are a *rigid* mesh on the head bone while
+     * the outline is *skinned*, so under a neck bend the two surfaces separate
+     * slightly. A gap of 0.85% of a head radius is under a pixel at battle
+     * distance, comfortably past depth-buffer precision at closeup range, and
+     * small enough that the whole stack still stands under 8% of a head radius
+     * proud of the skull — i.e. it reads as painted on rather than as a bundle
+     * of floating discs.
      */
-    lift: headR * 0.016,
-    layerGap: headR * 0.009,
+    lift: headR * 0.018,
+    layerGap: headR * 0.0085,
   };
 
   return Object.freeze({
