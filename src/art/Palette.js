@@ -39,11 +39,25 @@ export function byteToLinear(b) {
   return _lut[b & 255];
 }
 
+/**
+ * Encode LUT. `linearToSrgb` is a `Math.pow` and this function runs three times
+ * per texel across every map in the game — roughly eight million calls for a
+ * single scene's worth of 512² surfaces, where `pow` alone measured at 44 ms per
+ * map. 8192 entries with linear interpolation puts the reconstruction error
+ * below 0.2/255, which is under the quantisation step it is feeding.
+ */
+const ENC_BITS = 8192;
+const _enc = new Float32Array(ENC_BITS + 1);
+for (let i = 0; i <= ENC_BITS; i++) _enc[i] = linearToSrgb(i / ENC_BITS) * 255;
+
 /** Linear float -> sRGB byte, clamped. The single encode point for every map. */
 export function linearToByte(v) {
   if (v <= 0) return 0;
   if (v >= 1) return 255;
-  return (linearToSrgb(v) * 255 + 0.5) | 0;
+  const f = v * ENC_BITS;
+  const i = f | 0;
+  const t = f - i;
+  return (_enc[i] + (_enc[i + 1] - _enc[i]) * t + 0.5) | 0;
 }
 
 /** Decompose an sRGB hex into linear RGB. `out` is a 3-element array-like. */
@@ -241,7 +255,10 @@ export const SURFACE_SPEC = Object.freeze({
   silk: { roughness: [0.3, 0.5], metalness: 0, albedo: [0.3, 0.65] },
   leather: { roughness: [0.5, 0.7], metalness: 0, albedo: [0.1, 0.3] },
   steel: { roughness: [0.3, 0.55], metalness: 1, albedo: [0.5, 0.6] },
-  gold: { roughness: [0.2, 0.4], metalness: 1, albedo: [0.35, 0.72] },
+  // §4 gives gold as a tint range rather than a band; #FFC24D and #D9964A have
+  // linear luminances of 0.598 and 0.374, so those are the numbers. Pushing the
+  // ceiling any higher only clips the red channel and flattens the polish.
+  gold: { roughness: [0.2, 0.4], metalness: 1, albedo: [0.374, 0.598] },
   crystal: { roughness: [0.05, 0.15], metalness: 0, albedo: [0.35, 0.7] },
   water: { roughness: [0.02, 0.1], metalness: 0, albedo: [0.02, 0.08] },
   skin: { roughness: [0.38, 0.55], metalness: 0, albedo: [0.35, 0.55] },
@@ -386,8 +403,46 @@ export function elementRamp(name) {
  * even if the fill light is misconfigured.
  */
 export function toonRamp(bands = 3, { shadow = LIGHT.SHADOW_TINT, lit = LIGHT.KEY_SUN, warmth = 0.55 } = {}) {
+  // The ramp is a *multiplier* on the character's albedo, indexed by N·L, so
+  // its value axis runs 0.40 (deep shade) to 1.0 (full key) rather than to
+  // black — a toon shadow that goes to zero kills the silhouette read the
+  // reference depends on.
+  //
+  // Hue and value are computed separately, and that separation is the whole
+  // trick. Mixing `SHADOW_TINT` toward `KEY_SUN` in linear light at t = 0.15
+  // produces a *neutral grey*, because the key colour's magnitude is fifteen
+  // times the shadow's and swamps its chroma long before the mix looks warm.
+  // Normalising both endpoints to unit luminance first, mixing chromaticity,
+  // and applying the value afterwards is what keeps the shadow band decisively
+  // teal — which §2.1 requires, and which every character in the game inherits.
+  const sChroma = hexToLinear(shadow, [0, 0, 0]);
+  const lChroma = hexToLinear(lit, [0, 0, 0]);
+  for (const c of [sChroma, lChroma]) {
+    const y = luminance(c[0], c[1], c[2]) || 1e-6;
+    c[0] /= y; c[1] /= y; c[2] /= y;
+  }
+
   const stops = [];
   const softness = 0.055; // width of each terminator, in ramp space
+  const bandColor = (v) => {
+    // Hue arrives later than value (exponent > 1) so the darkest band sits in
+    // the shadow tint rather than at a midpoint.
+    const t = Math.pow(v, 1 + warmth);
+    const linVal = srgbToLinear(0.4 + 0.6 * v);
+    let r = (sChroma[0] + (lChroma[0] - sChroma[0]) * t) * linVal;
+    let g = (sChroma[1] + (lChroma[1] - sChroma[1]) * t) * linVal;
+    let b = (sChroma[2] + (lChroma[2] - sChroma[2]) * t) * linVal;
+    // Unit-luminance chroma can exceed 1.0 in a single channel at the warm end.
+    // Letting it clip would shift the hue of the brightest band only, putting a
+    // visible colour step at the top of an otherwise smooth ramp; scaling the
+    // whole triple down loses a fraction of value instead, which nobody sees.
+    const m = Math.max(r, g, b);
+    if (m > 1) {
+      r /= m; g /= m; b /= m;
+    }
+    return linearToHex(r, g, b);
+  };
+
   for (let i = 0; i < bands; i++) {
     const lo = i / bands;
     const hi = (i + 1) / bands;
@@ -395,15 +450,11 @@ export function toonRamp(bands = 3, { shadow = LIGHT.SHADOW_TINT, lit = LIGHT.KE
     // and the shadow reads as one decisive mass — the chibi look, not a
     // continuous falloff with steps in it.
     const v = Math.pow((i + 0.65) / bands, 0.78);
-    // Warm the light bands and cool the dark ones: colour temperature does the
-    // separation work that value alone would need excessive contrast for.
-    const hex = mixHex(shadow, lit, Math.pow(v, 1 / (1 + warmth)));
-    const dim = mixHex(0x000000, hex, 0.18 + 0.82 * v);
-    if (i > 0) stops.push({ t: lo + softness, hex: dim });
-    else stops.push({ t: 0, hex: dim });
-    stops.push({ t: Math.max(lo + softness + 1e-3, hi - softness), hex: dim });
+    const hex = bandColor(v);
+    stops.push({ t: i > 0 ? lo + softness : 0, hex });
+    stops.push({ t: Math.max(lo + softness + 1e-3, hi - softness), hex });
   }
-  stops.push({ t: 1, hex: mixHex(shadow, lit, 1) });
+  stops.push({ t: 1, hex: bandColor(1) });
   return new Ramp(stops);
 }
 

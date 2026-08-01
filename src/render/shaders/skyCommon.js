@@ -18,7 +18,6 @@
 
 /** Ray/sphere intersection, phase functions and the small maths utilities. */
 export const GLSL_MATH = /* glsl */ `
-const float PI       = 3.14159265358979;
 const float INV_4PI  = 0.07957747154594;
 const float THREE_16PI = 0.05968310365946;   // 3 / (16 pi), Rayleigh normalisation
 
@@ -58,11 +57,6 @@ float phaseDual(float mu, float g, float backMix) {
   return mix(phaseHG(mu, g), phaseHG(mu, -0.28), backMix);
 }
 
-/** Smooth, monotonic remap of v from [a,b] to [0,1]. */
-float remap01(float v, float a, float b) {
-  return clamp((v - a) / max(1e-6, b - a), 0.0, 1.0);
-}
-
 /** 2D rotation, used to decorrelate fbm octaves so the field has no grain. */
 mat2 rot2(float a) {
   float c = cos(a), s = sin(a);
@@ -91,12 +85,6 @@ float hash12(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.x + p3.y) * p3.z);
-}
-
-vec2 hash22(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.xx + p3.yz) * p3.zy);
 }
 
 float hash13(vec3 p) {
@@ -174,30 +162,6 @@ float fbm3(vec3 p, int octaves) {
     amp *= 0.5;
   }
   return sum / max(1e-4, norm);
-}
-
-/**
- * Worley / cellular distance to the nearest feature point in a 3x3x3
- * neighbourhood. Used only for lunar craters, where the 27 taps are confined to
- * the handful of pixels covered by the moon disc.
- */
-float worley3(vec3 p, out vec3 cellId) {
-  vec3 i = floor(p);
-  vec3 f = fract(p);
-  float best = 8.0;
-  cellId = i;
-  for (int z = -1; z <= 1; z++) {
-    for (int y = -1; y <= 1; y++) {
-      for (int x = -1; x <= 1; x++) {
-        vec3 o = vec3(float(x), float(y), float(z));
-        vec3 c = i + o;
-        vec3 jitter = hash33(c);
-        float d = length(o + jitter - f);
-        if (d < best) { best = d; cellId = c; }
-      }
-    }
-  }
-  return best;
 }
 `;
 

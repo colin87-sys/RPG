@@ -28,14 +28,24 @@
  *     luminance from higher orders.
  */
 
-/** Planetary constants, mirrored exactly by `skyModel.js` on the CPU side. */
+/**
+ * Planetary constants, mirrored exactly by `skyModel.js` on the CPU side.
+ *
+ * Units are KILOMETRES throughout the sky, and that is not cosmetic. In metres
+ * the planet radius is 6.36e6, so `dot(p, p)` lands near 4e13 where a 24-bit
+ * float mantissa has an ulp of 2.4e6 — the ray/sphere quadratic then cancels
+ * catastrophically and the horizon breaks into rings on any GPU without native
+ * fp64. In kilometres the same quantity is 4e7 with an ulp of about 2.4, which
+ * costs roughly a metre of accuracy on the horizon distance. Scattering
+ * coefficients are therefore per-kilometre (1000x the usual per-metre values).
+ */
 export const GLSL_ATMOSPHERE_CONST = /* glsl */ `
-const float AT_RG = 6360000.0;   // ground radius, metres
-const float AT_RA = 6420000.0;   // top of atmosphere (60 km)
-const float AT_HR = 8000.0;      // Rayleigh scale height
-const float AT_HM = 1200.0;      // Mie scale height
-const float AT_OZ_CENTRE = 25000.0;
-const float AT_OZ_WIDTH  = 15000.0;
+const float AT_RG = 6360.0;      // ground radius, km
+const float AT_RA = 6420.0;      // top of atmosphere, km (60 km thick)
+const float AT_HR = 8.0;         // Rayleigh scale height, km
+const float AT_HM = 1.2;         // Mie scale height, km
+const float AT_OZ_CENTRE = 25.0; // ozone layer centre, km
+const float AT_OZ_WIDTH  = 15.0; // ozone tent half-width, km
 `;
 
 export const GLSL_ATMOSPHERE = /* glsl */ `
@@ -64,7 +74,7 @@ float atmGroundShadow(vec3 p, vec3 sunDir) {
   float b = dot(p, sunDir);
   if (b >= 0.0) return 1.0;                    // ray climbs away from the planet
   float perp = sqrt(max(0.0, dot(p, p) - b * b));
-  return smoothstep(AT_RG - 3000.0, AT_RG + 9000.0, perp);
+  return smoothstep(AT_RG - 3.0, AT_RG + 9.0, perp);
 }
 
 /** Optical depth (Rayleigh, Mie, ozone) from p to the top of the atmosphere. */

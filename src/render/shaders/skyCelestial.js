@@ -52,12 +52,15 @@ vec3 starField(vec3 dir) {
   // Magnitude distribution. Star counts grow by roughly 4x per magnitude step,
   // so pushing a uniform hash through a high power reproduces the real
   // impression: a handful that dominate, a dust of the rest.
-  float mag = pow(hash11(hs.z * 91.7 + face * 13.0), 5.0);
+  float mag = pow(hash11(hs.z * 91.7 + face * 13.0), 6.0);
 
   // Screen-space footprint. Sub-pixel points alias violently as the camera
   // drifts, so the core is never allowed smaller than about a pixel and a half.
-  float px = clamp(length(fwidth(g)), 0.02, 0.30);
-  float radius = max(0.045 + 0.06 * mag, px * 0.75);
+  // The upper clamp matters just as much: pos is confined to the middle 60%
+  // of the cell, so a glow wider than ~0.14 cell units would be visibly clipped
+  // square at the cell boundary when the sky is minified.
+  float px = clamp(length(fwidth(g)), 0.02, 0.16);
+  float radius = clamp(max(0.045 + 0.06 * mag, px * 0.75), 0.045, 0.14);
 
   float dsq = dot(dp, dp);
   float core = exp(-dsq / (radius * radius));
@@ -109,24 +112,43 @@ vec3 milkyWay(vec3 dir) {
 /* -------------------------------------------------------- lunar surface -- */
 
 /**
- * One scale of impact craters. Each Worley cell either hosts a crater or does
- * not, with a randomised radius: a crater in every cell reads as a golf ball.
- * The profile is a bowl plus a raised rim, which is what makes the terminator
- * across a crater field look like the real thing — rims catch the light while
- * the floors are still dark.
+ * One scale of impact craters.
+ *
+ * Deliberately a *sum* over the 3x3x3 cell neighbourhood rather than a Worley
+ * nearest-feature lookup. A Worley crater field is discontinuous wherever two
+ * neighbouring cells disagree about radius or about hosting a crater at all,
+ * and once that height field is differentiated into a bump normal the
+ * discontinuity shows up as hard facet edges cutting across the terminator —
+ * exactly where the eye is looking. Summing profiles that are already zero at
+ * the edge of their own support is continuous by construction, and it produces
+ * overlapping craters, which is what real regolith looks like.
+ *
+ * Profile: a bowl plus a raised rim. The rim is the important half — it is what
+ * makes a crater field read correctly at the terminator, where rims catch the
+ * light while the floors are still dark.
  */
-float craterLayer(vec3 n, float freq) {
-  vec3 id;
-  float d = worley3(n * freq, id);
-  vec3 h = hash33(id + 3.71);
-  if (h.z > 0.70) return 0.0;
-  float radius = 0.26 + 0.52 * h.x;
-  float r = d / radius;
-  if (r > 1.4) return 0.0;
-  float bowl = -0.55 * (1.0 - smoothstep(0.0, 1.0, r));
-  float e = (r - 0.92) / 0.20;
-  float rim = 0.42 * exp(-e * e);
-  return (bowl + rim) * (0.55 + 0.45 * h.y);
+float craterLayer(vec3 pos, float freq) {
+  vec3 p = pos * freq;
+  vec3 base = floor(p);
+  vec3 f = p - base;
+  float h = 0.0;
+  for (int z = -1; z <= 1; z++) {
+    for (int y = -1; y <= 1; y++) {
+      for (int x = -1; x <= 1; x++) {
+        vec3 o = vec3(float(x), float(y), float(z));
+        vec3 cell = base + o;
+        vec3 rnd = hash33(cell);
+        if (rnd.z > 0.62) continue;              // most cells stay empty
+        vec3 jit = hash33(cell + 11.73);
+        float r = length(o + jit - f) / (0.30 + 0.55 * rnd.x);
+        if (r > 1.4) continue;
+        float bowl = -0.55 * (1.0 - smoothstep(0.0, 1.0, r));
+        float e = (r - 0.92) / 0.20;
+        h += (bowl + 0.42 * exp(-e * e)) * (0.55 + 0.45 * rnd.y);
+      }
+    }
+  }
+  return h;
 }
 
 /** Height field on the lunar sphere, sampled in the shard's own frame. */
@@ -175,9 +197,11 @@ vec4 moonShard(vec3 rd) {
   float hy = moonHeight(normalize(n + t2 * eps));
   vec3 nb = normalize(n - (t1 * (hx - h0) + t2 * (hy - h0)) * (uMoonBump / eps));
 
-  // Maria: basaltic plains are about half the albedo of the highlands.
+  // Maria: basaltic plains are about half the albedo of the highlands. 0.13 and
+  // 0.06 are the real lunar figures, and keeping them honest is why the moon
+  // sits just under the bloom threshold instead of being a white sticker.
   float maria = smoothstep(0.42, 0.62, fbm3(uMoonRot * n * 1.9 + 4.3, 4));
-  float albedo = mix(0.132, 0.062, maria) * (1.0 + 0.35 * h0);
+  float albedo = mix(0.132, 0.062, maria) * max(0.15, 1.0 + 0.35 * h0);
 
   // Lommel-Seeliger. Regolith backscatters hard, so the moon shows almost no
   // limb darkening — a Lambert disc looks like a billiard ball and gives the
@@ -189,13 +213,15 @@ vec4 moonShard(vec3 rd) {
 
   // Ringshine: in Erevane the dark limb is lit by the debris ring, not by a
   // blue planet — so the unlit crescent glows faintly teal.
-  vec3 surface = uMoonSunColor * lam * albedo * 12.0
+  vec3 surface = uMoonSunColor * lam * albedo * 16.0
                + uEarthshine * albedo * (1.0 - smoothstep(0.0, 0.30, mu0));
 
   float aa = max(fwidth(ang) * 1.3, uMoonRadius * 0.008);
   float disc = 1.0 - smoothstep(uMoonRadius - aa, uMoonRadius + aa, ang);
 
-  return vec4(surface * disc * uMoonFade + halo, disc * uMoonFade);
+  // The halo only applies outside the disc; adding it under an opaque surface
+  // would quietly lift the shard's dark limb and wreck the phase.
+  return vec4(surface * disc * uMoonFade + halo * (1.0 - disc), disc * uMoonFade);
 }
 
 /* --------------------------------------------------------- the ring ------ */
@@ -252,16 +278,19 @@ vec3 moonRing(vec3 rd) {
 vec3 auroraCurtain(vec3 ro, vec3 rd) {
   if (uAurora <= 0.002 || rd.y < 0.015) return vec3(0.0);
 
-  float t0 = raySphere(ro, rd, AT_RG + 90000.0).y;
-  float t1 = raySphere(ro, rd, AT_RG + 260000.0).y;
+  // 90 km and 260 km, in the dome's kilometre units.
+  float t0 = raySphere(ro, rd, AT_RG + 90.0).y;
+  float t1 = raySphere(ro, rd, AT_RG + 260.0).y;
   if (t1 <= t0) return vec3(0.0);
 
   vec3 acc = vec3(0.0);
   float dt = (t1 - t0) / float(SKY_AURORA_STEPS);
   for (int i = 0; i < SKY_AURORA_STEPS; i++) {
     vec3 p = ro + rd * (t0 + dt * (float(i) + 0.5));
-    float h = clamp((length(p) - AT_RG - 90000.0) / 170000.0, 0.0, 1.0);
-    vec2 q = p.xz / 110000.0;
+    float h = clamp((length(p) - AT_RG - 90.0) / 170.0, 0.0, 1.0);
+    // One curtain "wavelength" is ~110 km across, which is the scale real
+    // auroral arcs fold at.
+    vec2 q = p.xz / 110.0;
 
     vec2 w = vec2(fbm2(q * 0.75 + vec2(uTime * 0.011, 0.0), 3),
                   fbm2(q * 0.75 + vec2(3.7, -uTime * 0.008), 3)) - 0.5;
@@ -282,7 +311,10 @@ vec3 auroraCurtain(vec3 ro, vec3 rd) {
   // Curtains are optically thin, so this is pure emission — no extinction term.
   // Fade at the horizon where the shell would otherwise integrate to a bright
   // wall hundreds of kilometres deep.
+  // dt is in km, so the emission coefficient is per-km; 0.024 puts a strong
+  // overhead curtain around 0.6 pre-tonemap, bright enough to read against the
+  // night sky and to feed bloom without becoming the whole frame.
   float horizonFade = smoothstep(0.015, 0.20, rd.y);
-  return acc * (dt * 2.4e-5) * uAurora * horizonFade;
+  return acc * (dt * 0.024) * uAurora * horizonFade;
 }
 `;
