@@ -31,6 +31,15 @@ const SCENARIOS = {
     { hook: ['poseCamera', 'hero-closeup'], wait: 1200, shot: 'lookdev-closeup' },
     { hook: ['poseCamera', 'horizon'], wait: 1200, shot: 'lookdev-horizon' },
   ],
+  // The money shot: the chibi cast staged as they appear in battle. This is
+  // what the art-direction critics judge hardest, because it is the frame the
+  // player spends most of the game looking at.
+  cast: [
+    { hook: ['gotoLookdev'], wait: 4500, shot: 'cast-stage' },
+    { hook: ['poseCamera', 'lineup'], wait: 1500, shot: 'cast-lineup' },
+    { hook: ['poseCamera', 'hero-closeup'], wait: 1500, shot: 'cast-closeup' },
+    { hook: ['poseCamera', 'silhouette'], wait: 1500, shot: 'cast-silhouette' },
+  ],
   daycycle: [
     { hook: ['gotoLookdev'], wait: 4000 },
     { hook: ['poseCamera', 'horizon'], wait: 800 },
