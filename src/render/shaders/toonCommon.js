@@ -92,11 +92,11 @@ uniform float uToonTime;
 export const TOON_FUNCTIONS_GLSL = /* glsl */ `
 
 /**
- * Quantise a 0..1 shading coordinate into `uToonBands` plateaus joined by
+ * Quantise a 0..1 shading coordinate into 'uToonBands' plateaus joined by
  * smooth-stepped terminators.
  *
  * The terminator is placed at the *centre* of each band rather than at its
- * edge, so `uToonSoftness` widens the transition symmetrically into the two
+ * edge, so 'uToonSoftness' widens the transition symmetrically into the two
  * neighbouring plateaus instead of eating one of them. At softness 1.0 the
  * plateaus vanish entirely and the function degenerates to a smooth ramp, which
  * is the correct behaviour for a "how banded do you want this" control — art
@@ -122,14 +122,14 @@ float awToonBand( const in float x ) {
  * The chromatic half of the ramp: what *colour* the key light becomes as it
  * falls off, independent of how much of it there is.
  *
- * The value axis is deliberately not read from the ramp texture. `Palette`'s
- * `toonRamp` bakes its own value curve (0.40 at the dark end so a toon shadow
- * never kills the silhouette), and if both the texture and `awToonBand` were
+ * The value axis is deliberately not read from the ramp texture. 'Palette''s
+ * 'toonRamp' bakes its own value curve (0.40 at the dark end so a toon shadow
+ * never kills the silhouette), and if both the texture and 'awToonBand' were
  * allowed to shape value they would fight: changing the band count would also
  * change the overall brightness of the character, which makes the two controls
  * uncombinable. Normalising the sample to unit maximum strips the texture's
  * value and keeps its hue and saturation — exactly the "shadow gradient" knob
- * AssetForge's `ramp-toon` is there to provide.
+ * AssetForge's 'ramp-toon' is there to provide.
  */
 vec3 awToonTint( const in float lit ) {
 
@@ -157,8 +157,8 @@ vec3 awToonTint( const in float lit ) {
  * A shadow that is one flat colour reads as a sticker; a shadow that is a
  * darkened copy of albedo reads as dirt. Real shade is a *gradient*, warm where
  * bounce light is still reaching the surface just past the terminator and cool
- * in the mass where only sky reaches it. `uToonShadowWarm` carries
- * `BOUNCE_GROUND`'s chroma and `uToonShadowDeep` carries `SHADOW_TINT`'s, both
+ * in the mass where only sky reaches it. 'uToonShadowWarm' carries
+ * 'BOUNCE_GROUND''s chroma and 'uToonShadowDeep' carries 'SHADOW_TINT''s, both
  * pre-normalised to unit luminance on the CPU so this mix moves hue only and
  * cannot accidentally change the character's exposure.
  */
@@ -173,16 +173,16 @@ vec3 awToonShadowColor( const in float lit ) {
  * The mandatory rim.
  *
  * Two terms multiplied, and the second one is the whole point. A bare
- * `pow( 1 - N·V, k )` haloes a character uniformly and reads as a force field;
+ * 'pow( 1 - N·V, k )' haloes a character uniformly and reads as a force field;
  * weighting it by how much the surface faces the rim light concentrates it on
  * the back-lit edge, which is what the reference frames actually show and what
  * gives the silhouette a light *direction* instead of a glow.
  *
  * The product is then smooth-stepped a second time. That is not redundant with
- * the first `pow`: `pow` alone produces a long low-amplitude tail that creeps
+ * the first 'pow': 'pow' alone produces a long low-amplitude tail that creeps
  * across the whole facing side and greys it out, while the window collapses the
  * tail to zero and holds the band tight to the edge without hardening it into
- * an ink line. Feed it a wide `uToonRimShape` and it stays soft — which is the
+ * an ink line. Feed it a wide 'uToonRimShape' and it stays soft — which is the
  * requirement, the reference has soft edges, not outlines.
  */
 float awToonRim( const in vec3 n, const in vec3 v, const in vec3 rimDirView ) {

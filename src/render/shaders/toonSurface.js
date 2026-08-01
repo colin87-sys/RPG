@@ -52,9 +52,9 @@ ${TOON_FUNCTIONS_GLSL}
 /**
  * Peak banded key-light visibility at this fragment: 1 where the key lands
  * unobstructed, 0 on the unlit side *or* inside a cast shadow. Written by
- * `RE_Direct_Toon` for every light, consumed once after the lighting loop.
+ * 'RE_Direct_Toon' for every light, consumed once after the lighting loop.
  *
- * A global rather than an out-parameter because `RE_Direct`'s signature is
+ * A global rather than an out-parameter because 'RE_Direct''s signature is
  * fixed by three and by CSM's replacement chunk; changing it would mean
  * reimplementing both.
  */
@@ -75,7 +75,7 @@ void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryP
   //
   // For every cascade light this ratio *is* the shadow factor, exactly: the rig
   // drives all cascades at one colour and one intensity and publishes that
-  // product as `uKeyColor`, so dividing the post-shadow radiance by it recovers
+  // product as 'uKeyColor', so dividing the post-shadow radiance by it recovers
   // the scalar the shadow map returned. For a dimmer light (the rim, a torch)
   // it degrades to that light's share of the key, which is the correct weight
   // for a term whose only question is "is this pixel lit". Recovering it here
@@ -85,7 +85,7 @@ void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryP
   awToonLit = max( awToonLit, lit * share );
 
   // Banded diffuse. The band supplies the value, the ramp supplies the hue, and
-  // `directLight.color` supplies the light's own colour and its shadowing —
+  // 'directLight.color' supplies the light's own colour and its shadowing —
   // three separable inputs, which is what makes this tunable rather than fiddly.
   vec3 irradiance = directLight.color * lit * awToonTint( lit );
   reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseContribution );
@@ -129,11 +129,14 @@ void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryP
 
   #endif
 
-  float band = smoothstep( uToonSpecThreshold - uToonSpecSoftness,
-                           uToonSpecThreshold + uToonSpecSoftness, lobe );
+  // The softness floor is not cosmetic: 'smoothstep' with equal edges is
+  // undefined, and a zero-width highlight edge would alias into a crawling
+  // sparkle on any curved surface anyway.
+  float specSoft = max( uToonSpecSoftness, 1e-3 );
+  float band = smoothstep( uToonSpecThreshold - specSoft, uToonSpecThreshold + specSoft, lobe );
 
   // Metals tint their own highlight; dielectrics do not. Reading it from
-  // `material.metalness` rather than from a per-material colour means a mixed
+  // 'material.metalness' rather than from a per-material colour means a mixed
   // metal/cloth mesh sharing one material still behaves, and it keeps
   // ART_BIBLE §4's "metal is 1.0 or 0.0" rule from needing a second uniform.
   vec3 specTint = uToonSpecColor * mix( vec3( 1.0 ), material.diffuseColor, material.metalness );
@@ -166,7 +169,7 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
   // through its hemisphere fill; this is the character-side half, and it is
   // additive rather than multiplicative on purpose — a multiply can only ever
   // darken toward the albedo's own hue, which is precisely the "darkened copy
-  // of albedo" the look must not have. Driving it from `awLit` rather than from
+  // of albedo" the look must not have. Driving it from 'awLit' rather than from
   // N·L alone is what makes a *cast* shadow land in the same coloured mass as
   // the form shadow instead of punching a black hole through the character.
   vec3 shadowFill = awToonShadowColor( awLit ) * ( uToonShadowGain * ( 1.0 - awLit ) );
@@ -192,7 +195,7 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
   // A surface-wide additive tint the combat layer drives for hit flashes, limit
   // charge and status auras. Weighted toward the rim so a pulse reads as the
   // character *glowing at its edge* rather than as a flat colour wash, which is
-  // how the reference shows charged states. Zero-cost at rest: `uToonPulse`
+  // how the reference shows charged states. Zero-cost at rest: 'uToonPulse'
   // defaults to black and the whole term collapses.
   vec3 awPulse = uToonPulse * ( 0.5 + 0.5 * sin( uToonTime * uToonPulseRate ) );
   reflectedLight.directSpecular += awPulse * ( 0.35 + 0.65 * awRim );

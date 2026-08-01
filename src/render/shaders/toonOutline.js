@@ -38,9 +38,9 @@ export const TOON_OUTLINE_PROJECT = /* glsl */ `
 // ---- AETHERWIND inverted-hull outline ------------------------------------
 #if defined( USE_ENVMAP ) || defined( USE_SKINNING )
 
-  // `meshbasic` only runs the normal pipeline under these two defines, and when
-  // it does, `objectNormal` has already been morphed and skinned by exactly the
-  // chunks that deformed `transformed`. Reusing it is what keeps the hull
+  // 'meshbasic' only runs the normal pipeline under these two defines, and when
+  // it does, 'objectNormal' has already been morphed and skinned by exactly the
+  // chunks that deformed 'transformed'. Reusing it is what keeps the hull
   // welded to the surface through an animation.
   vec3 awOutlineNormal = objectNormal;
 
@@ -60,16 +60,16 @@ export const TOON_OUTLINE_PROJECT = /* glsl */ `
   awOutlineNormal = mat3( batchingMatrix ) * awOutlineNormal;
 #endif
 
-// Deliberately *not* `transformedNormal`: the outline material renders back
-// faces, so three defines FLIP_SIDED and `<defaultnormal_vertex>` negates that
+// Deliberately *not* 'transformedNormal': the outline material renders back
+// faces, so three defines FLIP_SIDED and '<defaultnormal_vertex>' negates that
 // vector. Pushing along a negated normal collapses the hull inward and the
 // outline disappears — a failure that only shows up once someone sets
-// `side: BackSide`, which is always.
+// 'side: BackSide', which is always.
 vec3 awOutlineNormalView = normalize( normalMatrix * awOutlineNormal );
 
 // View-space height of the frustum at this depth. For a perspective camera
 // projectionMatrix[1][1] is cot( fov / 2 ), so 2 * z / P[1][1] is the visible
-// height in metres at distance z — multiply by that and `uOutlineWidth` becomes
+// height in metres at distance z — multiply by that and 'uOutlineWidth' becomes
 // a fraction of the viewport, constant in pixels no matter how far the subject
 // stands. P[3][3] is 0 for perspective and 1 for orthographic; an ortho frustum
 // has no depth-dependent height, so the depth factor drops out and the same
