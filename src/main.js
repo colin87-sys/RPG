@@ -58,6 +58,32 @@ bus.on('settings:changed', ({ key, value }) => {
   engine.get('sky')?.setQuality(value);
 });
 
+/**
+ * Which composition the lookdev stage should open on.
+ *
+ * The capture harness (`tools/screenshot.mjs`, frozen) shoots whatever is on
+ * screen the moment `gotoLookdev` resolves, and it drives two different
+ * scenarios — `lookdev` and `cast` — through that same argument-less hook. So
+ * the entry pose *is* a deliverable, and if it is a constant the two scenarios
+ * necessarily ship the same frame under two names. `tools/capture.sh` therefore
+ * tags the preview URL with the scenario it is capturing, and the mapping from
+ * scenario to composition lives here, next to the pose names it references,
+ * rather than in shell.
+ *
+ * The fallback is the battle frame: it is the composition REFERENCE_TARGET §2
+ * specifies and the one a bare `npm run dev` should land on.
+ */
+const LOOKDEV_ENTRY_POSE = { lookdev: 'wide', cast: 'battle', daycycle: 'horizon' };
+
+function lookdevEntryPose() {
+  try {
+    const scenario = new URL(window.location.href).searchParams.get('scenario');
+    return LOOKDEV_ENTRY_POSE[scenario] ?? 'battle';
+  } catch {
+    return 'battle';
+  }
+}
+
 /** Wait until the engine has presented `n` frames, so captures see settled state. */
 function framesSettled(n = 3) {
   return new Promise((resolve) => {
@@ -82,8 +108,8 @@ window.__AW__ = {
     await engine.setScene(new TitleScene(engine));
     await framesSettled();
   },
-  async gotoLookdev() {
-    await engine.setScene(new LookdevScene(engine));
+  async gotoLookdev(pose) {
+    await engine.setScene(new LookdevScene(engine, { pose: pose ?? lookdevEntryPose() }));
     await framesSettled(4);
   },
   async gotoField(zoneId = 'lumen-quay') {

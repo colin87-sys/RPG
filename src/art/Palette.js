@@ -543,6 +543,25 @@ export function hueRotate(hex, degrees) {
   return linearToHex(r * k, g * k, b * k);
 }
 
+/**
+ * Strip the value out of a colour and keep only its chromaticity, as a linear
+ * triple normalised to unit Rec.709 luminance.
+ *
+ * The result is a *tint multiplier*: multiplying an albedo by it rotates the
+ * hue without moving the surface's luminance, so a colour push cannot leak into
+ * the value structure §2.3 pins down. `toonRamp` does this inline for its two
+ * endpoints and the ground macro layer does it for its dry/damp tints — same
+ * reason both times, so it lives here rather than twice.
+ */
+export function unitChroma(hex, out = [0, 0, 0]) {
+  hexToLinear(hex, out);
+  const y = luminance(out[0], out[1], out[2]) || 1e-6;
+  out[0] /= y;
+  out[1] /= y;
+  out[2] /= y;
+  return out;
+}
+
 /** Saturate (>1) or desaturate (<1) about the luminance axis, in linear light. */
 export function saturate(hex, amount) {
   const lin = hexToLinear(hex, [0, 0, 0]);

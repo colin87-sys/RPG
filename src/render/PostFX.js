@@ -19,6 +19,11 @@
  *     -> composite      chromatic aberration, flash, ACES, LUT grade, grain, vignette
  *     -> FXAA
  *
+ * Diagnostic frames (the flat silhouette check) take a bypass: see
+ * `setDiagnostic`. Everything creative is switched off and the pass reduces to
+ * exposure + ACES + sRGB + FXAA, because a debug render that carries bloom,
+ * grain and aberration cannot be used to judge the one thing it exists for.
+ *
  * The last four *listed* stages share one render target. They are pure
  * per-pixel arithmetic evaluated in exactly the contracted order inside one
  * shader; splitting them would buy three extra full-resolution half-float round
@@ -70,6 +75,19 @@ const LUT_SIZE = 32;
 
 /** 35 mm full-frame sensor height. Fixes the mm→pixel scale for the CoC maths. */
 const SENSOR_HEIGHT_MM = 24;
+
+/**
+ * Chromatic aberration, in the units the composite pass and ART_BIBLE §6 both
+ * use: total R↔B separation at the frame *corner* as a fraction of frame width.
+ *
+ * The steady state is the bible's 0.0012 exactly. The impact peak is its 0.004,
+ * expressed here as the *additive* spike a `punch()` lays on top of the grade's
+ * baseline, because the baseline is a cross-faded per-grade value and a spike
+ * that clobbered it would make a crit under `void` weaker than a crit under
+ * `neutral`.
+ */
+const ABERRATION_STEADY = 0.0012;
+const ABERRATION_IMPACT_SPIKE = 0.004 - ABERRATION_STEADY;
 
 /**
  * Quality ladder. Everything here is switchable at runtime; nothing here
@@ -647,13 +665,16 @@ export class PostFX {
     this.compositeUniforms = {
       tDiffuse: { value: null },
       uResolution: { value: new THREE.Vector2(bw, bh) },
-      uAberration: { value: 1.2 },
+      // Fraction of frame width, not pixels — see compositeShader.js and
+      // ART_BIBLE §6. Overwritten from the active grade every frame.
+      uAberration: { value: ABERRATION_STEADY },
       uFlash: { value: new THREE.Vector3(0, 0, 0) },
       uExposure: { value: 1 },
       uLutA: { value: this._lutA },
       uLutB: { value: this._lutB },
       uLutMix: { value: 1 },
       uLutSize: { value: LUT_SIZE },
+      uGradeAmount: { value: 1 },
       uGrain: { value: 0.035 },
       uGrainSeed: { value: 0 },
       uVignette: { value: 0.28 },
@@ -718,7 +739,12 @@ export class PostFX {
 
     this._radialTarget = 0;
     this._radialHold = 0;
+    this._radialActive = false;
     this._gradeExposure = 1;
+
+    /** Diagnostic bypass. `null` = follow the scene's own flag. */
+    this._diagnosticOverride = null;
+    this._diagnostic = false;
 
     /** Focus tracking. Scenes may set `scene.focusDistance`, or call
      *  `postfx.focusOn(objectOrVector)`; otherwise the default suits both the
@@ -757,7 +783,7 @@ export class PostFX {
       // Deliberately does *not* trigger shake — the battle and VFX layers own
       // that, and doubling it would make every crit feel like an earthquake.
       bus.on('battle:damage', (p) => {
-        if (p?.crit) this.punch(2.6, 0.25);
+        if (p?.crit) this.punch(ABERRATION_IMPACT_SPIKE, 0.25);
       }),
       bus.on('settings:changed', ({ key }) => {
         if (key === 'motionBlur' || key === 'screenShake') this._applyQuality();
@@ -867,9 +893,13 @@ export class PostFX {
     this._flashIntensity = Math.max(0, intensity);
   }
 
-  /** Chromatic aberration spike, in pixels of corner separation. */
-  punch(pixels = 3, seconds = 0.25) {
-    this._aberrationSpike = Math.max(this._aberrationSpike, pixels);
+  /**
+   * Chromatic aberration spike, added on top of the active grade's baseline.
+   * `amount` is in the same fraction-of-frame-width unit as the grade value;
+   * the default lands the peak on ART_BIBLE §6's 0.004.
+   */
+  punch(amount = ABERRATION_IMPACT_SPIKE, seconds = 0.25) {
+    this._aberrationSpike = Math.max(this._aberrationSpike, Math.max(0, amount));
     this._aberrationRate = this._aberrationSpike / Math.max(0.05, seconds);
   }
 
@@ -953,7 +983,53 @@ export class PostFX {
       rad.needsUpdate = true;
     }
     // Motion blur also honours the player's own setting; quality only gates it.
-    this.motionBlurPass.enabled = s.motionBlur && gameState.state.settings.motionBlur !== false;
+    // Stored rather than applied directly because the diagnostic bypass in
+    // render() is the final authority on every pass's enable flag.
+    this._motionBlurWanted = s.motionBlur && gameState.state.settings.motionBlur !== false;
+    this.motionBlurPass.enabled = this._motionBlurWanted;
+  }
+
+  // -------------------------------------------------------------------------
+  // Diagnostic bypass
+  // -------------------------------------------------------------------------
+
+  /**
+   * Force (or release) the diagnostic path.
+   *
+   * A silhouette/flat-shape check exists to answer exactly one question — does
+   * this character read as a black shape — and every creative stage in this
+   * chain actively obstructs that answer. Bloom bleeds a rim outward and fattens
+   * the shape; DOF softens the very edge being judged; the grade's tinted floor
+   * lifts "black" off black; grain puts noise on a flat field; and aberration
+   * puts colour on the outline of a render whose whole point is that it has no
+   * colour. So the diagnostic path keeps only what is required to get linear HDR
+   * onto an sRGB display — exposure, the ACES fit, the encode — plus FXAA, which
+   * is an edge *resolve* rather than a look and without which the silhouette
+   * would be judged on staircasing.
+   *
+   * @param {boolean|null} on `true`/`false` to pin, `null` to follow the scene.
+   */
+  setDiagnostic(on) {
+    this._diagnosticOverride = on === null || on === undefined ? null : on === true;
+  }
+
+  /** True while the frame is being rendered as an unlit diagnostic. */
+  get diagnostic() {
+    return this._diagnostic;
+  }
+
+  /**
+   * Scene-level contract: a scene renders diagnostically while `scene.diagnostic`
+   * is true.
+   *
+   * `scene._silhouette` is also honoured because `LookdevScene` — the only owner
+   * of a diagnostic pose in the build today — records the state under that name
+   * and PostFX does not own that file. That fallback is a contract gap, not a
+   * design: the public flag is the one to write against.
+   */
+  _resolveDiagnostic(scene) {
+    if (this._diagnosticOverride !== null) return this._diagnosticOverride;
+    return scene?.diagnostic === true || scene?.silhouette === true || scene?._silhouette === true;
   }
 
   // -------------------------------------------------------------------------
@@ -1050,7 +1126,7 @@ export class PostFX {
     const k = 1 - Math.exp(-dt / 0.08);
     const next = current + (this._radialTarget - current) * k;
     this.radialUniforms.uStrength.value = next;
-    this.radialPass.enabled = next > 0.002;
+    this._radialActive = next > 0.002;
 
     // Focus follow. Exponential, ~0.25 s time constant: fast enough to keep up
     // with a cut-in, slow enough that it never snaps (art bible §7.8).
@@ -1110,13 +1186,35 @@ export class PostFX {
     // shadow-debug view) gets the rest of the chain and skips these two rather
     // than rendering a wrong result.
     const perspective = camera.isPerspectiveCamera === true;
-    this.aoPass.enabled = this._settings.ao && perspective;
-    this.dofPass.enabled = this._settings.dof && perspective;
+    const diag = this._resolveDiagnostic(scene);
+    this._diagnostic = diag;
+
+    this.aoPass.enabled = this._settings.ao && perspective && !diag;
+    this.dofPass.enabled = this._settings.dof && perspective && !diag;
+    this.bloomPass.enabled = !diag;
+    this.motionBlurPass.enabled = this._motionBlurWanted && !diag;
+    this.radialPass.enabled = this._radialActive && !diag;
+
+    // Zero the creative half of the composite. These uniforms were just written
+    // by _advance() from the active grade, so the override has to land after it
+    // and before the composer runs.
+    if (diag) {
+      this.compositeUniforms.uAberration.value = 0;
+      this.compositeUniforms.uGrain.value = 0;
+      this.compositeUniforms.uVignette.value = 0;
+      this.compositeUniforms.uGradeAmount.value = 0;
+      this.compositeUniforms.uFlash.value.set(0, 0, 0);
+    } else {
+      this.compositeUniforms.uGradeAmount.value = 1;
+    }
 
     // --- camera shake ----------------------------------------------------
     this._camPos.copy(camera.position);
     this._camQuat.copy(camera.quaternion);
-    const shakeActive = this._trauma > 0.0005 && gameState.state.settings.screenShake;
+    // A diagnostic frame must be reproducible to the pixel and is judged on
+    // shape; a residual trauma displacement would move the very outline the
+    // pass exists to measure.
+    const shakeActive = !diag && this._trauma > 0.0005 && gameState.state.settings.screenShake;
     if (shakeActive) {
       const s = this._trauma * this._trauma;
       const f = this._shakeClock * 24;
@@ -1162,8 +1260,11 @@ export class PostFX {
       this.motionBlurUniforms.uScale.value = 0;
     }
 
+    // The grade's exposure trim is part of the grade, so a bypassed frame does
+    // not get it — otherwise a "neutral" diagnostic and a "dusk" diagnostic
+    // would sit a fifth of a stop apart and neither would be the true render.
     this.compositeUniforms.uExposure.value =
-      this.renderer.toneMappingExposure * (this._gradeExposure ?? 1);
+      this.renderer.toneMappingExposure * (diag ? 1 : (this._gradeExposure ?? 1));
     // Quantised per frame index rather than per wall clock, so a capture at a
     // fixed frame count reproduces the same grain field exactly.
     this.compositeUniforms.uGrainSeed.value = (this._frame % 512) * 17.13;

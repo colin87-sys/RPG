@@ -314,8 +314,14 @@ const SURFACES = {
   cloth: { spec: 'cloth', bump: 2.2, ao: 0.45, repeat: 6 },
   silk: { spec: 'silk', bump: 1.4, ao: 0.25, repeat: 6 },
   leather: { spec: 'leather', bump: 3.4, ao: 0.8, repeat: 4 },
-  steel: { spec: 'steel', bump: 1.6, ao: 0.3, repeat: 1 },
-  gold: { spec: 'gold', bump: 1.8, ao: 0.75, repeat: 1 },
+  // Metal bump is deliberately high for a surface whose relief is measured in
+  // microns: the grind field is the *only* thing giving a blade internal
+  // structure (§4 forbids fractional metalness, so there is no albedo contrast
+  // to fall back on), and every consumer of these maps dials `normalScale` down
+  // — CharacterFactory binds `steel/normal` at 0.35 on the weapon class. At the
+  // old 1.6 that arrived as 0.56 effective and the streaks were gone.
+  steel: { spec: 'steel', bump: 2.8, ao: 0.3, repeat: 1 },
+  gold: { spec: 'gold', bump: 2.2, ao: 0.75, repeat: 1 },
   crystal: { spec: 'crystal', bump: 3.0, ao: 0.3, repeat: 1, emissive: true },
   sand: { spec: 'sand', bump: 2.4, ao: 0.4, repeat: 8, size: 256 },
   grass: { spec: 'grass', bump: 3.0, ao: 0.7, repeat: 12, size: 256 },
@@ -328,7 +334,7 @@ const SURFACES = {
 export const SURFACE_KEYS = Object.keys(SURFACES);
 export const RAMP_KEYS = ['ramp-fire', 'ramp-ice', 'ramp-holy', 'ramp-toon'];
 export const SPRITE_KEYS = ['spark', 'smoke', 'glow', 'star', 'ember', 'mote', 'streak', 'ring'];
-export const UTILITY_KEYS = ['noise-rgb', 'blue-noise'];
+export const UTILITY_KEYS = ['noise-rgb', 'blue-noise', 'macro-ground'];
 
 // ------------------------------------------------------------- generators
 
@@ -806,10 +812,35 @@ function genLeather(buf, n, rng) {
 }
 
 /**
- * Steel and gold share a substrate: a brushed anisotropic streak field along U
- * (the blade axis), micro-pitting from a fine cellular layer, and a broad
- * polish-variation layer. They differ in tint, in how much grime collects, and
- * in how deep the pitting cuts — gold is soft and dents, steel is hard and pits.
+ * Steel and gold share a substrate: a brushed anisotropic grind field along U
+ * (the blade axis), micro-pitting from a fine cellular layer, a bevel/hone band
+ * structure, and a broad polish-variation layer. They differ in tint, in how
+ * much grime collects, and in how deep the pitting cuts — gold is soft and
+ * dents, steel is hard and pits.
+ *
+ * Three things here are doing the heavy lifting and none of them is obvious.
+ *
+ * **The grind must survive the mip chain.** §4 makes anisotropic streaking
+ * mandatory on metal and §7.13 makes its absence a never-ship, but a single
+ * mid-frequency streak layer averages to flat by mip 3 and every blade in the
+ * game is between four and twenty pixels wide. So the streaks are built from
+ * three explicitly chosen bands — roughly 44, 120 and 128 lattice cells across
+ * V against 2–3 across U — instead of one fBm stack. The coarsest band is what
+ * still reads at battle distance; the finest is what carries the roughness
+ * variance that keeps the highlight from collapsing to a dot in a closeup.
+ *
+ * **The highlight has to move.** A blade whose roughness is uniform gives a
+ * static specular line wherever the geometry happens to face the key. Baking
+ * the grind into *roughness* as well as into the normal means the reflected band
+ * breaks, brightens and slides along the blade as the camera drifts, which is
+ * the difference between "metal" and "a white decal".
+ *
+ * **Edge wear.** §4 asks for "edge wear lightening" on steel by name. `band` is
+ * a very low frequency field across V and a slow one along U, so its crests form
+ * long strips running the length of the blade; the abrasive bit hardest there,
+ * so those strips lose their oxide, lighten toward `wear`, and drop to the
+ * bottom of the roughness range. That is the only cue that distinguishes a
+ * ground blade from a painted lozenge in silhouette-adjacent lighting.
  *
  * `metal` is 'steel' or 'gold'.
  */
@@ -817,9 +848,14 @@ function genMetal(buf, n, rng, metal) {
   const { w, h } = buf;
   const isGold = metal === 'gold';
   const spec = isGold ? SURFACE_SPEC.gold : SURFACE_SPEC.steel;
-  const baseA = hexToLinear(isGold ? SURFACE_TINT.GOLD_BRIGHT : 0xb9c2c9, [0, 0, 0]);
-  const baseB = hexToLinear(isGold ? SURFACE_TINT.GOLD_DEEP : 0x7d8790, [0, 0, 0]);
-  const grime = hexToLinear(isGold ? SURFACE_TINT.GOLD_GRIME : 0x2a3238, [0, 0, 0]);
+  const baseA = hexToLinear(isGold ? SURFACE_TINT.GOLD_BRIGHT : 0xb2bcc4, [0, 0, 0]);
+  const baseB = hexToLinear(isGold ? SURFACE_TINT.GOLD_DEEP : 0x717c86, [0, 0, 0]);
+  // Bare, freshly abraded metal: brighter and bluer than the oxidised field on
+  // steel, brighter and warmer on gold.
+  const wear = hexToLinear(isGold ? 0xffe6b8 : 0xe4ebf0, [0, 0, 0]);
+  const grime = hexToLinear(isGold ? SURFACE_TINT.GOLD_GRIME : 0x27303a, [0, 0, 0]);
+  const rLo = spec.roughness[0];
+  const rHi = spec.roughness[1];
   const col = [0, 0, 0];
   const cell = new Float32Array(4);
 
@@ -829,21 +865,39 @@ function genMetal(buf, n, rng, metal) {
       const i = y * w + x;
       const u = (x + 0.5) / w;
 
-      // scaleY >> scaleX gives features that are ~64x longer along U than
-      // across it: the grind lines a belt sander leaves.
-      const brush = n.fbm2(u, v, { period: 2, octaves: 4, gain: 0.6, z: 6.6, scaleX: 1, scaleY: 20 });
-      const brushFine = n.fbm2(u, v, { period: 3, octaves: 3, gain: 0.5, z: 19.1, scaleX: 1, scaleY: 40 });
+      // scaleY >> scaleX gives features an order of magnitude longer along U
+      // than across it: the grind lines a belt leaves. The three bands are
+      // sampled separately rather than as octaves of one fBm so their relative
+      // weights can be tuned against the mip level each one dies at.
+      const grindA = n.fbm2(u, v, { period: 2, octaves: 2, gain: 0.55, z: 6.6, scaleX: 1, scaleY: 22 });
+      const grindB = n.fbm2(u, v, { period: 3, octaves: 1, z: 19.1, scaleX: 1, scaleY: 40 });
+      // One octave at ~128 cells over the map height: four texels per cell, the
+      // finest streak that can be filtered without aliasing into sparkle.
+      const grindC = n.fbm2(u, v, { period: 2, octaves: 1, z: 31.7, scaleX: 1, scaleY: 64 });
+      // Bevel/hone bands: six-ish strips across V, drifting slowly along U.
+      const band = n.fbm2(u, v, { period: 2, octaves: 2, gain: 0.5, z: 44.2, scaleX: 1, scaleY: 3 });
+
       n.worley2(u, v, isGold ? 40 : 64, 1, cell);
       const pit = ipow(1 - clamp(cell[0] * (isGold ? 2.4 : 1.9), 0, 1), isGold ? 3 : 5);
       const polish = n.fbm2(u, v, { period: 2, octaves: 3, gain: 0.55, z: 55.1 });
-      const dirtMask = smoothstep(0.05, 0.5, -polish + brush * 0.3);
 
-      buf.height[i] = brush * 0.35 + brushFine * 0.18 - pit * (isGold ? 0.7 : 0.5);
+      const grind = grindA * 0.5 + grindB * 0.32 + grindC * 0.18;
+      // Wear lives on the band crests and only where the macro polish agrees,
+      // so it forms a few long strips rather than a stripe on every band.
+      const honed = smoothstep(0.10, 0.62, band * 1.15 + polish * 0.45 + grindA * 0.2);
+      const dirtMask = smoothstep(0.05, 0.5, -polish + grindA * 0.3) * (1 - honed * 0.75);
+
+      // Grind dominates the height field; the bands give it a slow cross-blade
+      // undulation so the normal is not a pure 1D signal (which would light
+      // identically from every azimuth and read as printed-on stripes).
+      buf.height[i] =
+        grindA * 0.52 + grindB * 0.30 + grindC * 0.20 + band * 0.22 - pit * (isGold ? 0.7 : 0.5);
 
       // Warm falloff on gold: the tint runs bright→deep with the polish field,
       // which is what stops procedural gold from reading as flat yellow paint.
-      mix3(baseA, baseB, clamp(0.5 + polish * (isGold ? 1.7 : 1.1) - brush * 0.3, 0, 1), col);
-      const shade = 0.9 + brush * 0.18 + brushFine * 0.08 - pit * 0.35;
+      mix3(baseA, baseB, clamp(0.5 + polish * (isGold ? 1.7 : 1.1) - grind * 0.3, 0, 1), col);
+      mix3(col, wear, honed * (isGold ? 0.5 : 0.62), col);
+      const shade = 0.9 + grind * 0.2 - pit * 0.35;
       col[0] *= shade; col[1] *= shade; col[2] *= shade;
       // Grime lives in the recesses. On gold the bible names the colour; on
       // steel it is oxide in the grind lines.
@@ -853,10 +907,18 @@ function genMetal(buf, n, rng, metal) {
       buf.albedo[i * 3 + 1] = col[1];
       buf.albedo[i * 3 + 2] = col[2];
 
-      // Roughness rides the brush direction — this is where the anisotropic
-      // highlight actually comes from on a Standard material.
-      const r = (isGold ? 0.3 : 0.42) + brush * 0.14 + brushFine * 0.08 + pit * 0.25 + dirtMask * 0.12;
-      buf.rough[i] = clamp(r, spec.roughness[0], spec.roughness[1]);
+      // Roughness rides the grind direction, and its swing is deliberately the
+      // full width of the bible's band for this metal: this is the term that
+      // turns the specular into a band that travels along the blade instead of
+      // a static line, and half-strength here is indistinguishable from none.
+      const mid = (rLo + rHi) * 0.5;
+      const swing = (rHi - rLo) * 0.5;
+      const r = mid
+        + grind * swing * 1.15
+        + pit * swing * 1.4
+        + dirtMask * swing * 0.9
+        - honed * swing * 1.6;
+      buf.rough[i] = clamp(r, rLo, rHi);
     }
   }
 }
@@ -1794,9 +1856,74 @@ function genBlueNoise(size, seed) {
   });
 }
 
+/**
+ * `macro-ground`: the low-frequency layer that gives terrain *form*.
+ *
+ * A tiled ground material is a lie that works only as long as the eye cannot
+ * find the tile. At the density a battle stage needs (LookdevScene lands one
+ * grass tile every 2.25 m) the detail map is the *only* signal in the frame,
+ * every square metre carries the same statistics, and the bottom of the shot
+ * reads as carpet — one frequency from the character's feet to the tree line.
+ * Real ground has structure an order of magnitude larger than its grain: the
+ * dry crown of a rise, the damp trough behind it, a scald where the sun sits.
+ *
+ * So this map is sampled at ~1/32 the detail tiling, which puts its features at
+ * 8–15 m in a stage-scale scene — large enough to be composition, too large to
+ * repeat inside one frame. Channels:
+ *
+ *   R  mid-scale value drift (0.5 neutral) — the ±0.06–0.10 linear swing §4 wants
+ *   G  moisture, 0.5 neutral: below is dry and warm, above is damp, dark and smoother
+ *   B  roughness drift (0.5 neutral), decorrelated from R so the two do not lock
+ *   A  coarse value drift, ~4x R's period — stacked on R to avoid a single-scale read
+ *
+ * The moisture field is warped by an independent low-frequency vector field and
+ * biased against the value drift, so damp patches settle into the darker macro
+ * regions and their boundaries meander like drainage rather than reading as the
+ * blobs an unwarped fBm produces.
+ */
+function genMacroGround(size, seed) {
+  const n = makeNoise(seed);
+  n.maxPeriod = size * 0.5;
+  const bytes = new Uint8ClampedArray(size * size * 4);
+  const enc = (x) => (clamp(x * 0.5 + 0.5, 0, 1) * 255 + 0.5) | 0;
+
+  for (let y = 0; y < size; y++) {
+    const v = (y + 0.5) / size;
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      const u = (x + 0.5) / size;
+
+      // The warp is itself periodic over the unit square, so warping preserves
+      // tileability exactly — the composite still wraps.
+      const wx = n.fbm2(u, v, { period: 3, octaves: 2, gain: 0.5, z: 71.3 }) * 0.09;
+      const wy = n.fbm2(u, v, { period: 3, octaves: 2, gain: 0.5, z: 88.9 }) * 0.09;
+
+      const mid = n.fbm2(u + wx, v + wy, { period: 6, octaves: 3, gain: 0.5, z: 2.7 });
+      const coarse = n.fbm2(u, v, { period: 2, octaves: 2, gain: 0.55, z: 17.9 });
+      const moist = n.fbm2(u + wx, v + wy, { period: 4, octaves: 3, gain: 0.55, z: 33.1 });
+      const rough = n.fbm2(u, v, { period: 5, octaves: 3, gain: 0.5, z: 49.6 });
+
+      bytes[i] = enc(mid * 1.15);
+      // 0.85/0.5 weighting keeps the field mostly neutral: a ground that is half
+      // wet reads as mud, and the note asked for patches, not a second material.
+      bytes[i + 1] = enc(moist * 0.85 - mid * 0.5);
+      bytes[i + 2] = enc(rough * 1.1);
+      bytes[i + 3] = enc(coarse);
+    }
+  }
+
+  return texFromCanvas(paint(size, size, bytes), {
+    srgb: false,
+    wrap: THREE.RepeatWrapping,
+    mips: true,
+    name: 'macro-ground',
+  });
+}
+
 export function generateUtility(key, opts = {}) {
   if (key === 'noise-rgb') return genNoiseRGB(opts.size ?? 256, seedFromKey(key));
   if (key === 'blue-noise') return genBlueNoise(opts.size ?? 64, seedFromKey(key));
+  if (key === 'macro-ground') return genMacroGround(opts.size ?? 256, seedFromKey(key));
   throw new Error(`Textures: unknown utility "${key}"`);
 }
 

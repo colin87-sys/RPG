@@ -38,7 +38,7 @@ import {
   classify, SURFACES,
 } from './Textures.js';
 import {
-  LIGHT, SURFACE_TINT, ENV_INTENSITY, sampleTimeOfDay, mixHex, HERO_TIME_OF_DAY,
+  LIGHT, SURFACE_TINT, ENV_INTENSITY, sampleTimeOfDay, mixHex, unitChroma, HERO_TIME_OF_DAY,
 } from './Palette.js';
 
 /** Surfaces whose material wants a class other than plain Standard. */
@@ -52,7 +52,33 @@ const MATERIAL_CLASS = {
   cloud: 'cloud',
   rune: 'rune',
   'water-normal': 'water',
+  grass: 'ground',
+  dirt: 'ground',
+  sand: 'ground',
 };
+
+/**
+ * Classes whose env-map contribution is *authored* by §4 rather than left at the
+ * scene default, and which therefore take the probe on the material itself.
+ *
+ * This is not a micro-optimisation, it is a correctness fix. three overwrites
+ * `envMapIntensity` with `scene.environmentIntensity` for any Standard-family
+ * material that has no `envMap` of its own (WebGLRenderer, "material.envMap ===
+ * null && scene.environment !== null"). A scene that dials its probe down — and
+ * ours does, to 0.6, to keep environment saturation under character saturation
+ * per REFERENCE §3 — silently throws away every per-class intensity the bible
+ * specifies: metal's mandated 1.0 becomes 0.6, cloth's 0.25 becomes 0.6. Binding
+ * the probe explicitly on these classes is the only way §4's table survives
+ * contact with a scene-level probe dial.
+ *
+ * The set is exactly the classes §4 names a number for. Ground, foliage and the
+ * plain `standard` surfaces are deliberately excluded: their intensity *is* the
+ * 0.6 default, so the scene's dial and the bible's value are the same lever, and
+ * leaving them on `scene.environment` both keeps the diagnostic silhouette pass
+ * (which nulls `scene.environment`) honest and leaves the environment's overall
+ * ambient level where the lighting rig calibrated it.
+ */
+const ENV_BOUND_CLASSES = new Set(['metal', 'crystal', 'silk', 'cloth', 'water']);
 
 /** Friendly aliases so callers can ask for the thing rather than the map. */
 const KEY_ALIAS = { water: 'water-normal', 'water-material': 'water-normal' };
@@ -72,6 +98,197 @@ function optionHash(opts) {
     out += `${k}=${v && v.isColor ? v.getHexString() : v};`;
   }
   return out;
+}
+
+/**
+ * Terrain material: a tiled detail set plus a macro layer plus distance-varying
+ * detail frequency.
+ *
+ * The failure this exists to fix is specific. A ground plane textured by one
+ * repeating map has *one* spatial frequency, and it has it everywhere: the same
+ * grain at the character's feet and at the tree line sixty metres away. The eye
+ * reads a constant-frequency field as a flat surface regardless of how good the
+ * grain is, so near-field depth collapses and the bottom of the frame turns to
+ * carpet. Three things fix it, and all three are needed:
+ *
+ * 1. **Macro albedo.** `macro-ground` sampled at ~1/32 the detail tiling — 8–15 m
+ *    features at stage scale. Dry crowns tint warm and lift in value, damp
+ *    troughs tint toward `SHADOW_TINT` and darken. The tints are unit-luminance
+ *    chromaticities so the hue push cannot leak into the value structure, and
+ *    the value drift is applied as a separate explicit term (§4: ±0.06–0.10
+ *    linear). This is the layer that gives the ground *form* rather than texture.
+ *
+ * 2. **Macro-tied roughness.** §4 asks for ≥ ±0.08 roughness variation and
+ *    "macro breakup"; the detail map supplies the former on its own but at the
+ *    detail frequency, where it is invisible. Damp patches additionally drop
+ *    roughness, because that is what makes a wet patch read as wet rather than
+ *    as a dark stain.
+ *
+ * 3. **Distance-varying detail.** Past `fadeNear` the shader cross-fades the
+ *    detail albedo into a re-sample of the *same* map at a quarter tiling and
+ *    relaxes the normal toward geometric. Re-sampling rather than fading to flat
+ *    matters: the far ground still needs texture for the atmospheric gradient to
+ *    grade, it just must not be carrying 2 m grain at 60 m.
+ *
+ * Implemented as a subclass rather than a bare `onBeforeCompile` because scenes
+ * clone this material to tint it, and `Material.copy` copies a fixed field list
+ * — an instance-assigned `onBeforeCompile` and its uniforms are both silently
+ * dropped by `clone()`, which would leave the cloned terrain with the plain
+ * shader and no warning anywhere. On the prototype it survives, and `copy()`
+ * below carries the uniform values across.
+ */
+class GroundMaterial extends THREE.MeshStandardMaterial {
+  constructor(params) {
+    super(params);
+    this.isGroundMaterial = true;
+    // `Lighting.registerMaterial` decides whether a material already owns a
+    // shader hook with `hasOwnProperty('onBeforeCompile')`, because
+    // `Material.prototype.onBeforeCompile` is a no-op every material inherits
+    // and chaining it would be pointless. A *subclass* prototype method reads
+    // the same way, so CSM's `setupMaterial` overwrote this material's hook
+    // outright and the entire ground shader silently reverted to stock — no
+    // error, no warning, and a frame that looks plausible because the detail
+    // maps are still bound. Installing the prototype implementation as an own
+    // property makes the chain see it. Clone still works: the constructor runs
+    // on every clone, so every instance re-installs it.
+    this.onBeforeCompile = GroundMaterial.prototype.onBeforeCompile;
+    this.groundUniforms = {
+      uGroundMacroMap: { value: null },
+      // 1/32 of the detail tiling. Expressed as a ratio, not a world size,
+      // because the material never learns how many metres its caller spread the
+      // detail map over — but the *ratio* to the detail frequency is exactly
+      // what the "is this one frequency or several" read depends on.
+      uGroundMacroScale: { value: 1 / 32 },
+      uGroundCoarseScale: { value: 0.23 },
+      uGroundFade: { value: new THREE.Vector2(14, 62) },
+      uGroundDrift: { value: 0.34 },
+      uGroundRoughVar: { value: 0.11 },
+      uGroundDryTint: { value: new THREE.Vector3(1, 1, 1) },
+      uGroundDampTint: { value: new THREE.Vector3(1, 1, 1) },
+    };
+  }
+
+  copy(source) {
+    super.copy(source);
+    if (source.isGroundMaterial) {
+      const src = source.groundUniforms;
+      const dst = this.groundUniforms;
+      dst.uGroundMacroMap.value = src.uGroundMacroMap.value;
+      dst.uGroundMacroScale.value = src.uGroundMacroScale.value;
+      dst.uGroundCoarseScale.value = src.uGroundCoarseScale.value;
+      dst.uGroundFade.value.copy(src.uGroundFade.value);
+      dst.uGroundDrift.value = src.uGroundDrift.value;
+      dst.uGroundRoughVar.value = src.uGroundRoughVar.value;
+      dst.uGroundDryTint.value.copy(src.uGroundDryTint.value);
+      dst.uGroundDampTint.value.copy(src.uGroundDampTint.value);
+    }
+    return this;
+  }
+
+  /** Ratio of macro tiling to detail tiling. Lower = larger macro features. */
+  get macroScale() { return this.groundUniforms.uGroundMacroScale.value; }
+  set macroScale(v) { this.groundUniforms.uGroundMacroScale.value = v; }
+
+  /** Peak multiplicative albedo swing of the macro layer (±, linear). */
+  get macroDrift() { return this.groundUniforms.uGroundDrift.value; }
+  set macroDrift(v) { this.groundUniforms.uGroundDrift.value = v; }
+
+  /** Peak roughness swing driven by the macro layer (±, absolute). */
+  get macroRoughness() { return this.groundUniforms.uGroundRoughVar.value; }
+  set macroRoughness(v) { this.groundUniforms.uGroundRoughVar.value = v; }
+
+  /** Distance (m) at which detail frequency starts dropping. */
+  get detailFadeNear() { return this.groundUniforms.uGroundFade.value.x; }
+  set detailFadeNear(v) { this.groundUniforms.uGroundFade.value.x = v; }
+
+  /** Distance (m) at which only the coarse layer survives. */
+  get detailFadeFar() { return this.groundUniforms.uGroundFade.value.y; }
+  set detailFadeFar(v) { this.groundUniforms.uGroundFade.value.y = v; }
+
+  onBeforeCompile(shader) {
+    Object.assign(shader.uniforms, this.groundUniforms);
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <common>',
+      /* glsl */ `#include <common>
+        uniform sampler2D uGroundMacroMap;
+        uniform float uGroundMacroScale;
+        uniform float uGroundCoarseScale;
+        uniform vec2 uGroundFade;
+        uniform float uGroundDrift;
+        uniform float uGroundRoughVar;
+        uniform vec3 uGroundDryTint;
+        uniform vec3 uGroundDampTint;
+        float gFar = 0.0;
+        float gDamp = 0.0;
+        float gRoughDrift = 0.0;`,
+    ).replace(
+      '#include <map_fragment>',
+      /* glsl */ `#include <map_fragment>
+        #ifdef USE_MAP
+        {
+          vec4 gMacro = texture2D( uGroundMacroMap, vMapUv * uGroundMacroScale );
+          gFar = smoothstep( uGroundFade.x, uGroundFade.y, length( vViewPosition ) );
+
+          // Frequency change, not a fade: the same albedo re-sampled four times
+          // larger. Far ground keeps texture for the fog gradient to bite on
+          // while losing the near-field grain that was flattening the depth read.
+          vec3 gCoarse = texture2D( map, vMapUv * uGroundCoarseScale ).rgb;
+          diffuseColor.rgb = mix( diffuseColor.rgb, gCoarse, gFar * 0.7 );
+
+          // Two decorrelated periods of value drift, so the macro layer itself
+          // is not single-frequency — which would only move the problem up a
+          // decade rather than solve it.
+          float gDrift = ( gMacro.r - 0.5 ) * 1.35 + ( gMacro.a - 0.5 ) * 0.9;
+          float gMoist = gMacro.g * 2.0 - 1.0;
+          float gDry = clamp( - gMoist, 0.0, 1.0 );
+          gDamp = clamp( gMoist, 0.0, 1.0 );
+          gRoughDrift = gMacro.b * 2.0 - 1.0;
+
+          // Unit-luminance chroma: this rotates hue without touching value, so
+          // the drift term below is the only thing moving the histogram.
+          vec3 gTint = mix( vec3( 1.0 ), uGroundDryTint, gDry * 0.55 );
+          gTint = mix( gTint, uGroundDampTint, gDamp * 0.70 );
+          diffuseColor.rgb *= gTint * ( 1.0 + gDrift * uGroundDrift - gDamp * 0.22 );
+        }
+        #endif`,
+    ).replace(
+      '#include <roughnessmap_fragment>',
+      /* glsl */ `#include <roughnessmap_fragment>
+        #ifdef USE_MAP
+        // Damp ground is smoother, and that is most of why a wet patch reads as
+        // wet rather than as a dark stain painted on dry earth.
+        roughnessFactor = clamp(
+          roughnessFactor + gRoughDrift * uGroundRoughVar - gDamp * 0.20,
+          0.06, 1.0 );
+        #endif`,
+    ).replace(
+      '#include <normal_fragment_maps>',
+      /* glsl */ `#include <normal_fragment_maps>
+        #ifdef USE_MAP
+        // Two reasons to relax the detail normal toward geometric.
+        //
+        // Distance: held at full strength to the horizon it becomes
+        // high-frequency static across the back half of the frame, which is the
+        // specific artefact that made the ground read as carpet — the normal,
+        // not the albedo, was doing it.
+        //
+        // Moisture: a damp hollow is packed and smooth where the dry crown is
+        // tufted. Without this the macro layer is only a tint, and a tint over
+        // identical relief still reads as one material with a stain on it.
+        normal = normalize( mix( normal, nonPerturbedNormal,
+          clamp( gFar * 0.9 + gDamp * 0.45, 0.0, 1.0 ) ) );
+        #endif`,
+    );
+  }
+
+  /**
+   * All ground materials compile the same injected source, so one key is
+   * correct and lets three share programs across grass, dirt and sand.
+   */
+  customProgramCacheKey() {
+    return 'aw-ground-1';
+  }
 }
 
 export class AssetForge {
@@ -359,6 +576,24 @@ export class AssetForge {
         });
         break;
       }
+      case 'ground': {
+        mat = new GroundMaterial(common);
+        const u = mat.groundUniforms;
+        u.uGroundMacroMap.value = this.texture('macro-ground');
+        // Dry earth pushes toward the bible's warm bounce; damp earth toward
+        // SHADOW_TINT. Both as unit chroma, so the ground gains the teal-amber
+        // spread §2.1 asks for without any change to its luminance band.
+        const dry = unitChroma(LIGHT.BOUNCE_GROUND);
+        const damp = unitChroma(LIGHT.SHADOW_TINT);
+        u.uGroundDryTint.value.set(dry[0], dry[1], dry[2]);
+        u.uGroundDampTint.value.set(damp[0], damp[1], damp[2]);
+        // Sand sits at the top of the albedo bands (§4: 0.28–0.50 linear against
+        // grass's 0.12–0.32), so the same multiplicative drift would push its
+        // crowns past §2.3's 0.85 ceiling for non-highlight surfaces. Scaled so
+        // the absolute swing lands in the same 0.06–0.10 linear window.
+        if (baseKey === 'sand') u.uGroundDrift.value = 0.22;
+        break;
+      }
       default: {
         mat = new THREE.MeshStandardMaterial(common);
         break;
@@ -366,6 +601,12 @@ export class AssetForge {
     }
 
     mat.name = `forge:${baseKey}`;
+    mat.userData.forgeClass = cls;
+    // §4: "every hero material gets an env-map contribution from
+    // art.environment()". If the probe already exists it is bound now; if the
+    // scene builds it later, `environment()` back-fills every material the forge
+    // has handed out.
+    if (this._envTarget && ENV_BOUND_CLASSES.has(cls)) mat.envMap = this._envTarget.texture;
 
     // Caller overrides last, so a scene can always dial a surface without
     // needing a new key. Colour is special-cased because passing a hex through
@@ -429,7 +670,63 @@ export class AssetForge {
     this._envTarget = target;
     this._envKey = key;
     target.texture.name = 'forge:environment';
+    this._bindEnvironment();
     return target.texture;
+  }
+
+  /** Push the current probe onto every forge material whose §4 intensity is authored. */
+  _bindEnvironment() {
+    const tex = this._envTarget?.texture ?? null;
+    for (const mat of this._materials.values()) {
+      if (!ENV_BOUND_CLASSES.has(mat.userData.forgeClass)) continue;
+      if (mat.envMap === tex) continue;
+      // Swapping one PMREM for another does not change the program, so only a
+      // change in *presence* justifies a recompile — a time-of-day sweep
+      // rebuilds the probe repeatedly and must not stall on shader compilation.
+      const had = mat.envMap != null;
+      mat.envMap = tex;
+      if (had !== (tex != null)) mat.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Bind the current probe onto materials the forge did not build.
+   *
+   * Characters are the reason this is public. `render/ToonMaterial.js` builds
+   * the weapon and armour materials, and a metal with `envMapIntensity 1.0` and
+   * no `envMap` reflects nothing — a blade lit only by the analytic key is a
+   * flat lozenge with one specular line on it, which is exactly what §7.13
+   * calls out. Handing the probe in explicitly also protects the authored
+   * intensity from `scene.environmentIntensity`, which three would otherwise
+   * substitute for it (see `ENV_BOUND_CLASSES`).
+   *
+   * @param {THREE.Object3D|THREE.Material|Array} target subtree, material, or list
+   * @param {Object} [opts] `{ intensity }` to also force `envMapIntensity`
+   * @returns {number} how many materials were bound
+   */
+  applyEnvironment(target, opts = {}) {
+    const tex = this._envTarget?.texture ?? null;
+    if (!tex || !target) return 0;
+    let count = 0;
+
+    const bind = (mat) => {
+      if (!mat || !('envMap' in mat)) return;
+      const had = mat.envMap != null;
+      mat.envMap = tex;
+      if (opts.intensity !== undefined) mat.envMapIntensity = opts.intensity;
+      if (!had) mat.needsUpdate = true;
+      count++;
+    };
+    const visit = (m) => {
+      if (Array.isArray(m)) m.forEach(bind);
+      else bind(m);
+    };
+
+    if (Array.isArray(target)) target.forEach(visit);
+    else if (target.isMaterial) visit(target);
+    else if (target.isObject3D) target.traverse((o) => { if (o.material) visit(o.material); });
+
+    return count;
   }
 
   _environmentKey(sky, opts) {

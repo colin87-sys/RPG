@@ -75,13 +75,20 @@ export const BONE_PARENTS = Object.freeze({
  * cue, and the one most often got wrong by scaling a realistic rig down.
  */
 const F = Object.freeze({
-  headDiameter: 0.32,
-  hipY: 0.385,
+  // 0.295 rather than 0.32. The silhouette head *mass* — what a critic actually
+  // measures — is the skull plus the hair shell plus whatever the style piles on
+  // top, not the skull alone. At 0.32 the measured figure came out near 2.4
+  // heads, i.e. a head mass of ~42% of height, outside REFERENCE_TARGET §1's
+  // 35–40% band and well under its 3.0–3.5 heads. Dropping the skull to 0.295
+  // and capping the hair shell's swell (see `CharacterFactory.buildHair`) puts
+  // the measured mass at ~0.34 H, which is 2.95–3.1 heads depending on style.
+  headDiameter: 0.295,
+  hipY: 0.400,
   neckGap: 0.020,      // chin to neck joint; the neck is nearly hidden
   spineT: 0.30,        // fraction of the hips→neck span
   chestT: 0.66,
   shoulderT: 0.80,
-  ankleY: 0.050,
+  ankleY: 0.046,
 
   shoulderX: 0.098,
   armSplay: 0.244,     // radians off vertical for the A-pose (~14°)
@@ -95,9 +102,14 @@ const F = Object.freeze({
   waistR: 0.096,
   hipRX: 0.114, hipRZ: 0.092,
   armR: 0.042, elbowR: 0.036, wristR: 0.029,
-  handR: 0.050,
+  handR: 0.058,
   thighR: 0.058, kneeR: 0.050, ankleR: 0.042,
-  footLen: 0.125, footWidth: 0.078, footHeight: 0.058,
+  // The boot has to be visibly *wider than the ankle it caps* or the leg tube's
+  // end cap pokes through and the character reads as a flat-cut stump — the
+  // single clearest tell of an unfinished proxy. `footWidth * 0.5` is the boot's
+  // half-width in `CharacterFactory.buildBoot`, so 0.104 gives 0.052 against an
+  // ankle radius of 0.042: a 24% overhang all the way round.
+  footLen: 0.158, footWidth: 0.104, footHeight: 0.074,
 });
 
 /** Fallback so a malformed `def` still produces a body rather than throwing. */
@@ -107,6 +119,7 @@ const FALLBACK_PROPORTIONS = Object.freeze({
 });
 
 const v3 = (x, y, z) => ({ x, y, z });
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 /**
  * Resolve a definition's proportions into absolute body dimensions.
@@ -221,17 +234,58 @@ export function computeMetrics(def = {}) {
     radius: headR,
     chinY,
     crownY,
+    /**
+     * The skull is a *superellipsoid*, not an ellipsoid, and the exponent lives
+     * here rather than in the mesh builder for one specific reason: the face
+     * decals (eyes, brows, mouth) are projected onto the skull surface, and if
+     * the projector and the mesh disagree about the surface by even half a
+     * millimetre the decals sink into the head and the character renders with
+     * partial rings for eyes. There is exactly one definition of the skull.
+     */
+    eV: 0.94,
+    /**
+     * Radial profile along the head's vertical parameter `v` in [0,1]
+     * (0 = chin, 1 = crown). Narrows the lower third into a jaw and widens the
+     * upper middle into a cranium; both are small, because REFERENCE §1 wants
+     * "near-spherical", but without them the head is a ball and the character
+     * reads as a doll rather than as a person drawn small.
+     */
+    profile(v) {
+      const jaw = 1 - Math.pow(clamp01((0.34 - v) / 0.34), 1.6) * 0.20;
+      const cranium = 1 + Math.pow(clamp01((v - 0.55) / 0.30), 2) * 0.045;
+      return jaw * cranium;
+    },
   };
 
   // Face layout. Eyes sit low on the face — the chibi convention that reads as
   // "young" — and their size is the loudest single knob in the whole system.
+  //
+  // REFERENCE_TARGET §1: "very large, high-contrast eyes [...] occupying much of
+  // the face". A pair at this width spans 1.38 head-radii of a 2.0-radius face,
+  // i.e. 69% of the visible face width is eye — which is what makes the read
+  // survive at 80 px, where the entire head is 30 px across.
   const eye = {
-    halfSpan: head.rx * 0.40 * p.eyeSpacing,
-    y: headCY - head.ry * 0.20,
-    width: head.rx * 0.46 * p.eye,
-    height: head.ry * 0.56 * p.eye,
-    browLift: head.ry * 0.40,
+    halfSpan: head.rx * 0.42 * p.eyeSpacing,
+    y: headCY - head.ry * 0.16,
+    width: head.rx * 0.54 * p.eye,
+    height: head.ry * 0.62 * p.eye,
+    browLift: head.ry * 0.42,
     browAngle: p.browAngle,
+    browThickness: head.ry * 0.085,
+    /**
+     * Base stand-off of the face decal stack from the skull, and the spacing
+     * between its layers.
+     *
+     * These are not arbitrary: the eye is five coplanar-ish sheets (outline,
+     * sclera, iris, pupil, catch-light) and the mobile ones are a *rigid* mesh
+     * on the head bone while the outline is *skinned*, so under a neck bend the
+     * two surfaces separate slightly. A gap of 0.9% of a head radius is under a
+     * pixel at battle distance, comfortably past depth-buffer precision at
+     * closeup range, and small enough that the eye still reads as painted on
+     * rather than as a stack of floating discs.
+     */
+    lift: headR * 0.016,
+    layerGap: headR * 0.009,
   };
 
   return Object.freeze({
@@ -266,10 +320,16 @@ function buildChainMetrics(def, { head, joints, girth, H }) {
   const hair = def.hair ?? {};
   const hairCount = hair.boneCount | 0;
   if (hairCount > 0) {
-    // Anchored at the back of the skull and falling behind the shoulder line;
-    // the slight forward-to-back drift keeps the strand from intersecting the
-    // back of the head on the first frame of simulation.
-    const start = v3(0, head.center.y + head.ry * 0.30, -head.rz * 0.72);
+    // Anchored *outside* the hair shell, not on the skull.
+    //
+    // The previous anchor at -0.72 rz sat inside the skull volume, so the swept
+    // tail geometry bound to it started life buried in the head and emerged
+    // through the temple — the "hair ribbons pass straight through the skull"
+    // defect. `capScale` is the hair shell's outer radius multiplier, so
+    // clearing it by a further 6% guarantees the first link of every chain
+    // begins in open air behind the nape regardless of style.
+    const shell = (hair.capScale ?? 1.08) * 1.06;
+    const start = v3(0, head.center.y + head.ry * 0.22, -head.rz * shell);
     // A braided style keeps a short `backLength` for the mass at the nape *and*
     // a long `braidLength` for the plait itself; the chain must measure the
     // plait, so the braid wins wherever both are present.

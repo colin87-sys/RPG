@@ -127,8 +127,82 @@ class Panel {
     this.mesh = null;
     this._normalScratch = null;
     this._seeded = false;
+    /** Half-thickness of the solid shell built around the simulated sheet. */
+    this.thickness = 0;
+    /** +1 if the grid normal already points away from the body. */
+    this.faceSign = 1;
   }
 }
+
+/**
+ * Which way round the shell is: +1 if the grid normal points away from the
+ * body, -1 if it points at it.
+ *
+ * The winding of a panel's grid depends on `curve`, `flare` and the sign of
+ * `offsetX`, so there is no single answer that holds for a cape, an apron and a
+ * wrapped skirt at once. Getting it wrong is not subtle — the *lining* ends up
+ * on the outside, so Emrys's ember-orange coat lining renders as the whole
+ * outward face of the coat and the character becomes a saturated orange bell,
+ * which ART_BIBLE §2.2 reserves for spells. Deciding it once from the rest
+ * layout, per panel, removes the whole class of error.
+ *
+ * The test is the grid normal at the panel's centre against the outward radial
+ * from the body's vertical axis. Where that is degenerate — a flat ribbon
+ * hanging off the hip, whose normal is perpendicular to its own offset — the
+ * panel's authored `offsetZ` breaks the tie, and failing that either side is
+ * equally correct because such a panel is single-toned anyway.
+ */
+function outwardSign(restLocal, cols, rows, offsetZ) {
+  const at = (r, c) => (r * (cols + 1) + c) * 3;
+  const r = Math.max(1, Math.floor(rows / 2));
+  const c = Math.max(1, Math.floor(cols / 2));
+  const k = at(r, c);
+  const ux = restLocal[at(r, c + 1)] - restLocal[at(r, c - 1)];
+  const uy = restLocal[at(r, c + 1) + 1] - restLocal[at(r, c - 1) + 1];
+  const uz = restLocal[at(r, c + 1) + 2] - restLocal[at(r, c - 1) + 2];
+  const vx = restLocal[at(r + 1, c)] - restLocal[at(r - 1, c)];
+  const vy = restLocal[at(r + 1, c) + 1] - restLocal[at(r - 1, c) + 1];
+  const vz = restLocal[at(r + 1, c) + 2] - restLocal[at(r - 1, c) + 2];
+  const nx = uy * vz - uz * vy;
+  const ny = uz * vx - ux * vz;
+  const nz = ux * vy - uy * vx;
+  const px = restLocal[k], pz = restLocal[k + 2];
+  const rad = Math.hypot(px, pz);
+  const len = Math.hypot(nx, ny, nz) || 1;
+  const dot = rad > 1e-5 ? (nx * px + nz * pz) / (rad * len) : 0;
+  if (Math.abs(dot) > 0.15) return dot > 0 ? 1 : -1;
+  const fallback = nz * Math.sign(offsetZ || -1);
+  return fallback >= 0 ? 1 : -1;
+}
+
+/**
+ * Hem shapes, as a per-column multiplier on the panel's hang length.
+ *
+ * A simulated sheet with a straight bottom row is a rectangle, and a rectangle
+ * pinned behind a torso reads as a towel — which is exactly what the review
+ * found ("flat quad with hard rectangular corners"). Worse, the zig-zag the
+ * review calls a "serrated torn hem" is what a straight hem *becomes* once the
+ * per-column wind lanes push neighbouring columns out of phase: with nothing
+ * shaping the edge, every ripple shows up as a notch on the silhouette.
+ *
+ * Giving the hem an authored curve fixes both at once. The outline is now a
+ * designed shape rather than an artefact, and a ripple reads as the curve
+ * flexing instead of as damage.
+ *
+ * `u` runs -0.5 … 0.5 across the panel.
+ */
+const HEM_SHAPE = Object.freeze({
+  straight: () => 1,
+  /** Aprons and mantles: a soft arc, longest at the centre. */
+  round: (u) => 1 - 0.30 * Math.pow(Math.abs(u) * 2, 2.2),
+  /** Capes and coat tails: drawn to a centre point, the classic heroic hem. */
+  point: (u) => 1 - 0.46 * Math.pow(Math.abs(u) * 2, 1.15),
+  /** Skirts and robes: near-even, with just enough corner relief to kill the
+   *  rectangle. Wrapping panels need their hem level or the seam shows. */
+  hemline: (u) => 1 - 0.10 * Math.pow(Math.abs(u) * 2, 3.0),
+  /** Split coat tails: long on the outboard edge, cut away inboard. */
+  swallow: (u) => 0.62 + 0.38 * Math.pow(Math.abs(u) * 2, 0.8),
+});
 
 /** A bone chain driven by a particle strand: hair locks, braids, feather tails. */
 class Strand {
@@ -249,12 +323,17 @@ export class ClothSim {
     const count = (cols + 1) * (rows + 1);
     const restLocal = new Float32Array(count * 3);
     const anchorWorldY = anchorBone.matrixWorld.elements[13];
+    const hem = HEM_SHAPE[spec.hem] ?? HEM_SHAPE.round;
     for (let r = 0; r <= rows; r++) {
       const v = r / rows;
       const halfW = (width * (1 + (flare - 1) * v)) * 0.5;
       for (let c = 0; c <= cols; c++) {
         const u = c / cols - 0.5;
         const ang = u * curve;
+        // The hem curve is applied to how far *down* this column hangs, not to
+        // where its particles sit relative to each other, so every column keeps
+        // an even particle spacing and the solver's rest lengths stay uniform.
+        const hangs = hem(u);
         // Sweep the top edge around a cylinder whose *arc length* is the panel
         // width — `radius = width / curve`, not `halfWidth / sin(curve/2)`.
         // The chord form looks equivalent and is not: it under-widens shallow
@@ -266,7 +345,7 @@ export class ClothSim {
         const z = curve > 1e-3 ? (Math.cos(ang) - Math.cos(curve * 0.5)) * radius : 0;
         const i = (r * (cols + 1) + c) * 3;
         restLocal[i] = x + offsetX;
-        restLocal[i + 1] = anchorWorldY + offsetY - v * length;
+        restLocal[i + 1] = anchorWorldY + offsetY - v * length * hangs;
         // `tiltZ` rakes the hem backwards quadratically — a coat hangs off the
         // shoulders and kicks out behind, it does not drop like a curtain.
         restLocal[i + 2] = z + offsetZ - v * v * length * tiltZ;
@@ -285,6 +364,7 @@ export class ClothSim {
     }
 
     const panel = new Panel(spec, anchorBone, anchorLocal, restLocal, cols, rows);
+    panel.faceSign = outwardSign(restLocal, cols, rows, offsetZ);
     this._buildPanelConstraints(panel, spec);
     this._buildPanelMesh(panel, spec);
     this.panels.push(panel);
@@ -334,27 +414,82 @@ export class ClothSim {
     panel.cStiff = new Float32Array(stiff);
   }
 
+  /**
+   * Build the render geometry as a **solid shell**, not a sheet.
+   *
+   * The panel simulates as one grid of particles, but it renders as two: the
+   * outer face at the particle positions and an inner face pushed back along
+   * the surface normal by `thickness`, stitched together by a rim strip around
+   * the whole perimeter. Three reasons, in order of how much they matter:
+   *
+   *  1. **A single-sided quad has no back.** From behind — which is half of the
+   *     fixed side-view battle camera's coverage of a cape — a `FrontSide`
+   *     sheet simply vanishes, and where it wraps the body you see straight
+   *     through the panel to the terrain. That is the review's "you see through
+   *     the gap between skirt and legs".
+   *  2. **The inner face carries the lining colour**, darker than the outer. A
+   *     cape whose underside is the same value as its top is the definition of
+   *     cardboard; the value break at the fold is what makes cloth read as
+   *     cloth at eighty pixels.
+   *  3. **The rim strip gives the hem a visible edge.** A zero-thickness hem
+   *     aliases into exactly the serration the review found. An edge two
+   *     millimetres deep resolves into a soft line instead.
+   *
+   * Turning the material double-sided would have fixed (1) alone, for the same
+   * fill cost, and left the cape still flat and still uniformly bright.
+   */
   _buildPanelMesh(panel, spec) {
     const { cols, rows, count } = panel;
     const geo = new THREE.BufferGeometry();
-    const position = new Float32Array(count * 3);
-    const normal = new Float32Array(count * 3);
-    const uv = new Float32Array(count * 2);
-    const color = new Float32Array(count * 3);
+    const total = count * 2;
+    const position = new Float32Array(total * 3);
+    const normal = new Float32Array(total * 3);
+    const uv = new Float32Array(total * 2);
+    const color = new Float32Array(total * 3);
+
+    panel.thickness = spec.thickness ?? this.height * 0.007;
 
     const front = new THREE.Color(spec.color ?? 0xffffff);
     const back = new THREE.Color(spec.lining ?? spec.color ?? 0xffffff);
+    // The inner surface is *mostly the costume colour*, only tinted toward the
+    // lining, and then dropped by nearly half.
+    //
+    // Not the lining at full strength. A cape hangs behind its wearer, so a
+    // camera in front of the character sees the inside face of everything that
+    // flares past the body — and since linings in this palette are element
+    // accents, painting that face the lining colour turns a charcoal coat into a
+    // saturated orange bell from the one angle the game is played at. Tinting
+    // instead of replacing keeps the "the underside flashes when the cape lifts"
+    // read, which lives at the hem gradient below, and cannot invert the value
+    // hierarchy no matter which way the panel ends up facing.
+    const inner = front.clone().lerp(back, 0.35).multiplyScalar(0.55);
+    // Layer 0 sits at the particles and faces +N; layer 1 is the offset shell
+    // and faces -N. `faceSign` says which of those is the outside, so the
+    // costume colour and the lining land on the correct faces.
+    const outward = panel.faceSign >= 0 ? 0 : count;
+    const inward = panel.faceSign >= 0 ? count : 0;
     for (let r = 0; r <= rows; r++) {
       for (let c = 0; c <= cols; c++) {
         const k = r * (cols + 1) + c;
-        uv[k * 2] = c / cols;
-        uv[k * 2 + 1] = 1 - r / rows;
+        const u = c / cols;
+        const v = 1 - r / rows;
+        uv[k * 2] = u; uv[k * 2 + 1] = v;
+        uv[(k + count) * 2] = u; uv[(k + count) * 2 + 1] = v;
         // The hem carries the lining colour so the underside flashes when the
         // cape lifts — a two-tone cape is worth three of a flat one at 80 px.
-        const t = Math.pow(r / rows, 2.2);
-        color[k * 3] = front.r + (back.r - front.r) * t;
-        color[k * 3 + 1] = front.g + (back.g - front.g) * t;
-        color[k * 3 + 2] = front.b + (back.b - front.b) * t;
+        //
+        // Exponent 5, not 2.2. Linings in this palette are element accents
+        // (Emrys's ember `#FF6B2B`, Kite's signal red) and at 2.2 they claimed
+        // the bottom 40% of the panel, which put a saturated orange bell on a
+        // character ART_BIBLE §2.2 says may carry no saturated chroma outside a
+        // spell. At 5 the accent is a hem band, which is what it is meant to be.
+        const t = Math.pow(r / rows, 5.0);
+        color[(k + outward) * 3] = front.r + (back.r - front.r) * t;
+        color[(k + outward) * 3 + 1] = front.g + (back.g - front.g) * t;
+        color[(k + outward) * 3 + 2] = front.b + (back.b - front.b) * t;
+        color[(k + inward) * 3] = inner.r;
+        color[(k + inward) * 3 + 1] = inner.g;
+        color[(k + inward) * 3 + 2] = inner.b;
       }
     }
 
@@ -366,7 +501,20 @@ export class ClothSim {
         const d = a + (cols + 1);
         const e = d + 1;
         index.push(a, d, b, b, d, e);
+        // Inner face, wound the other way so its front faces inward.
+        index.push(a + count, b + count, d + count, b + count, e + count, d + count);
       }
+    }
+    // Rim strip: walk the perimeter once, joining outer to inner. Wound so the
+    // strip faces outward all the way round.
+    const at = (r, c) => r * (cols + 1) + c;
+    const border = [];
+    for (let c = 0; c < cols; c++) border.push([at(rows, c), at(rows, c + 1)]);
+    for (let r = rows; r > 0; r--) border.push([at(r, cols), at(r - 1, cols)]);
+    for (let c = cols; c > 0; c--) border.push([at(0, c), at(0, c - 1)]);
+    for (let r = 0; r < rows; r++) border.push([at(r, 0), at(r + 1, 0)]);
+    for (const [a, b] of border) {
+      index.push(a, a + count, b, b, a + count, b + count);
     }
 
     geo.setAttribute('position', new THREE.BufferAttribute(position, 3));
@@ -757,12 +905,16 @@ export class ClothSim {
     this._dirty = false;
     for (const panel of this.panels) {
       if (!panel._seeded) continue;
-      const { cols, rows, pos, geometry } = panel;
+      const { cols, rows, count, pos, geometry } = panel;
+      // Offset toward the body, whichever side that is: an inner shell pushed
+      // the wrong way would poke through the outer one at every fold.
+      const thickness = panel.thickness * panel.faceSign;
       const attr = geometry.getAttribute('position');
       const arr = attr.array;
       const nrm = geometry.getAttribute('normal').array;
+      const stride = count * 3;
 
-      for (let i = 0; i < panel.count; i++) {
+      for (let i = 0; i < count; i++) {
         const k = i * 3;
         this._v.set(pos[k], pos[k + 1], pos[k + 2]).applyMatrix4(this._toLocal);
         arr[k] = this._v.x; arr[k + 1] = this._v.y; arr[k + 2] = this._v.z;
@@ -770,7 +922,10 @@ export class ClothSim {
 
       // Grid normals from central differences: two cross products per vertex
       // instead of the twelve a generic `computeVertexNormals` would do, and
-      // smooth by construction because the grid is already shared-vertex.
+      // smooth by construction because the grid is already shared-vertex. The
+      // inner shell is then a pure offset of the outer one along -N, which is
+      // both cheaper and better-behaved than simulating a second sheet: the two
+      // faces can never cross and the shell can never turn inside out.
       for (let r = 0; r <= rows; r++) {
         for (let c = 0; c <= cols; c++) {
           const k = (r * (cols + 1) + c) * 3;
@@ -780,11 +935,16 @@ export class ClothSim {
           const kd = (Math.min(rows, r + 1) * (cols + 1) + c) * 3;
           const ux = arr[kr] - arr[kl], uy = arr[kr + 1] - arr[kl + 1], uz = arr[kr + 2] - arr[kl + 2];
           const vx = arr[kd] - arr[ku], vy = arr[kd + 1] - arr[ku + 1], vz = arr[kd + 2] - arr[ku + 2];
-          let nx = uy * vz - uz * vy;
-          let ny = uz * vx - ux * vz;
-          let nz = ux * vy - uy * vx;
+          const nx = uy * vz - uz * vy;
+          const ny = uz * vx - ux * vz;
+          const nz = ux * vy - uy * vx;
           const len = Math.hypot(nx, ny, nz) || 1;
-          nrm[k] = nx / len; nrm[k + 1] = ny / len; nrm[k + 2] = nz / len;
+          const ex = nx / len, ey = ny / len, ez = nz / len;
+          nrm[k] = ex; nrm[k + 1] = ey; nrm[k + 2] = ez;
+          nrm[k + stride] = -ex; nrm[k + stride + 1] = -ey; nrm[k + stride + 2] = -ez;
+          arr[k + stride] = arr[k] - ex * thickness;
+          arr[k + stride + 1] = arr[k + 1] - ey * thickness;
+          arr[k + stride + 2] = arr[k + 2] - ez * thickness;
         }
       }
 

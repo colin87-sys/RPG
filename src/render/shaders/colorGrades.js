@@ -58,7 +58,12 @@ function base(overrides) {
       // into it, because they drive stages that are not a colour lookup.
       grain: 0.035,
       vignette: 0.28,
-      aberration: 1.2, // px at frame corner
+      // ART_BIBLE §6 steady state, verbatim. The unit is the total R<->B
+      // separation at the frame corner as a fraction of frame width — the same
+      // unit the bible quotes its 0.002 `void` and 0.004 impact figures in — so
+      // these numbers are resolution-independent and directly auditable against
+      // the document. Anything larger fringes geometry instead of the edge.
+      aberration: 0.0012,
       exposure: 1.0, // multiplicative trim on renderer.toneMappingExposure
     },
     overrides,
@@ -134,7 +139,9 @@ export const GRADES = {
     shadowMix: 0.55,
     highMix: 0.4,
     vignette: 0.3,
-    aberration: 1.35,
+    // A hair over steady state; a battle frame should read fractionally more
+    // 'lensed' than a field frame without the difference being nameable.
+    aberration: 0.00135,
   }),
 
   boss: base({
@@ -149,7 +156,7 @@ export const GRADES = {
     highMix: 0.32,
     crosstalk: [0.0, 0.05, 0.0, 0.0, 0.06, 0.0],
     vignette: 0.36,
-    aberration: 1.5,
+    aberration: 0.0015,
     exposure: 0.98,
   }),
 
@@ -170,7 +177,8 @@ export const GRADES = {
     floorAmount: 0.2,
     grain: 0.052,
     vignette: 0.34,
-    aberration: 0.6,
+    // Half steady state: a faded print has soft optics, not dispersive ones.
+    aberration: 0.0006,
     exposure: 0.95,
   }),
 
@@ -214,7 +222,7 @@ export const GRADES = {
     shadowTint: [0.169, 0.071, 0.271], // #2B1245
     shadowMix: 0.68,
     highMix: 0.35,
-    aberration: 2.0,
+    aberration: 0.002, // ART_BIBLE §6 names this figure for `void` explicitly
     vignette: 0.34,
   }),
 

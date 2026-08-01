@@ -30,6 +30,36 @@
  *     shadowing back light fights the key for the same surfaces and costs a
  *     second full shadow pass for no visual gain.
  *
+ * **The chroma contract.** A lighting rig does not only decide how bright a
+ * frame is; it decides what hue every non-emissive surface in it can possibly
+ * be. Painted albedo is desaturated by contract (ART_BIBLE section 4 caps every
+ * surface inside a narrow luminance band and section 2.2 reserves full chroma
+ * for magic), so the dominant chroma bucket of a rendered frame is whatever
+ * colour the key light and the in-scattered fog are. `Sky` derives both
+ * *radiometrically* — the sun disc reddens through a long air mass at low
+ * elevation and the fog is sampled from the horizon the dome is painting — and
+ * a radiometric answer is not an art-directed one: at the hero dusk key that
+ * pipeline lands the key near hue 0 and the fog on the mauve `#8A5E7A`, which
+ * is how a frame ends up with its largest chroma bucket at pure red and half
+ * its chroma inside the red-magenta wedge that section 2.2 reserves for enemies
+ * and dark magic. So the rig projects both terms onto the section 2.1 gamut
+ * (`_conformChroma`) before they reach a light: luminance and the time-of-day
+ * warmth trend survive untouched, only out-of-contract chroma is pulled back.
+ * The projection is a *clamp*, not an override — an already-legal colour comes
+ * through bit-identical, so a zone or weather tint that respects the palette is
+ * never fought, and fixing the upstream table would silently make this a no-op.
+ *
+ * **Why the rim is pinned in HDR.** ART_BIBLE section 2.3 names exactly three
+ * things allowed past 1.0 pre-tonemap — sun disc, spell cores, and rims/spec
+ * pings — and asks for ~10% of pixels above 0.75. A rig that scales its rim
+ * with the time-of-day intensity curve delivers that at noon and nothing at
+ * dusk, which is a frame with no bloom source at all and the flat mid-histogram
+ * that follows. The analytic rim light is therefore tuned for the *environment*
+ * (section 5.6's 0.8–1.2), while the rim term the toon materials read is solved
+ * every frame so its hottest sliver lands on `RIM_HDR_PEAK` whatever the hour.
+ * That split is also what keeps a backlit foreground occluder 1.5 stops under
+ * the subject (section 5.1) instead of out-glowing it.
+ *
  * **Cascades.** Shadow texel density is what makes a 1.2 m chibi read as a solid
  * object rather than a smudge, and a single ortho frustum stretched over a 120 m
  * field cannot deliver it. We drive `three/examples/jsm/csm/CSM.js` (verified
@@ -114,19 +144,63 @@ const LIGHT_MARGIN = 45;
  *  frames show and what gives the silhouette a direction. */
 const RIM_AZIMUTH_DEG = 150;
 
-/** Rim elevation is derived from the key's, but clamped into this band. Below
- *  the floor it grazes the ground and misses the oversized chibi head — the one
- *  part of the silhouette that must always catch it. Above the ceiling it
- *  becomes a second key and flattens the form. */
-const RIM_ELEVATION_MIN_DEG = 14;
-const RIM_ELEVATION_MAX_DEG = 40;
-const RIM_ELEVATION_FROM_KEY = 0.32;
-const RIM_ELEVATION_BASE_DEG = 17;
+/**
+ * Rim elevation is derived from the key's, but clamped into this band.
+ *
+ * The band used to sit at 14–40 degrees, and that was measurably wrong: a
+ * standing chibi is a vertical silhouette, so a back light at 19 degrees puts
+ * its strongest N·L on the *up-facing* surfaces — the top of the oversized
+ * cranium — and leaves the torso, cape and legs, which face outward rather than
+ * upward, with almost none of it. Review frames showed exactly that: a hotspot
+ * on each head and the lower 60% of every character dissolving into dark
+ * ground. Pulling the band down to near-horizontal puts the peak on the
+ * outward-facing back of the body, which is where the silhouette actually needs
+ * separating. The floor is not zero because a perfectly horizontal rim carries
+ * no vertical information at all and reads as a flat sticker edge; the ceiling
+ * keeps a high noon rim from becoming a second key and flattening the form.
+ */
+const RIM_ELEVATION_MIN_DEG = 7;
+const RIM_ELEVATION_MAX_DEG = 32;
+const RIM_ELEVATION_FROM_KEY = 0.28;
+const RIM_ELEVATION_BASE_DEG = 10;
 
 /** ART_BIBLE section 5.6 sizes rims at 0.8 (`RING_GLOW`) to 1.2 (key-coloured).
- *  REFERENCE_TARGET asks for the strong end of that, every frame. */
-const RIM_INTENSITY_NIGHT = 0.85;
-const RIM_INTENSITY_DAY = 1.32;
+ *  This is the *analytic* light, i.e. what the environment gets; the character
+ *  rim is solved separately against `RIM_HDR_PEAK` below, so this can be tuned
+ *  for grass and stone without dimming the one edge holding the party off the
+ *  background. Kept in the lower half of the band because section 5.1 wants a
+ *  backlit foreground occluder reading *under* the subject, not competing. */
+const RIM_INTENSITY_NIGHT = 0.80;
+const RIM_INTENSITY_DAY = 1.05;
+
+/**
+ * Pre-tonemap radiance the hottest sliver of the toon rim is pinned to.
+ *
+ * Set to *just* clear section 6's bloom threshold of 1.0, and no further. That
+ * guarantees every character carries a genuine HDR edge into the bloom pass in
+ * every frame at every hour — the rig's share of section 2.3's "~10% of pixels
+ * above 0.75" — while keeping the rim a separation device rather than a second
+ * light. The distinction is not academic: `awToonRim` floors its directional
+ * term so the fresnel band wraps the whole silhouette, and on a near-spherical
+ * chibi head that band covers a large fraction of the visible disc. Pushed to
+ * the 1.6 an "HDR rim" instinctively wants, it stops reading as an edge and
+ * starts reading as a white-hot head with no form in it — measured against the
+ * capture harness, that is exactly what happens above about 1.35.
+ */
+const RIM_HDR_PEAK = 1.25;
+
+/** The rim gain the toon presets cluster around (`ToonMaterial` ships 1.2–2.6,
+ *  with every hero preset between 1.5 and 2.2). The solve below cannot see a
+ *  material's own gain, so it normalises against this nominal value and the
+ *  spread across presets survives as intended per-character variation. */
+const NOMINAL_TOON_RIM_GAIN = 1.7;
+
+/** Bounds on the solved rim strength. The floor stops a bright noon rim from
+ *  being solved away to nothing (the rim is mandatory, not adaptive exposure);
+ *  the ceiling stops a near-black rim colour at the bottom of the night curve
+ *  from being amplified into a white ink line. */
+const RIM_STRENGTH_MIN = 0.75;
+const RIM_STRENGTH_MAX = 2.9;
 
 /** How far the rim's chroma is allowed to drift from `RING_GLOW` toward the key
  *  in full daylight. A dusk rim wants a trace of the sun's amber in it; letting
@@ -203,6 +277,48 @@ const TAU_COLOR = 0.45;
 const TAU_DIRECTION = 0.6;
 const TAU_EXPOSURE = 0.5;
 
+/**
+ * Chroma-contract tolerances, in CIE-style chromaticity units (see `chromaXY`).
+ *
+ * A colour inside `*_TOLERANCE` of its gamut is passed through untouched, and
+ * correction ramps to full over the next `*_RANGE`. The tolerance is not
+ * slop — it is what makes the contract a clamp rather than a grade: the
+ * ART_BIBLE section 3 dawn key, the section 3 noon key and `Sky`'s `storm` and
+ * `ash` weather tints all measure inside it and come through bit-identical,
+ * while the dusk key (0.197 away) and the dusk fog (0.148 away) are fully
+ * corrected. Ramping rather than snapping matters because the key colour is
+ * continuous in time: a hard boundary would put a visible hue step in the
+ * middle of a time-of-day scrub.
+ */
+const KEY_CHROMA_TOLERANCE = 0.030;
+const KEY_CHROMA_RANGE = 0.100;
+const FOG_CHROMA_TOLERANCE = 0.035;
+const FOG_CHROMA_RANGE = 0.100;
+
+/**
+ * Chroma ceilings, as distance from the equal-energy point.
+ *
+ * The key's ceiling is ~1.6x `KEY_SUN`'s own chroma. Section 2.2 allows only
+ * elemental magic to reach full chroma, and the key is the term that paints
+ * every non-magic surface in frame: an unclamped dusk sun (`#FF6B3D`, 0.546
+ * from neutral) put a fully saturated orange-red edge on every foreground grass
+ * blade, making a foreground occluder the most chromatic thing in a frame whose
+ * magic accents are supposed to be the only saturated element. Capping at 0.24
+ * takes better than half that chroma out and lands the light on `KEY_SUN`'s own
+ * hue family, which is the colour section 2.1 named for it in the first place.
+ *
+ * The environment ceiling is deliberately *below* both fog keys (`FOG_NEAR` is
+ * 0.146 from neutral, `FOG_FAR` 0.082): REFERENCE_TARGET section 3 requires
+ * environment saturation to sit under character saturation, and fog is the
+ * single largest area of chroma in an atmospheric frame. A character's albedo
+ * has nothing to compete with if the haze it stands in is as saturated as its
+ * skin — which is precisely how a salmon face plate camouflages against a
+ * salmon sky.
+ */
+const KEY_CHROMA_CEILING = 0.24;
+const RING_CHROMA_CEILING = 0.26;
+const ENV_CHROMA_CEILING = 0.125;
+
 /** How often the scene is rescanned for materials that still need CSM wiring.
  *  Meshes stream in during a mount and props spawn during play; 5 Hz is
  *  imperceptible as latency and costs one `traverse` of a few thousand nodes. */
@@ -275,6 +391,183 @@ function mixChroma(a, b, t, out) {
   );
   const y = lumOf(out) || 1e-6;
   return out.multiplyScalar(ya / y);
+}
+
+/* ----------------------------------------------------- the chroma contract */
+
+/**
+ * Chromaticity of a linear colour: `(R, G) / (R + G + B)`.
+ *
+ * This is the CIE rg-chromaticity construction applied to the renderer's
+ * working primaries, and it is the right space for a palette constraint for two
+ * reasons. It is *luminance-free*, so a rule expressed in it can never change
+ * how bright a frame is — only what colour it is — and unlike HSL hue it is a
+ * plane rather than a circle, so "the legal region" is an ordinary convex
+ * polygon and "how far outside is this" is an ordinary distance. Both matter:
+ * HSL hue has no meaning near neutral (a near-grey fog has a random hue that a
+ * hue clamp would happily swing across the wheel) and HSL saturation is not
+ * comparable between a dark colour and a bright one, so neither can express
+ * "the environment must be less chromatic than the characters".
+ */
+function chromaXY(c, out) {
+  const s = c.r + c.g + c.b;
+  if (s <= 1e-6) return out.set(1 / 3, 1 / 3);
+  return out.set(c.r / s, c.g / s);
+}
+
+/** Build a gamut: a convex polygon in chromaticity, from sRGB hexes. Listing
+ *  the neutral point as a vertex is what makes every desaturated version of a
+ *  legal hue legal too — the region is the whole wedge from neutral out to the
+ *  palette colours, not just the line between them. */
+function gamutFromHex(hexes, ceiling) {
+  const c = new THREE.Color();
+  const v = new THREE.Vector2();
+  const points = [];
+  for (const hex of hexes) {
+    c.setHex(hex, THREE.SRGBColorSpace);
+    chromaXY(c, v);
+    points.push(v.x, v.y);
+  }
+  return { points, ceiling };
+}
+
+/** Nearest point on segment AB to P, written into `out`. */
+function nearestOnSegment(px, py, ax, ay, bx, by, out) {
+  const vx = bx - ax;
+  const vy = by - ay;
+  const len2 = vx * vx + vy * vy;
+  const t = len2 < 1e-12
+    ? 0
+    : THREE.MathUtils.clamp(((px - ax) * vx + (py - ay) * vy) / len2, 0, 1);
+  return out.set(ax + vx * t, ay + vy * t);
+}
+
+const _segA = new THREE.Vector2();
+
+/**
+ * Distance from P to a convex gamut, with the nearest legal point in `out`.
+ * Returns 0 (and leaves `out` at P) when P is already inside, which is what
+ * makes the whole contract idempotent — conforming a conformed colour is a
+ * no-op, so this can run every frame on a value another module also writes
+ * without the two of them ratcheting each other.
+ */
+function nearestInGamut(px, py, gamut, out) {
+  const p = gamut.points;
+  const n = p.length / 2;
+  let inside = true;
+  let sign = 0;
+  for (let i = 0; i < n; i++) {
+    const ax = p[i * 2];
+    const ay = p[i * 2 + 1];
+    const bx = p[((i + 1) % n) * 2];
+    const by = p[((i + 1) % n) * 2 + 1];
+    const cross = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+    // Colinear vertices contribute no constraint; treating a zero cross as a
+    // sign flip would report every point on an edge as outside.
+    if (Math.abs(cross) < 1e-9) continue;
+    const s = cross > 0 ? 1 : -1;
+    if (sign === 0) sign = s;
+    else if (s !== sign) { inside = false; break; }
+  }
+  if (inside) {
+    out.set(px, py);
+    return 0;
+  }
+  let best = Infinity;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    nearestOnSegment(px, py, p[i * 2], p[i * 2 + 1], p[j * 2], p[j * 2 + 1], _segA);
+    const d = Math.hypot(px - _segA.x, py - _segA.y);
+    if (d < best) {
+      best = d;
+      out.copy(_segA);
+    }
+  }
+  return best;
+}
+
+const _chromaP = new THREE.Vector2();
+const _chromaN = new THREE.Vector2();
+
+/**
+ * Project a colour onto a palette gamut in place, preserving its luminance
+ * exactly.
+ *
+ * Two corrections, in order: pull an out-of-gamut chromaticity back toward the
+ * nearest legal one by a smoothstepped amount (so the correction is continuous
+ * as a light's colour animates), then cap the remaining distance from neutral
+ * at the gamut's chroma ceiling. The cap is applied along the line through the
+ * neutral point, i.e. it desaturates without rotating hue — a hue rotation here
+ * would be the rig second-guessing the time of day, which is `Sky`'s call.
+ */
+function conformChroma(color, gamut, tolerance, range) {
+  const y = lumOf(color);
+  if (y <= 1e-6) return color;
+
+  chromaXY(color, _chromaP);
+  let x = _chromaP.x;
+  let g = _chromaP.y;
+
+  const d = nearestInGamut(x, g, gamut, _chromaN);
+  if (d > tolerance) {
+    const k = sstep(d, tolerance, tolerance + range);
+    x += (_chromaN.x - x) * k;
+    g += (_chromaN.y - g) * k;
+  }
+
+  const dx = x - 1 / 3;
+  const dy = g - 1 / 3;
+  const dw = Math.hypot(dx, dy);
+  if (dw > gamut.ceiling) {
+    const s = gamut.ceiling / dw;
+    x = 1 / 3 + dx * s;
+    g = 1 / 3 + dy * s;
+  }
+
+  const b = 1 - x - g;
+  const denom = LR * x + LG * g + LB * b;
+  if (denom <= 1e-6) return color;
+  const k = y / denom;
+  return color.setRGB(
+    Math.max(0, x * k),
+    Math.max(0, g * k),
+    Math.max(0, b * k),
+    THREE.LinearSRGBColorSpace,
+  );
+}
+
+/**
+ * The two legal key gamuts.
+ *
+ * Warm covers every sunlit hour: neutral, `KEY_SUN`, and the section 3 dusk
+ * horizon `#FF9E6B` — the warm end of the amber band, and the hue the reference
+ * frames actually show a low sun casting. Cool covers the night key, which is
+ * the moon-ring and not a sun at all: neutral, `RING_GLOW`, and the section 3
+ * night key `#A8C8E8`. The rig picks whichever gamut the incoming key is
+ * already nearer rather than selecting on sun height, because a selector driven
+ * by elevation would drag the dusk key a third of the way toward teal at the
+ * exact hour the art direction calls its hero key warm.
+ */
+const KEY_GAMUT_WARM = gamutFromHex([0xffffff, LIGHT.KEY_SUN, 0xff9e6b], KEY_CHROMA_CEILING);
+const KEY_GAMUT_COOL = gamutFromHex([0xffffff, LIGHT.RING_GLOW, 0xa8c8e8], RING_CHROMA_CEILING);
+
+/** Section 2.1's fog pair, as a gamut: everything from neutral out to cool teal
+ *  `FOG_NEAR` and warm parchment `FOG_FAR`. `FogExp2` carries one colour, so
+ *  the near/far *journey* has to be produced by the sky and the terrain behind
+ *  it; what the rig can guarantee is that the single colour available lands
+ *  somewhere on that cool-to-warm axis instead of off it in the magenta wedge. */
+const FOG_GAMUT = gamutFromHex([0xffffff, LIGHT.FOG_NEAR, LIGHT.FOG_FAR], ENV_CHROMA_CEILING);
+
+/** Whichever key gamut the incoming colour is already closer to. Safe to share
+ *  the module scratch with `conformChroma`: the pick completes before the
+ *  projection starts and neither holds a reference past its own call. */
+function pickKeyGamut(color) {
+  chromaXY(color, _chromaP);
+  const x = _chromaP.x;
+  const y = _chromaP.y;
+  const warm = nearestInGamut(x, y, KEY_GAMUT_WARM, _chromaN);
+  const cool = nearestInGamut(x, y, KEY_GAMUT_COOL, _chromaN);
+  return warm <= cool ? KEY_GAMUT_WARM : KEY_GAMUT_COOL;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -801,6 +1094,16 @@ export class Lighting {
       ambient = k.ambient;
     }
 
+    // ---- key chroma ------------------------------------------------------
+    // The one place the rig is allowed to disagree with `Sky` about colour, and
+    // it disagrees on purpose: `Sky` reports what its dome *renders*, which at a
+    // 6-degree sun elevation is a heavily reddened disc, and section 2.2 does
+    // not let a non-magic term carry that much chroma. Luminance and intensity
+    // are untouched, so the exposure of the shot is unchanged and the sun disc
+    // in frame keeps the saturated colour the dome painted; only the light
+    // leaving it lands back inside the amber band.
+    conformChroma(T.keyColor, pickKeyGamut(T.keyColor), KEY_CHROMA_TOLERANCE, KEY_CHROMA_RANGE);
+
     // `dayness` drives every "is this a sunlit frame" decision in the rig. It
     // is a function of the *true* sun height, not the key's, so the night rig
     // does not flip back to daylight just because the ring happens to be high.
@@ -921,11 +1224,57 @@ export class Lighting {
     u.uFillSky.value.copy(S.fillSky).multiplyScalar(S.fillIntensity);
     u.uFillGround.value.copy(S.fillGround).multiplyScalar(S.fillIntensity);
 
+    // Solve the toon rim's strength so its hottest sliver always lands on
+    // RIM_HDR_PEAK. `toonSurface` adds `uRimColor * (awRim * uToonRimGain *
+    // uRimStrength)` to specular, and `awRim` reaches 1 at the silhouette, so
+    // the peak is exactly the product below. Pinning it — rather than letting
+    // it ride the analytic rim's day/night curve — is what guarantees an HDR
+    // edge for bloom to find in *every* frame, and it decouples the character
+    // rim from the environment rim so the two can be tuned against each other.
+    const rimPeak = Math.max(S.rimColor.r, S.rimColor.g, S.rimColor.b)
+      * S.rimIntensity * NOMINAL_TOON_RIM_GAIN;
+    u.uRimStrength.value = rimPeak > 1e-4
+      ? THREE.MathUtils.clamp(RIM_HDR_PEAK / rimPeak, RIM_STRENGTH_MIN, RIM_STRENGTH_MAX)
+      : 0;
+
+    this._conformAtmosphere();
+
     // ART_BIBLE section 3 pins exposure to the time of day. Sky writes the same
     // value un-eased; services tick in registration order and `lighting` is
     // registered after `sky`, so the eased value is the one that survives.
     const renderer = this.engine?.renderer;
     if (renderer) renderer.toneMappingExposure = S.exposure;
+  }
+
+  /**
+   * Hold `scene.fog` inside the section 2.1 atmosphere band.
+   *
+   * Fog is listed in section 2.1's *Light and atmosphere* table alongside the
+   * key, the bounce and the shadow tint, and it is in-scattered light — the
+   * same class of quantity this rig already polices for the hemisphere fill. It
+   * is also, in a frame built on heavy atmospheric perspective, the single
+   * largest area of chroma on screen, so it decides the frame's dominant hue
+   * more than any surface does.
+   *
+   * `Sky` derives it from the horizon radiance the dome is painting, which is
+   * the right way to keep the fog and the sky from separating at the skirt, but
+   * it inherits whatever the section 3 fog key says — and the dusk key is the
+   * mauve `#8A5E7A`, hue 318, straight into the wedge section 2.2 reserves for
+   * dark magic. The projection below leaves the value, the density and the
+   * cool-to-warm trend across the day exactly as authored and only removes
+   * chroma the contract does not allow.
+   *
+   * Recomputed from `Sky`'s own field rather than from `scene.fog.color`
+   * wherever a dome exists, so this is a pure function of the authored colour
+   * and cannot compound with itself, with `Sky`, or with a scene that tints the
+   * fog further after the rig has ticked.
+   */
+  _conformAtmosphere() {
+    const fog = this.scene?.fog;
+    if (!fog?.color) return;
+    const source = this.sky?.fogColor ?? fog.color;
+    fog.color.copy(source);
+    conformChroma(fog.color, FOG_GAMUT, FOG_CHROMA_TOLERANCE, FOG_CHROMA_RANGE);
   }
 
   /**

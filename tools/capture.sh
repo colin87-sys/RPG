@@ -29,4 +29,13 @@ if ! curl -sf -o /dev/null "http://localhost:$PORT/"; then
   done
 fi
 
-node tools/screenshot.mjs --scenario "$SCENARIO" --out "$OUT" --url "http://localhost:$PORT/"
+# The scenario name rides on the URL because screenshot.mjs is frozen and its
+# scenarios open the lookdev stage through an argument-less `gotoLookdev` hook.
+# Without this tag both the `lookdev` and `cast` sheets would shoot the stage's
+# single default composition and ship the same frame under two names; main.js
+# maps the tag to an entry pose. Anything that ignores the tag still gets the
+# battle frame, which is the composition the reference specifies.
+node tools/screenshot.mjs \
+  --scenario "$SCENARIO" \
+  --out "$OUT" \
+  --url "http://localhost:$PORT/?scenario=$SCENARIO"

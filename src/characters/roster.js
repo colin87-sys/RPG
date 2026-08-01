@@ -86,15 +86,15 @@ export const ROSTER = Object.freeze([
       glow: 0xfff0b8,
     }),
 
-    // A single carved mass swept back off a hard side-part. The front locks are
-    // long and angular so the head reads as a wedge pointing forward — the
-    // opposite of Emrys's outward starburst, which is the pair most at risk of
-    // colliding in silhouette.
+    // Mass class: **swept wedge**. Narrowest crown in the party (0.82 heads
+    // wide) with the volume thrown backwards and down the -Z axis, so the head silhouettes as an
+    // arrowhead pointing forward — the exact inverse of Emrys's outward
+    // starburst, which is the pair most at risk of colliding at 80 px.
     hair: Object.freeze({
       style: 'swept',
-      capScale: 1.10, capDrop: 0.55,
-      fringe: 5, fringeLength: 0.30, fringeSweep: 0.85, fringeSpread: 1.0,
-      backLength: 0.16, backWidth: 0.9,
+      capScale: 1.05, capDrop: 0.55,
+      fringe: 5, fringeLength: 0.32, fringeSweep: 0.95, fringeSpread: 1.0,
+      backLength: 0.30, backWidth: 0.82, backDepth: 1.15,
       highlightBand: 0.62, highlightWidth: 0.14,
       boneCount: 0,
     }),
@@ -151,14 +151,16 @@ export const ROSTER = Object.freeze([
       glow: 0x5fb8b0,
     }),
 
-    // "a pale drifting mass twice the width of her body" — the widest hair in
-    // the party by a wide margin, and the only one bone-driven along its full
-    // length so it never stops moving (ART_BIBLE §7.9).
+    // Mass class: **long straight sheet**. Widest and longest hair in the party
+    // by a margin — 1.35 head-widths of solid slab against Auren's 0.82, past the
+    // 25% divergence the lineup test demands — and the only one bone-driven
+    // along its full length so it never stops moving (ART_BIBLE §7.9).
     hair: Object.freeze({
-      style: 'drift',
-      capScale: 1.13, capDrop: 0.66,
+      style: 'sheet',
+      capScale: 1.12, capDrop: 0.66,
       fringe: 7, fringeLength: 0.26, fringeSweep: 0.10, fringeSpread: 1.45,
-      backLength: 0.38, backWidth: 1.10, backFlare: 1.30,
+      backLength: 0.44, backWidth: 1.35, backFlare: 1.15,
+      braidWidth: 0.80,
       highlightBand: 0.58, highlightWidth: 0.18,
       boneCount: 4, boneStiffness: 0.34,
     }),
@@ -205,7 +207,11 @@ export const ROSTER = Object.freeze([
     palette: Object.freeze({
       skin: 0xc08a63, skinShade: 0x855239,
       hair: 0xa9a49a, hairShade: 0x5e5a54, hairLight: 0xe0dcd2,
-      eye: 0x6e93a6, eyeCore: 0xcfe6ee, sclera: 0xeee7dc, lash: 0x1b1f24,
+      // Iris = the element accent (ART_BIBLE §2.2 `LOAM`). Six characters, six
+      // saturated iris hues: the cheapest thing in the whole pipeline that makes
+      // a closeup instantly identifiable, and the reason this is not the
+      // desaturated blue-grey it used to be.
+      eye: 0xc98f3f, eyeCore: 0xf2d9a6, sclera: 0xeee7dc, lash: 0x1b1f24,
       primary: 0x4a4440,    // iron
       secondary: 0x6b3328,  // oxblood apron
       trim: 0xb8863b,       // brass
@@ -218,15 +224,15 @@ export const ROSTER = Object.freeze([
       glow: 0xff6b2b,
     }),
 
-    // Almost no hair on top; the beard is the mass. Putting the volume below
-    // the chin instead of above it inverts the head shape relative to everyone
-    // else, which is the strongest silhouette trick available at this size.
+    // Mass class: **beard**. Almost nothing above the chin; the volume is below
+    // it. Inverting where the head mass sits relative to everyone else is the
+    // strongest silhouette trick available at this size, and it costs nothing.
     hair: Object.freeze({
       style: 'beard',
-      capScale: 1.04, capDrop: 0.28,
+      capScale: 1.16, capDrop: 0.28,
       fringe: 0, fringeLength: 0.0, fringeSweep: 0.0, fringeSpread: 1.0,
       backLength: 0.10, backWidth: 0.8,
-      beardLength: 0.46, beardWidth: 1.24, beardFork: 0.30,
+      beardLength: 0.50, beardWidth: 1.30, beardFork: 0.30,
       highlightBand: 0.70, highlightWidth: 0.10,
       boneCount: 2, boneStiffness: 0.62,
     }),
@@ -266,7 +272,9 @@ export const ROSTER = Object.freeze([
     palette: Object.freeze({
       skin: 0x8a5a44, skinShade: 0x53321f,
       hair: 0x1f2830, hairShade: 0x0e151b, hairLight: 0x5d7688,
-      eye: 0xd9cba6, eyeCore: 0xfff6dc, sclera: 0xf0ece2, lash: 0x0d1116,
+      // Iris = `TIDE`, her element. A cream iris on a cream sclera has no
+      // contrast at all and the eye reads as blank at any distance.
+      eye: 0x3fa9f5, eyeCore: 0xa8e4ff, sclera: 0xf0ece2, lash: 0x0d1116,
       primary: 0x2e4a5f,    // storm-blue coat
       secondary: 0x1a2c39,
       trim: 0xd9cba6,       // bleached rope
@@ -279,14 +287,16 @@ export const ROSTER = Object.freeze([
       glow: 0x7de3ff,
     }),
 
-    // Cropped and cut on a hard diagonal: everything about her is diagonals
-    // (WORLD_BIBLE §3.4), so the hair mass leans instead of sitting square.
+    // Mass class: **bob with side flare**. A bell that is widest at the jaw —
+    // nobody else in the party carries mass at ear level — cut on a hard
+    // diagonal with the outboard flares kicking past the shoulder line, which is
+    // WORLD_BIBLE §3.4's "everything about her is diagonals" made into outline.
     hair: Object.freeze({
-      style: 'shag',
+      style: 'bob',
       capScale: 1.07, capDrop: 0.44,
       fringe: 6, fringeLength: 0.24, fringeSweep: 0.55, fringeSpread: 1.1,
-      backLength: 0.20, backWidth: 1.0,
-      lean: 0.34, cutAngle: 0.42,
+      backLength: 0.24, backWidth: 1.38, braidWidth: 0.50,
+      lean: 0.40, cutAngle: 0.50,
       highlightBand: 0.60, highlightWidth: 0.12,
       boneCount: 1, boneStiffness: 0.5,
     }),
@@ -345,11 +355,15 @@ export const ROSTER = Object.freeze([
       glow: 0xff6b2b,
     }),
 
+    // Mass class: **spiked crown**. Splayed outward rather than upward: a
+    // vertical starburst adds head height, and REFERENCE_TARGET §1's 3.0–3.5
+    // heads charges for every millimetre of it. Wide costs nothing in the ratio
+    // and the outline is just as unmistakable.
     hair: Object.freeze({
       style: 'spike',
       capScale: 1.08, capDrop: 0.42,
       fringe: 4, fringeLength: 0.22, fringeSweep: 0.20, fringeSpread: 1.2,
-      spikes: 9, spikeLength: 0.34, spikeSpread: 1.25, spikeJitter: 0.35,
+      spikes: 10, spikeLength: 0.155, spikeSpread: 1.45, spikeJitter: 0.35,
       backLength: 0.14, backWidth: 0.95,
       highlightBand: 0.56, highlightWidth: 0.16,
       boneCount: 0,
@@ -406,15 +420,17 @@ export const ROSTER = Object.freeze([
       glow: 0x8fe6a0,       // tattoo lines that light when an Esper answers
     }),
 
-    // Gathered high and bound, with a long braid — vertical mass above the
-    // crown, so she reads even taller than her already tallest frame.
+    // Mass class: **top-knot with trailing tie**. The only vertical mass in the
+    // party, on the tallest frame, plus a long braid that the cloth solver keeps
+    // in motion. Kept to 0.10 H above the binding ring: taller reads better in
+    // isolation and immediately puts her outside the heads-tall band.
     hair: Object.freeze({
-      style: 'braid',
-      capScale: 1.05, capDrop: 0.48,
-      fringe: 3, fringeLength: 0.20, fringeSweep: 0.45, fringeSpread: 0.8,
-      topknot: 0.30, topknotWidth: 0.55,
-      braidLength: 0.66, braidWidth: 0.10, braidSegments: 6,
-      backLength: 0.12, backWidth: 0.85,
+      style: 'topknot',
+      capScale: 1.02, capDrop: 0.48,
+      fringe: 5, fringeLength: 0.20, fringeSweep: 0.45, fringeSpread: 1.15,
+      topknot: 0.09, topknotWidth: 0.52,
+      braidLength: 0.70, braidWidth: 0.11, braidSegments: 6,
+      backLength: 0.12, backWidth: 0.85, backDepth: 0.55,
       highlightBand: 0.64, highlightWidth: 0.11,
       boneCount: 5, boneStiffness: 0.5,
     }),
@@ -432,9 +448,14 @@ export const ROSTER = Object.freeze([
 
     // Feather-mantle: wide at the shoulder, cut short, with a heavy fringe.
     // High drag so it settles slowly — feathers do not snap back like cloth.
+    // Lower-body outline: **bare legs under a short mantle**. Cut to 0.28 H so
+    // the legs clear it — she is the only party member reading as legs-and-spear
+    // rather than as a body inside cloth, and that is her half of the six-way
+    // lower-outline split the lineup test needs.
     cape: Object.freeze({
       kind: 'mantle', anchor: 'chest',
-      length: 0.38, width: 0.40, split: 0.0, asymmetry: 0.0,
+      length: 0.28, width: 0.44, split: 0.0, asymmetry: 0.0,
+      hem: 'round',
       stiffness: 0.30, mass: 0.95, drag: 0.070, boneCount: 3,
       feathers: 11, featherLength: 0.20,
     }),
