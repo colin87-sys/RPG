@@ -73,8 +73,6 @@ const smooth = (x) => { const t = clamp01(x); return t * t * (3 - 2 * t); };
 const smoother = (x) => { const t = clamp01(x); return t * t * t * (t * (t * 6 - 15) + 10); };
 const easeOutCubic = (x) => { const t = clamp01(x); const u = 1 - t; return 1 - u * u * u; };
 const easeInCubic = (x) => { const t = clamp01(x); return t * t * t; };
-/** Anticipation: dips negative before rising. `k` is the undershoot depth. */
-const backIn = (x, k = 1.7) => { const t = clamp01(x); return t * t * ((k + 1) * t - k); };
 /** Overshoot then settle. */
 const backOut = (x, k = 1.9) => { const t = clamp01(x) - 1; return t * t * ((k + 1) * t + k) + 1; };
 /** Windowed pulse: 0 → 1 → 0 across [a, b] with smooth ends. */
@@ -140,10 +138,6 @@ class PoseWriter {
     this.buf[b + 3] += px;
     this.buf[b + 4] += py;
     this.buf[b + 5] += pz;
-  }
-  get(name, ch) {
-    const s = this.index[name];
-    return s === undefined ? 0 : this.buf[s * CH + ch];
   }
   /** Mirrored write: `fn(side, suffix)` is called for L then R. */
   pair(fn) { fn(1, 'L'); fn(-1, 'R'); }
@@ -487,7 +481,10 @@ CLIPS.ko = {
     const H = c.H;
 
     p.rot('hips', 0.55 * buckle + 0.55 * fall, 0.18 * fall, 0.22 * fall);
-    p.pos('hips', 0.04 * H * fall, -0.30 * H * buckle - 0.06 * H * fall, -0.10 * H * fall);
+    // The pelvis drop is tuned against the folded-leg trigonometry: with the
+    // thighs at -1.3 rad and the shins at +1.9 the ankles sit ~0.175 H below
+    // the hips, so anything past -0.22 H puts the boots through the floor.
+    p.pos('hips', 0.04 * H * fall, -0.17 * H * buckle - 0.045 * H * fall, -0.10 * H * fall);
     p.rot('spine', 0.30 * buckle + 0.10 * fall - 0.10 * land, -0.10 * fall, -0.12 * fall);
     p.rot('chest', 0.26 * buckle + 0.12 * fall - 0.08 * land, -0.12 * fall, -0.10 * fall);
     p.rot('neck', -0.25 * buckle - 0.20 * fall, 0.10 * fall, 0);
@@ -826,7 +823,11 @@ export class Animator {
 
   _advance(state, dt) {
     const clip = state.clip;
-    const speed = state.speed * (clip.loop ? (this._ctxSpeedScale ?? 1) : 1);
+    // `_ctxSpeedScale` is deliberately *not* applied here. It shortens the
+    // locomotion clip's own cycle length inside the clip function; applying it
+    // to the clock as well would square the rate and make a jog look like a
+    // sprint played at double speed.
+    const speed = state.speed;
     const before = state.time;
     state.time += dt * speed;
 
@@ -1002,7 +1003,13 @@ export class Animator {
       }
       const u = clamp01(this._blinkT / 0.11);
       const close = Math.sin(u * Math.PI);
-      this.lids.position.y = this._lidRest.y - close * this.metrics.eye.height * 1.15;
+      const slide = this.metrics.eye.height * 1.06;
+      this.lids.position.y = this._lidRest.y - close * slide;
+      // The lid rides a sphere, so a pure vertical slide would sink it into the
+      // skull by the time it reaches the eye's lower edge. Pushing forward by
+      // ~0.38 of the slide tracks the head's curvature closely enough that the
+      // lid stays proud of the iris across the whole blink.
+      this.lids.position.z = this._lidRest.z + close * slide * 0.38;
       this.lids.visible = close > 0.02;
       return;
     }

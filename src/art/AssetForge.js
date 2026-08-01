@@ -443,14 +443,25 @@ export class AssetForge {
   /**
    * Assemble a scene containing only sky.
    *
-   * Preference order: (1) real dome geometry the Sky module exposes, wrapped in
-   * proxy meshes that share its geometry and material so nothing is reparented
-   * out from under it; (2) an equirect/cube background texture on the sky's
-   * scene; (3) a procedural gradient dome built from the ART_BIBLE keys. The
-   * third case is not a fallback for failure — during bring-up the Sky module
-   * may be a stub, and metal still has to look like metal.
+   * Preference order: (0) the Sky module's own `createEnvironmentSource()`;
+   * (1) real dome geometry the Sky module exposes, wrapped in proxy meshes that
+   * share its geometry and material so nothing is reparented out from under it;
+   * (2) an equirect/cube background texture on the sky's scene; (3) a procedural
+   * gradient dome built from the ART_BIBLE keys. The last case is not a fallback
+   * for failure — during bring-up the Sky module may be a stub, and metal still
+   * has to look like metal.
+   *
+   * Case 0 exists because our dome is a *camera-riding* box whose vertex program
+   * pins depth to the far plane: it is only correct when it re-centres on
+   * whatever camera is drawing it. `_skyProxies` freezes `matrixWorld`, which
+   * leaves the box wherever the game camera last stood — for a PMREM cube camera
+   * sitting at the origin that means five of the six faces sample nothing.
+   * `createEnvironmentSource` hands back a proxy that still carries Sky's
+   * `onBeforeRender`, so the probe sees exactly the dome on screen.
    */
   _buildProbeScene(sky, opts) {
+    if (typeof sky?.createEnvironmentSource === 'function') return sky.createEnvironmentSource();
+
     const scene = new THREE.Scene();
     const temporary = [];
 

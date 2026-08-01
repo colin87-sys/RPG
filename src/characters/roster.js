@@ -105,7 +105,7 @@ export const ROSTER = Object.freeze([
       kind: 'sword', mount: 'handR',
       length: 0.78, width: 0.085, thickness: 0.022,
       guard: 0.26, gripLength: 0.20, pommel: 0.07,
-      carry: 'low', tilt: -0.34, roll: 0.15,
+      tilt: -0.34, roll: 0.15,
       emissive: 0.22,
     }),
 
@@ -160,14 +160,14 @@ export const ROSTER = Object.freeze([
       fringe: 7, fringeLength: 0.26, fringeSweep: 0.10, fringeSpread: 1.45,
       backLength: 0.38, backWidth: 1.10, backFlare: 1.30,
       highlightBand: 0.58, highlightWidth: 0.18,
-      boneCount: 4, boneSpread: 0.34, boneStiffness: 0.34,
+      boneCount: 4, boneStiffness: 0.34,
     }),
 
     weapon: Object.freeze({
       kind: 'chimestaff', mount: 'handL',
       length: 0.95, width: 0.026, thickness: 0.026,
       ringRadius: 0.10, bells: 7, bellRadius: 0.022,
-      carry: 'upright', tilt: 0.06, roll: 0.0,
+      tilt: 0.06, roll: 0.0,
       emissive: 0.9,
     }),
 
@@ -228,14 +228,14 @@ export const ROSTER = Object.freeze([
       backLength: 0.10, backWidth: 0.8,
       beardLength: 0.46, beardWidth: 1.24, beardFork: 0.30,
       highlightBand: 0.70, highlightWidth: 0.10,
-      boneCount: 2, boneSpread: 0.0, boneStiffness: 0.62,
+      boneCount: 2, boneStiffness: 0.62,
     }),
 
     weapon: Object.freeze({
       kind: 'piston', mount: 'forearmR',
       length: 0.40, width: 0.115, thickness: 0.115,
       barrels: 3, ventCount: 5,
-      carry: 'arm', tilt: 0.0, roll: 0.0,
+      tilt: 0.0, roll: 0.0,
       emissive: 0.35,
     }),
 
@@ -288,7 +288,7 @@ export const ROSTER = Object.freeze([
       backLength: 0.20, backWidth: 1.0,
       lean: 0.34, cutAngle: 0.42,
       highlightBand: 0.60, highlightWidth: 0.12,
-      boneCount: 1, boneSpread: 0.18, boneStiffness: 0.5,
+      boneCount: 1, boneStiffness: 0.5,
     }),
 
     // Worn across the back like a halo knocked askew — a hard ring outline that
@@ -297,7 +297,7 @@ export const ROSTER = Object.freeze([
       kind: 'chakram', mount: 'back',
       radius: 0.20, width: 0.05, thickness: 0.018, gap: 0.55,
       blades: 3,
-      carry: 'back', tilt: 0.30, roll: 0.42,
+      tilt: 0.30, roll: 0.42,
       emissive: 0.45,
     }),
 
@@ -359,7 +359,7 @@ export const ROSTER = Object.freeze([
       kind: 'grimoire', mount: 'handL',
       width: 0.19, height: 0.24, thickness: 0.055,
       orreryRings: 3, orreryRadius: 0.30,
-      carry: 'chest', tilt: 0.18, roll: -0.22,
+      tilt: 0.18, roll: -0.22,
       emissive: 1.1,
     }),
 
@@ -416,7 +416,7 @@ export const ROSTER = Object.freeze([
       braidLength: 0.66, braidWidth: 0.10, braidSegments: 6,
       backLength: 0.12, backWidth: 0.85,
       highlightBand: 0.64, highlightWidth: 0.11,
-      boneCount: 5, boneSpread: 0.06, boneStiffness: 0.5,
+      boneCount: 5, boneStiffness: 0.5,
     }),
 
     // "a spear standing in a cloak" — carried across the shoulders like a yoke,
@@ -426,7 +426,7 @@ export const ROSTER = Object.freeze([
       kind: 'lance', mount: 'handR',
       length: 1.05, width: 0.030, thickness: 0.030,
       headLength: 0.24, headWidth: 0.085, ribs: 5,
-      carry: 'yoke', tilt: 1.42, roll: 0.0,
+      tilt: 1.42, roll: 0.0,
       emissive: 0.30,
     }),
 

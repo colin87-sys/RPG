@@ -112,7 +112,7 @@ window.__AW__ = {
   stats() {
     const r = engine.renderer.info;
     return {
-      fps: Math.round(1 / Math.max(1e-6, engine.clock.getDelta() || 1 / 60)),
+      fps: Math.round(1 / Math.max(1e-6, engine.delta || 1 / 60)),
       drawCalls: r.render.calls,
       triangles: r.render.triangles,
       programs: r.programs?.length ?? 0,

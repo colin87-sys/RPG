@@ -74,7 +74,13 @@ export function disposeTree(root) {
 export class Engine {
   constructor(canvas) {
     this.canvas = canvas;
-    this.clock = new THREE.Clock();
+    // Timer, not the deprecated Clock. Timer separates "advance time" from
+    // "read delta", so the frame delta can be sampled many times per frame —
+    // Clock.getDelta() consumes on read, which silently returned ~0 to the
+    // second caller and made any frame-time readout garbage.
+    this.timer = new THREE.Timer();
+    /** Delta of the frame currently being simulated, safe to read repeatedly. */
+    this.delta = 0;
     this.accumulator = 0;
     this.elapsed = 0;
     this.frame = 0;
@@ -101,7 +107,14 @@ export class Engine {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // NOT PCFSoftShadowMap: three 0.185 deprecated it and silently falls back
+    // to hard PCFShadowMap, so asking for it yields hard-edged shadows while
+    // the code reads as though it asked for soft ones. VSM genuinely filters,
+    // which is what this art direction wants — the reference frames have no
+    // hard shadow edges anywhere. Lighting.js tunes radius and blurSamples;
+    // VSM's light-bleeding is acceptable here because our shadow casters are
+    // stylised solids rather than thin overlapping geometry.
+    this.renderer.shadowMap.type = THREE.VSMShadowMap;
     this.renderer.setClearColor(0x05070d, 1);
 
     this.camera = new THREE.PerspectiveCamera(48, 16 / 9, 0.1, 4000);
@@ -160,7 +173,7 @@ export class Engine {
   start() {
     if (this.running) return;
     this.running = true;
-    this.clock.start();
+    this.timer.reset();
     this.renderer.setAnimationLoop(() => this._tick());
     bus.emit('engine:started');
   }
@@ -171,9 +184,11 @@ export class Engine {
   }
 
   _tick() {
+    this.timer.update();
     // Clamp: a background tab or a long shader compile must not fast-forward
     // the simulation by a full second of steps.
-    const raw = Math.min(this.clock.getDelta(), 0.25);
+    const raw = Math.min(this.timer.getDelta(), 0.25);
+    this.delta = raw;
     const dt = raw * this.timeScale;
     this.elapsed += dt;
     this.frame++;

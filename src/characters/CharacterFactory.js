@@ -417,8 +417,8 @@ function planarUV(geometry, scale) {
 }
 
 /** Flat vertex colour, written in linear space (three's working space). */
-function paint(geometry, hex) {
-  const c = new THREE.Color(hex);
+function paint(geometry, hex, scale = 1) {
+  const c = new THREE.Color(hex).multiplyScalar(scale);
   const count = geometry.getAttribute('position').count;
   const arr = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
@@ -841,29 +841,43 @@ function buildHair(parts, m, def, pal) {
     }, { capStart: true, capEnd: true, twist });
   };
 
-  // --- front locks, common to every style that has a fringe.
+  // --- front locks.
+  //
+  // Two rules keep a fringe from becoming a curtain over the face. First, the
+  // locks are *parted*: `part` shifts the whole fan off centre so no lock hangs
+  // down the middle of the nose. Second, length is short at the parting and
+  // long at the temples — that taper is the entire difference between an anime
+  // fringe and a mop, and it means the centre of the face stays clear while the
+  // silhouette still gets its long angular corners.
+  //
+  // Lengths here are fractions of *head radius*, not of body height: a lock
+  // measured against the body would swallow Emrys's face and barely reach
+  // Yshara's brow.
   const nF = hp.fringe | 0;
+  const partShift = hp.part ?? 0.12;
   for (let i = 0; i < nF; i++) {
-    const t = nF === 1 ? 0.5 : i / (nF - 1);
-    const ang = (t - 0.5) * Math.PI * 0.95 * (hp.fringeSpread ?? 1);
+    const t = nF === 1 ? 0.5 : (i + 0.5) / nF;
+    const off = (t - 0.5) + partShift;
+    const ang = off * Math.PI * 0.95 * (hp.fringeSpread ?? 1);
     const sx = Math.sin(ang);
     const cz = Math.cos(ang);
-    const len = (hp.fringeLength ?? 0.26) * H;
+    const taper = 0.45 + 1.35 * Math.min(1, Math.abs(off) * 2.2);
+    const len = (hp.fringeLength ?? 0.26) * h.ry * 2.0 * taper;
     const sweepAmt = hp.fringeSweep ?? 0.4;
     const lean = hp.lean ?? 0;
-    const from = new THREE.Vector3(sx * h.rx * 0.86, h.center.y + h.ry * 0.42, cz * h.rz * 0.62);
+    const from = new THREE.Vector3(sx * h.rx * 0.80, h.center.y + h.ry * 0.52, cz * h.rz * 0.55);
     const ctrl = new THREE.Vector3(
-      sx * h.rx * (1.02 + sweepAmt * 0.30) + lean * h.rx * 0.4,
-      h.center.y + h.ry * 0.10,
-      cz * h.rz * (1.02 + sweepAmt * 0.25),
+      sx * h.rx * (1.00 + sweepAmt * 0.30) + lean * h.rx * 0.4,
+      h.center.y + h.ry * 0.30 - len * 0.35,
+      cz * h.rz * (1.04 + sweepAmt * 0.25),
     );
     const to = new THREE.Vector3(
-      sx * h.rx * (1.05 + sweepAmt * 0.75) + lean * h.rx * 0.9,
-      h.center.y + h.ry * 0.30 - len,
-      cz * h.rz * (0.95 + sweepAmt * 0.55) - sweepAmt * len * 0.30,
+      sx * h.rx * (1.04 + sweepAmt * 0.75) + lean * h.rx * 0.9,
+      h.center.y + h.ry * 0.34 - len,
+      cz * h.rz * (0.98 + sweepAmt * 0.55) - sweepAmt * len * 0.30,
     );
-    const w = H * 0.032 * (1 - Math.abs(t - 0.5) * 0.4);
-    lock(from, ctrl, to, w, w * 0.18, (t - 0.5) * 0.7);
+    const w = h.rx * 0.115 * (1 - Math.abs(off) * 0.35);
+    lock(from, ctrl, to, w, w * 0.16, off * 0.7);
   }
 
   // --- style-specific mass.
@@ -1072,12 +1086,16 @@ function buildWeapon(parts, m, def, pal, rig) {
   const put = (surface, cls, color, crease = 0.7) => {
     if (surface.empty) return;
     // Bake the carry transform in, then bind rigidly to the weapon bone.
-    const geoParts = surface;
-    for (let i = 0; i < geoParts.pos.length; i += 3) {
-      const v = new THREE.Vector3(geoParts.pos[i], geoParts.pos[i + 1], geoParts.pos[i + 2]).applyMatrix4(xf);
-      geoParts.pos[i] = v.x; geoParts.pos[i + 1] = v.y; geoParts.pos[i + 2] = v.z;
+    for (let i = 0; i < surface.pos.length; i += 3) {
+      const v = new THREE.Vector3(surface.pos[i], surface.pos[i + 1], surface.pos[i + 2]).applyMatrix4(xf);
+      surface.pos[i] = v.x; surface.pos[i + 1] = v.y; surface.pos[i + 2] = v.z;
     }
-    parts.push({ surface, cls, color, rigid: idx, crease });
+    // `emissive` brightens the unlit parts of a weapon — Seren's chime-bells and
+    // Bramm's vents run hot, Auren's moonglass barely glows. Kept at or below
+    // 1.2 so a resting weapon never trips the bloom threshold on its own;
+    // ART_BIBLE §2.2 reserves supra-threshold emission for spells.
+    const scale = cls === 'glow' ? THREE.MathUtils.clamp(w.emissive ?? 1, 0.1, 1.2) : 1;
+    parts.push({ surface, cls, color, rigid: idx, crease, colorScale: scale });
   };
 
   switch (w.kind) {
@@ -1091,7 +1109,7 @@ function buildWeapon(parts, m, def, pal, rig) {
         new THREE.Vector3(0, grip * 0.6 + len * 0.5, 0),
         new THREE.Vector3(0, grip * 0.6 + len, 0),
       ];
-      sweep(primary, smoothPath(bladePath, 7), SECTIONS.lens(12, 0.30), (i, n) => {
+      sweep(primary, smoothPath(bladePath, 7), SECTIONS.lens(12, 0.30), (i) => {
         const t = i / 6;
         const s = (1 - Math.pow(t, 3.2) * 0.94) * w.width * H * 0.5;
         return [s, s * (w.thickness / w.width)];
@@ -1286,10 +1304,12 @@ function buildAccessories(parts, m, def, pal) {
       },
       { capStart: false, capEnd: false });
     if (acc.collar === 'feather') {
-      for (let i = 0; i < 9; i++) {
-        const a = Math.PI * (0.18 + (i / 8) * 1.64);
+      const n = Math.max(3, def.cape?.feathers ?? 9);
+      const fl = (def.cape?.featherLength ?? 0.18) * H;
+      for (let i = 0; i < n; i++) {
+        const a = Math.PI * (0.18 + (i / (n - 1)) * 1.64);
         const base = new THREE.Vector3(Math.sin(a) * g.chestX * 0.95, m.joints.chest.y + g.chestZ * 0.5, Math.cos(a) * g.chestZ * 0.95);
-        const tip = base.clone().add(new THREE.Vector3(Math.sin(a) * H * 0.05, H * 0.10, Math.cos(a) * H * 0.05));
+        const tip = base.clone().add(new THREE.Vector3(Math.sin(a) * fl * 0.45, fl, Math.cos(a) * fl * 0.45));
         sweep(cloth, [base, tip], SECTIONS.lens(8, 0.4),
           (i2) => { const s = H * (i2 === 0 ? 0.022 : 0.004); return [s, s * 0.7]; },
           { capStart: false, capEnd: true });
@@ -1541,7 +1561,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
   // 4. mouth — deliberately tiny. REFERENCE §1: "nose/mouth minimal or absent;
   //    the face reads on eyes and brows alone."
   faceDisc(faceSkinned, metrics, {
-    cx: 0, cy: -metrics.head.ry * 0.52, rx: e.width * 0.22, ry: e.height * 0.055,
+    cx: 0, cy: -metrics.head.ry * 0.52, rx: e.width * 0.30, ry: e.height * 0.085,
     lift: H * 0.0022, n: 2.2, tilt: 0, side: 1, rings: 2, seg: 12,
   });
 
@@ -1557,9 +1577,14 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
       cx: cx - side * e.width * 0.10, cy: cy + e.height * 0.13,
       rx: e.width * 0.075, ry: e.height * 0.075, lift: H * 0.0062, n: 2.0, tilt: 0, side, rings: 2, seg: 10,
     });
+    // Blink lid. Sized and placed so a single translation closes the eye
+    // completely: its lower edge starts just above the eye's top edge, and the
+    // animator's slide is exactly the eye height plus that clearance. It also
+    // carries the largest surface lift of any face layer — the lid must occlude
+    // the iris and the catch-light, or a blink turns into a glitch.
     faceDisc(lidSurface, metrics, {
-      cx, cy: cy + e.height * 0.62, rx: e.width * 0.53, ry: e.height * 0.42,
-      lift: H * 0.0036, n: 2.6, tilt: 0.10, side, rings: 3, seg: 16,
+      cx, cy: cy + e.height * 1.22, rx: e.width * 0.56, ry: e.height * 0.70,
+      lift: H * 0.0090, n: 2.6, tilt: 0.10, side, rings: 3, seg: 16,
     });
   }
 
@@ -1580,7 +1605,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
       // per-layer by vertex order, which is stable because `faceDisc` appends.
       paintFaceLayers(geo, part.palette, metrics);
     } else {
-      paint(geo, part.color);
+      paint(geo, part.color, part.colorScale ?? 1);
     }
 
     if (part.rigid !== undefined) {

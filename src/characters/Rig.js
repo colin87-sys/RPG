@@ -81,7 +81,6 @@ const F = Object.freeze({
   spineT: 0.30,        // fraction of the hips→neck span
   chestT: 0.66,
   shoulderT: 0.80,
-  kneeT: 0.455,        // fraction of the hips→ankle drop
   ankleY: 0.050,
 
   shoulderX: 0.098,
@@ -271,7 +270,10 @@ function buildChainMetrics(def, { head, joints, girth, H }) {
     // the slight forward-to-back drift keeps the strand from intersecting the
     // back of the head on the first frame of simulation.
     const start = v3(0, head.center.y + head.ry * 0.30, -head.rz * 0.72);
-    const total = (hair.backLength ?? hair.braidLength ?? 0.4) * H;
+    // A braided style keeps a short `backLength` for the mass at the nape *and*
+    // a long `braidLength` for the plait itself; the chain must measure the
+    // plait, so the braid wins wherever both are present.
+    const total = (hair.braidLength ?? hair.backLength ?? 0.4) * H;
     const step = total / hairCount;
     chains.hair.push(start);
     for (let i = 1; i <= hairCount; i++) {

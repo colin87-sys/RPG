@@ -176,6 +176,7 @@ export class ClothSim {
     this.windGust = 0.35;
     this.time = 0;
     this._accum = 0;
+    this._dirty = false;
     this._seed = (rng.next() * 0x7fffffff) | 0;
     this._disposed = false;
 
@@ -447,13 +448,18 @@ export class ClothSim {
       steps++;
     }
     if (steps === MAX_CATCHUP_STEPS) this._accum = 0;
-    this._writeBuffers();
+    this.flush();
   }
 
-  /** One deterministic 1/60 step. Safe to call directly from `Scene.fixedUpdate`. */
+  /**
+   * One deterministic 1/60 step. Safe to call directly from `Scene.fixedUpdate`
+   * — the geometry write is deferred to `flush()` and marked dirty here, so a
+   * frame that runs two sim steps still uploads its vertex buffers once.
+   */
   fixedUpdate(dt = FIXED_STEP) {
     if (this._disposed) return;
     this.time += dt;
+    this._dirty = true;
 
     this.root.updateMatrixWorld(true);
     this._toLocal.copy(this.root.matrixWorld).invert();
@@ -652,7 +658,12 @@ export class ClothSim {
       // link lengths stay exact (a stretched hair chain skews the skinning).
       for (let i = 1; i <= n; i++) {
         const k = i * 3;
-        const s = stiffness * 0.18;
+        // Applied once per Gauss–Seidel pass, so the per-step pull compounds:
+        // 0.055 across six iterations is ~30% of the gap per second, which
+        // keeps a sculpted silhouette without turning the strand rigid. At the
+        // 0.18 that looks reasonable in isolation the chain snaps back inside
+        // three frames and the secondary motion disappears entirely.
+        const s = stiffness * 0.055;
         pos[k] += (rest[k] - pos[k]) * s;
         pos[k + 1] += (rest[k + 1] - pos[k + 1]) * s;
         pos[k + 2] += (rest[k + 2] - pos[k + 2]) * s;
@@ -736,8 +747,14 @@ export class ClothSim {
 
   // ---------------------------------------------------------------- output
 
-  /** Push solved panel particles into their geometries, with fresh normals. */
-  _writeBuffers() {
+  /**
+   * Push solved panel particles into their geometries, with fresh normals.
+   * Idempotent and cheap to over-call: a clean simulation state returns
+   * immediately, so a scene may call this from its own render hook.
+   */
+  flush() {
+    if (!this._dirty || this._disposed) return;
+    this._dirty = false;
     for (const panel of this.panels) {
       if (!panel._seeded) continue;
       const { cols, rows, pos, geometry } = panel;
@@ -781,6 +798,7 @@ export class ClothSim {
     for (const p of this.panels) p._seeded = false;
     for (const s of this.strands) s._seeded = false;
     this._accum = 0;
+    this._dirty = true;
   }
 
   dispose() {
