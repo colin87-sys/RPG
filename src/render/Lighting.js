@@ -180,6 +180,18 @@ const PENUMBRA_RADIUS_MIN = 1;
 /** Above ~3 the fixed 9-tap PCF kernel starts to show as banding, not blur. */
 const PENUMBRA_RADIUS_MAX = 3;
 
+/**
+ * VSM's `radius` drives a separable Gaussian over the moment map rather than a
+ * PCF tap pattern, so it can be pushed several times further for the same cost
+ * — which is the whole reason core selects VSM. Bounded above because the blur
+ * is applied in shadow-map space: past ~6 texels the near cascade's penumbra
+ * starts detaching a chibi's feet from its own contact shadow.
+ */
+const VSM_RADIUS_MIN = 1.5;
+const VSM_RADIUS_MAX = 6;
+/** Enough taps that the widest kernel above does not band on flat ground. */
+const VSM_BLUR_SAMPLES = 12;
+
 /** Shadows are never fully black — section 2.3 crushes blacks to ~0.02 and
  *  tints them, so leaving 6% of the key in shadow keeps form readable inside
  *  the shadow mass instead of dumping it onto the fill alone. */
@@ -528,7 +540,7 @@ export class Lighting {
       // Exactly one slot is allowed to cast: ART_BIBLE section 7.6 forbids a
       // shadowless point light on a hero subject, but a cube shadow per spell
       // would blow the frame budget, so the rig offers one and prioritises it.
-      const slot = new LightSlot(i, q.shadowPoint && i === 0);
+      const slot = new LightSlot(i, q.shadowPoint && i === 0 && this._pointShadowsSupported());
       this.group.add(slot.light);
       this._slots.push(slot);
     }
@@ -567,19 +579,58 @@ export class Lighting {
   _applyCascadeBias() {
     const size = this._q.shadowMapSize;
     const lights = this.csm.lights;
+    const vsm = this._shadowType() === THREE.VSMShadowMap;
     for (let i = 0; i < lights.length; i++) {
       const shadow = lights[i].shadow;
       const cam = shadow.camera;
       const texel = (cam.right - cam.left) / size;
       const depthRange = Math.max(1e-3, cam.far - cam.near);
       shadow.normalBias = texel * 1.35 + 0.004;
-      shadow.bias = -(texel * 0.5 + 0.02) / depthRange;
-      shadow.radius = THREE.MathUtils.clamp(
-        PENUMBRA_METRES / Math.max(1e-5, texel),
-        PENUMBRA_RADIUS_MIN, PENUMBRA_RADIUS_MAX,
-      );
+      if (vsm) {
+        // VSM compares moments, not depths: acne comes from variance
+        // underestimation, not from the depth-slope error a PCF bias corrects,
+        // and a negative bias here would simply pull the whole occluder
+        // distribution forward and bleed light through solid geometry. The
+        // normal bias above still earns its keep — it is a *geometric* offset,
+        // independent of the comparison. Softness is the blur kernel: `radius`
+        // is the separable blur's texel reach, so the same penumbra target
+        // converts directly, and `blurSamples` is what stops that blur banding
+        // on the far cascade where the kernel is widest in world terms.
+        shadow.bias = 0;
+        shadow.radius = THREE.MathUtils.clamp(
+          PENUMBRA_METRES / Math.max(1e-5, texel),
+          VSM_RADIUS_MIN, VSM_RADIUS_MAX,
+        );
+        shadow.blurSamples = VSM_BLUR_SAMPLES;
+      } else {
+        shadow.bias = -(texel * 0.5 + 0.02) / depthRange;
+        shadow.radius = THREE.MathUtils.clamp(
+          PENUMBRA_METRES / Math.max(1e-5, texel),
+          PENUMBRA_RADIUS_MIN, PENUMBRA_RADIUS_MAX,
+        );
+      }
       shadow.intensity = SHADOW_INTENSITY;
     }
+  }
+
+  /** The renderer's shadow filter. Core owns it and may change it. */
+  _shadowType() {
+    return this.engine?.renderer?.shadowMap?.type ?? THREE.PCFShadowMap;
+  }
+
+  /**
+   * Whether a `PointLight` in the pool may cast.
+   *
+   * three does not implement VSM for cube shadow maps: `WebGLShadowMap` warns
+   * and skips the render, but the *program* is still generated with the point
+   * shadow branch while `shadowmap_pars_fragment` omits the sampler array under
+   * VSM — so every lit material in the scene fails to compile with
+   * "'pointShadowMap' : undeclared identifier" and the frame goes black. The
+   * pool therefore drops its one shadow-capable slot when core selects VSM,
+   * which costs a cube shadow nobody can see and saves the whole renderer.
+   */
+  _pointShadowsSupported() {
+    return this._shadowType() !== THREE.VSMShadowMap;
   }
 
   addTo(scene) {

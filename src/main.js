@@ -29,7 +29,7 @@ input.attach(window);
 
 // Order matters: art before anything that builds materials, postfx before the
 // first render, ui last so it can query everything else.
-const forge = engine.register('art', new AssetForge(engine.renderer));
+engine.register('art', new AssetForge(engine.renderer));
 engine.register('postfx', new PostFX(engine));
 engine.register('vfx', new VFXSystem(engine));
 engine.register('physics', new Physics(engine));
@@ -46,8 +46,16 @@ const armAudio = () => {
 window.addEventListener('pointerdown', armAudio);
 window.addEventListener('keydown', armAudio);
 
+// Quality is a global setting with three independent consumers. Lighting
+// subscribes for itself (its cascade count changes an array length, so it has
+// to rebuild rather than be told), but PostFX and Sky are both passive: Sky's
+// step counts are compile-time constants in its fragment program, so without
+// this forward the most expensive shader in the renderer would stay at `high`
+// on a machine that asked for `low`.
 bus.on('settings:changed', ({ key, value }) => {
-  if (key === 'quality') engine.get('postfx').setQuality(value);
+  if (key !== 'quality') return;
+  engine.get('postfx')?.setQuality(value);
+  engine.get('sky')?.setQuality(value);
 });
 
 /** Wait until the engine has presented `n` frames, so captures see settled state. */
@@ -111,8 +119,14 @@ window.__AW__ = {
   },
   stats() {
     const r = engine.renderer.info;
+    // `engine.delta` is the last presented frame's real time, published by the
+    // engine precisely so it can be read without side effects — the harness
+    // polls this between screenshots and must not perturb the simulation.
+    // A single frame is noisy under a software rasteriser, so report both the
+    // instantaneous rate and the mean since boot.
     return {
-      fps: Math.round(1 / Math.max(1e-6, engine.delta || 1 / 60)),
+      fps: Math.round(1 / Math.max(1e-4, engine.delta || 1 / 60)),
+      meanFps: engine.elapsed > 0.5 ? Math.round(engine.frame / engine.elapsed) : 0,
       drawCalls: r.render.calls,
       triangles: r.render.triangles,
       programs: r.programs?.length ?? 0,

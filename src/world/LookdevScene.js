@@ -46,7 +46,7 @@ const STAGE = {
 };
 
 /** Calibration bay origin — far enough out that no cast pose can see it. */
-const BAY = { x: -10, z: -1 };
+const BAY = { x: -19, z: -1 };
 
 /**
  * Multiplier on the ART_BIBLE §3 fog density, via the hook Sky publishes.
@@ -57,10 +57,12 @@ const BAY = { x: -10, z: -1 };
  * 25 m, where §5.5 requires layers to be *visibly* separating. Scaling the
  * density is exactly what `fogDensityScale` exists for, and it is the single
  * biggest contributor to REFERENCE §3's "heavy atmospheric perspective is the
- * signature": at 5× the treeline reads as the near-silhouette the reference
- * frames show instead of a fully-lit forest.
+ * signature": at 3× the treeline reads as the near-silhouette the reference
+ * frames show instead of a fully-lit forest. Higher than 3 was tried and
+ * rejected — past that the fog's own chroma becomes the largest area in frame
+ * and the shot stops being a scene with haze in it.
  */
-const FOG_SCALE = 5.0;
+const FOG_SCALE = 3.0;
 
 /**
  * The staggered diagonal, solved in screen space and converted back to world.
@@ -73,18 +75,26 @@ const FOG_SCALE = 5.0;
  * looks down. Order is front-line first, exactly like `gameState.party`.
  */
 const PARTY = [
-  { id: 'auren',  ndc: 0.10, depth: 5.0, yaw: 0.30 },
-  { id: 'kite',   ndc: 0.24, depth: 6.4, yaw: 0.44 },
-  { id: 'yshara', ndc: 0.38, depth: 5.4, yaw: 0.22 },
-  { id: 'bramm',  ndc: 0.52, depth: 7.2, yaw: 0.38 },
-  { id: 'seren',  ndc: 0.66, depth: 6.0, yaw: 0.16 },
-  { id: 'emrys',  ndc: 0.80, depth: 7.8, yaw: 0.34 },
+  { id: 'auren',  ndc: 0.10, depth: 5.0, yaw: 0.62 },
+  { id: 'kite',   ndc: 0.24, depth: 6.4, yaw: 0.78 },
+  { id: 'yshara', ndc: 0.38, depth: 5.4, yaw: 0.54 },
+  { id: 'bramm',  ndc: 0.52, depth: 7.2, yaw: 0.70 },
+  { id: 'seren',  ndc: 0.66, depth: 6.0, yaw: 0.46 },
+  { id: 'emrys',  ndc: 0.80, depth: 7.8, yaw: 0.66 },
 ];
 
 /** Half-width of the lineup frustum per metre of depth, at STAGE.fov / 16:9. */
 const TAN_HALF_H = Math.tan((STAGE.fov * Math.PI) / 360) * (16 / 9);
 
-/** World position for a party slot. Facing is -X plus a turn toward camera. */
+/**
+ * World position for a party slot.
+ *
+ * Facing is screen-left (-X) plus `yaw` radians back toward camera, so the cast
+ * reads as a three-quarter front rather than a flat profile. The rig's forward
+ * is **+Z** — `CharacterFactory.hairlinePhi` states the convention outright,
+ * "+Z (forward) is theta = pi/2" — so -X is a -90° yaw and the turn toward the
+ * viewer adds to it.
+ */
 function partyPlacement(slot) {
   return {
     x: STAGE.camX + slot.ndc * TAN_HALF_H * slot.depth,
@@ -113,17 +123,29 @@ const CAMERA_POSES = {
   },
   /** Auren, three-quarter front, slightly low so he reads heroic. */
   'hero-closeup': {
-    pos: [0.96, 0.88, 4.62], look: [2.15, 0.98, 3.55],
-    fov: 34, focus: 1.6, aperture: 4.0, grade: 'memory',
+    // On Auren's own facing axis, swung 25° toward the battle camera and
+    // dropped below eye line — ART_BIBLE §5.4's "hero shots slightly low".
+    // f/8 rather than a portrait aperture: the point of this frame is to read
+    // the toon banding and the eye build, and a 34 mm lens at 1.9 m already
+    // separates the subject from a treeline 40 m behind it.
+    pos: [0.72, 0.86, 4.83], look: [2.15, 1.00, 3.58],
+    fov: 34, focus: 1.9, aperture: 8.0, grade: 'memory',
   },
   /** Pulled-back version of the battle axis: whole stage, party still right. */
   wide: {
     pos: [STAGE.camX, 3.30, 15.5], look: [STAGE.camX, 0.90, 6.0],
-    fov: 50, focus: 12.5, aperture: 5.6, grade: 'dusk',
+    fov: 50, focus: 12.5, aperture: 5.6, grade: 'battle',
   },
   /** Sky-dominant landscape for the day-cycle sweep; party on the right third. */
   horizon: {
-    pos: [-0.4, 2.0, 12.6], look: [6.55, 8.34, -26.8],
+    // Station point sits *in front of* the rear grass bank on purpose: at
+    // 12.6 the bank straddled the lens and individual blades crossed the whole
+    // frame as hairline diagonals, which reads as damage rather than as
+    // foliage. From 11.6 the front bank at 6.2 m is the occluder instead, which
+    // is what §5.1 actually asks for. Aim point shifted by the same metre so
+    // the view direction — and therefore the +9.5° pitch that puts the horizon
+    // on the lower third — is unchanged.
+    pos: [-0.4, 2.0, 11.6], look: [6.55, 8.34, -27.8],
     fov: 52, focus: 12, aperture: 8, grade: 'dusk',
   },
   'sphere-grid': {
@@ -136,8 +158,24 @@ const CAMERA_POSES = {
   },
 };
 
+/**
+ * The mist bank spans the battle stage only. The calibration bay sits west of
+ * `MIST_WEST_LIMIT`, and a probe sphere read through a metre of atmosphere
+ * calibrates the atmosphere, not the material.
+ */
+const MIST_WEST_LIMIT = -12;
+const MIST_WRAP = 42;
+
+/** Outer radius and rim rise of the fogged horizon skirt, in metres. */
+const SKIRT_RADIUS = 9000;
+const SKIRT_RISE = 62;
+
+/** How far the scene pulls Sky's fog colour back toward the palette's near teal. */
+const FOG_NEAR_TEAL = new THREE.Color(LIGHT.FOG_NEAR);
+const FOG_COOLING = 0.34;
+
 /** Ambient fill left burning in silhouette mode: enough to see form, not value. */
-const SILHOUETTE_FILL = 0.04;
+const SILHOUETTE_FILL = 0.015;
 
 export class LookdevScene extends Scene {
   constructor(engine) {
@@ -172,6 +210,14 @@ export class LookdevScene extends Scene {
     engine.register('sky', this.sky);
 
     this.lighting = this.track(new Lighting(engine, this.sky));
+    // The whole battle stage fits inside a 20 m box. The rig's 120 m default is
+    // sized for an open field, and under the VSM filter core selects that range
+    // is actively harmful: VSM stores depth *moments* in half float, so the
+    // wider the light-space depth range the coarser the variance, and a chibi's
+    // 1.1 m of occluder disappears into the noise floor as light bleed. 60 m
+    // halves the range and doubles the near cascade's texel density at the same
+    // map size, which is what puts a readable shadow back under the party.
+    this.lighting.setShadowDistance(60);
     this.lighting.addTo(this.scene);
     engine.register('lighting', this.lighting);
 
@@ -221,6 +267,15 @@ export class LookdevScene extends Scene {
     const env = forge?.environment?.(this.sky);
     if (!env) return;
     this._environment = env;
+    // A dusk dome is an enormous, very bright area source, and the PMREM of it
+    // arrives at unit intensity. Left there it out-runs the key on every
+    // upward-facing surface — the party's heads measured ~0.93 display value,
+    // outside ART_BIBLE §2.3's 0.05–0.85 band for everything that is not a
+    // highlight, and the faces lost their banding to a flat white. Trimming the
+    // probe (rather than the exposure, which §3 pins per time of day, or the
+    // per-material intensities, which §4 pins per surface) puts the key back in
+    // charge of form while leaving the metal row a real reflection to show.
+    this.scene.environmentIntensity = 0.6;
     if (!this._silhouette) this.scene.environment = env;
   }
 
@@ -245,10 +300,11 @@ export class LookdevScene extends Scene {
   }
 
   /**
-   * Ground: 1.6 km of gently rolling dirt.
+   * Ground: 900 m of gently rolling grassland, plus a fogged skirt to the
+   * visible horizon.
    *
    * Large enough that the plane's own edge is buried far inside the fog
-   * (FogExp2 at the dusk key reaches unity around 350 m), and displaced rather
+   * (FogExp2 at the scaled dusk key reaches unity around 250 m), and displaced rather
    * than flat because a mathematically level plane under a low sun produces a
    * single uniform value across the entire lower half of frame — no form, no
    * shadow information, and nothing for the atmospheric gradient to grade.
@@ -269,12 +325,55 @@ export class LookdevScene extends Scene {
     // tile every 2.25 m, which at the chibi scale is roughly one tile per two
     // body heights — fine enough that the near ground carries detail, coarse
     // enough that the tiling period never lands inside a single frame.
-    this.groundMaterial = forge.material('grass', { repeat: 400 });
+    // Cloned so the tint stays local; the clone shares the forge's textures and
+    // the forge guards those against `disposeTree`. ART_BIBLE §2.3 wants ~15%
+    // of the frame below 0.08 — a ground plane returned at full albedo under a
+    // 2.4-intensity dusk key lands the entire lower half in the midtones and
+    // the shot goes flat, so the stage floor is pulled down and cooled.
+    this.groundMaterial = forge.material('grass', { repeat: 400 }).clone();
+    this.groundMaterial.color.setRGB(0.52, 0.58, 0.60);
+    this.groundMaterial.envMapIntensity = 0.35;
+    this.track(this.groundMaterial);
     const ground = new THREE.Mesh(geo, this.groundMaterial);
     ground.receiveShadow = true;
     ground.name = 'ground';
     this.ground = ground;
     this.scene.add(ground);
+
+    // Beyond the displaced plane the sky dome renders its own below-horizon
+    // ground colour, unfogged — which shows up as a hard dark band exactly at
+    // the horizon. A fully-fogged skirt out to 9 km closes the gap: at this
+    // density every fragment of it resolves to 100% fog, so it is literally the
+    // fog colour and joins the terrain with no seam, whatever the hour.
+    const skirt = new THREE.RingGeometry(SIZE * 0.44, SKIRT_RADIUS, 96, 1);
+    skirt.rotateX(-Math.PI / 2);
+    // Lift the outer rim into a very shallow cone. The dome's own atmosphere
+    // model puts a dark band immediately under the geometric horizon (the
+    // planet's limb at the observer's altitude), and a flat skirt's silhouette
+    // sits *below* it, so the band survives as a hard dark line across every
+    // frame. Raising the rim by SKIRT_RISE tilts the skirt's horizon about
+    // 0.4° above level — a slope no viewer can perceive, and since every
+    // fragment out there is 100% fog it simply reads as the haze bank meeting
+    // the sky, which is what the reference frames show anyway.
+    {
+      const sp = skirt.getAttribute('position');
+      for (let i = 0; i < sp.count; i++) {
+        const r = Math.hypot(sp.getX(i), sp.getZ(i));
+        const t = (r - SIZE * 0.44) / (SKIRT_RADIUS - SIZE * 0.44);
+        sp.setY(i, t * SKIRT_RISE);
+      }
+      skirt.computeVertexNormals();
+    }
+    this.track(skirt);
+    const skirtMaterial = this.track(new THREE.MeshBasicMaterial({
+      color: new THREE.Color(LIGHT.FOG_FAR),
+      fog: true,
+    }));
+    const skirtMesh = new THREE.Mesh(skirt, skirtMaterial);
+    skirtMesh.position.y = -1.5;
+    skirtMesh.name = 'horizon-skirt';
+    skirtMesh.frustumCulled = false;
+    this.scene.add(skirtMesh);
 
     // The silhouette check needs the backdrop to hold value while the subjects
     // lose it, so the ground swaps to an unlit mid-tone. Tinted parchment, not
@@ -346,7 +445,6 @@ export class LookdevScene extends Scene {
     }
     trees.instanceMatrix.needsUpdate = true;
     this.scene.add(trees);
-    this.treeline = trees;
   }
 
   /**
@@ -381,11 +479,11 @@ export class LookdevScene extends Scene {
     // bank sits behind the lineup camera entirely and only ever appears in the
     // pulled-back `wide`, where the near bank is already mid-ground.
     const clumps = [
-      { x: -0.10, z: 6.15, h: 1.55, n: 150, spread: 1.05 },
-      { x: -1.65, z: 6.90, h: 1.85, n: 140, spread: 1.25 },
-      { x: 7.10, z: 6.05, h: 1.10, n: 80, spread: 0.80 },
-      { x: 0.35, z: 13.0, h: 2.35, n: 170, spread: 1.40 },
-      { x: 3.80, z: 13.5, h: 2.10, n: 130, spread: 1.20 },
+      { x: -0.10, z: 6.15, h: 1.30, n: 190, spread: 1.05 },
+      { x: -1.55, z: 6.85, h: 1.55, n: 170, spread: 1.25 },
+      { x: 7.10, z: 6.05, h: 0.85, n: 90, spread: 0.80 },
+      { x: -0.55, z: 12.9, h: 1.45, n: 150, spread: 1.15 },
+      { x: 4.60, z: 13.3, h: 1.20, n: 110, spread: 1.00 },
     ];
 
     // Merged into one geometry: ~670 blades as individual meshes would be 670
@@ -408,7 +506,9 @@ export class LookdevScene extends Scene {
         p.set(bx, this._groundHeight(bx, bz) - 0.04, bz);
         e.set(rng.jitter(0.16), rng.range(0, Math.PI * 2), rng.jitter(0.22));
         q.setFromEuler(e);
-        s.set(h * rng.range(0.6, 1.0), h, h);
+        // Width is *not* scaled by height: a blade is a blade whatever the
+        // stalk's length, and coupling the two turned a grass tuft into agave.
+        s.set(rng.range(0.7, 1.15), h, h);
         pieces.push(blade.clone().applyMatrix4(m.compose(p, q, s)));
       }
     }
@@ -422,7 +522,6 @@ export class LookdevScene extends Scene {
     mesh.frustumCulled = false;
     group.add(mesh);
     this.scene.add(group);
-    this.foreground = group;
   }
 
   /**
@@ -445,7 +544,7 @@ export class LookdevScene extends Scene {
       // Quadratic droop: a blade is stiff at the base and falls away at the
       // tip, which is what stops a clump reading as a hedgehog of spikes.
       const lean = t * t * 0.42;
-      const halfWidth = 0.09 * (1 - t) ** 0.75;
+      const halfWidth = 0.042 * (1 - t) ** 0.75;
       const y = t * (1 - lean * 0.35);
       const z = lean;
       pos.push(-halfWidth, y, z, halfWidth, y, z);
@@ -482,9 +581,19 @@ export class LookdevScene extends Scene {
       // FOG_NEAR at a fraction of unity: additive cards stack, so the per-card
       // radiance has to sit well under the value the bank is meant to reach or
       // six overlaps blow past the bloom threshold and the mist starts glowing.
-      color: new THREE.Color(LIGHT.FOG_NEAR).multiplyScalar(0.16),
+      color: new THREE.Color(LIGHT.FOG_NEAR),
       transparent: true,
-      blending: THREE.AdditiveBlending,
+      // Premultiplied-alpha blending, not additive. The sprite's RGB is already
+      // premultiplied by its coverage, so `ONE / ONE_MINUS_SRC_ALPHA` is the
+      // mathematically correct compositing operator for it — and unlike
+      // additive it *replaces* what is behind, which is the only way a teal
+      // bank reads as teal over a warm dusk sky instead of merely brightening
+      // it toward white. Still order-independent enough for soft overlapping
+      // cards, and it cannot push the frame past the bloom threshold.
+      blending: THREE.CustomBlending,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendEquation: THREE.AddEquation,
       depthWrite: false,
       side: THREE.DoubleSide,
       toneMapped: true,
@@ -507,8 +616,13 @@ export class LookdevScene extends Scene {
       const card = new THREE.Mesh(geo, mat);
       const w = tall ? rng.range(16, 34) : rng.range(6, 17);
       card.scale.set(w, w * (tall ? rng.range(0.28, 0.45) : rng.range(0.18, 0.30)), 1);
+      // Drawn across the full width and then folded out of the calibration
+      // bay, rather than sampled over a narrower range: the fold consumes the
+      // same rng draws, so the bay stays clear of haze without shifting a
+      // single glasspetal in the cast frames.
+      const x = rng.range(-24, 26);
       card.position.set(
-        rng.range(-24, 26),
+        x < MIST_WEST_LIMIT ? x + MIST_WRAP : x,
         tall ? rng.range(1.4, 3.4) : rng.range(0.18, 0.85),
         tall ? rng.range(-26, -6) : rng.range(-16, 11),
       );
@@ -554,7 +668,7 @@ export class LookdevScene extends Scene {
     this.track(geo);
     const mat = this.track(new THREE.PointsMaterial({
       map: forge.texture('mote'),
-      size: 0.09,
+      size: 0.13,
       sizeAttenuation: true,
       vertexColors: true,
       transparent: true,
@@ -575,7 +689,11 @@ export class LookdevScene extends Scene {
    * raking toward camera. Off in every other pose.
    */
   _buildBacklight() {
-    const light = new THREE.DirectionalLight(0xdfe8ff, 3.4);
+    // Modest, deliberately. The toon shader's tinted shadow gradient is an
+    // additive term inside `RE_Direct`, so it scales with *every* light in the
+    // scene including this one — drive the backlight hard and the party stops
+    // being black and starts being navy, which defeats the whole check.
+    const light = new THREE.DirectionalLight(0xdfe8ff, 1.9);
     light.position.set(6.5, 5.0, -22);
     light.target.position.set(4.0, 0.6, 1.0);
     light.castShadow = false;
@@ -606,12 +724,11 @@ export class LookdevScene extends Scene {
       alphaMap: forge.texture('glow'),
       color: new THREE.Color(LIGHT.SHADOW_TINT).multiplyScalar(0.28),
       transparent: true,
-      opacity: 0.62,
+      opacity: 0.72,
       depthWrite: false,
       fog: true,
       toneMapped: true,
     }));
-    this.contactShadowMaterial = shadowMat;
 
     const group = new THREE.Group();
     group.name = 'cast';
@@ -790,6 +907,18 @@ export class LookdevScene extends Scene {
    * the uniform block the toon materials read.
    */
   _afterRig() {
+    // ART_BIBLE §2.1 specifies a *two-ended* fog: FOG_NEAR cool teal at ground
+    // level and short distances, FOG_FAR warm parchment at horizon distance,
+    // "so depth reads as cool→warm". `FogExp2` carries one colour, and Sky
+    // rightly drives it from the time-of-day table — which at the dusk key is
+    // the mauve #8A5E7A. Left alone that mauve is the single largest area of
+    // chroma in frame and the whole shot goes magenta, against REFERENCE §4's
+    // teal-dominant contract. Blending back toward FOG_NEAR is the closest a
+    // single-colour fog gets to the specified pair; the warm end still comes
+    // through because it is what the sky itself is rendering behind it.
+    const fog = this.scene.fog;
+    if (fog) fog.color.lerp(FOG_NEAR_TEAL, FOG_COOLING);
+
     if (!this._silhouette) return;
     const L = this.lighting;
     if (!L) return;
@@ -828,7 +957,7 @@ export class LookdevScene extends Scene {
     for (const m of this._mistCards) {
       // Slow lateral crawl only: mist that bobs vertically reads as smoke.
       m.mesh.position.x += m.drift * step;
-      if (m.mesh.position.x > 30) m.mesh.position.x -= 58;
+      if (m.mesh.position.x > 30) m.mesh.position.x -= MIST_WRAP;
       m.mesh.quaternion.copy(this.camera.quaternion);
       m.mesh.position.y += Math.sin(t * 0.21 + m.phase) * 0.0009;
     }
