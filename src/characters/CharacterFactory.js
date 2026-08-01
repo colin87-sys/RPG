@@ -784,27 +784,53 @@ function buildHair(parts, m, def, pal) {
   const capScale = hp.capScale ?? 1.08;
   const drop = hp.capDrop ?? 0.5;
 
-  // --- the cap: a shell over the skull, cut at a hairline that dips at the
-  // front. The dip is what makes it read as hair rather than as a helmet.
-  blob(cap, {
-    cx: 0, cy: h.center.y, cz: -h.rz * 0.02,
-    rx: h.rx * capScale, ry: h.ry * capScale, rz: h.rz * capScale,
-    eU: 1, eV: 0.95, segU: 26, segV: 16,
-    vFrom: 0.5 - drop * 0.5, vTo: 1,
-    profile: (v) => 1 + Math.pow(THREE.MathUtils.clamp((v - 0.55) / 0.45, 0, 1), 2) * 0.06,
+  // The hairline is pinned to the brow, not authored: the forehead boundary is
+  // derived from `metrics.eye`, so no combination of roster values can push
+  // hair down over the eyes — the one hair failure that destroys a character.
+  const frontPhi = Math.asin(THREE.MathUtils.clamp(
+    (m.eye.y + m.eye.browLift + h.ry * 0.16 - h.center.y) / h.ry, -0.98, 0.98,
+  ));
+  const backPhi = -(0.32 + drop * 0.95);
+  const peak = h.ry > 0 ? 0.10 : 0;
+  const center = { x: 0, y: h.center.y, z: -h.rz * 0.02 };
+
+  hairShell(cap, {
+    center, rx: h.rx, ry: h.ry, rz: h.rz,
+    outer: capScale, inner: 1.02,
+    frontPhi, backPhi, peak, segU: 26, segV: 12,
   });
 
-  // --- the highlight band: a ring of the same shell, lifted a hair's breadth
-  // so it never z-fights, in the light hair tone. This is the reference's
-  // single most identifiable hair cue and it costs 300 triangles.
-  const bc = hp.highlightBand ?? 0.6;
-  const bw = hp.highlightWidth ?? 0.13;
-  blob(band, {
-    cx: 0, cy: h.center.y, cz: -h.rz * 0.02,
-    rx: h.rx * capScale + H * 0.0035, ry: h.ry * capScale + H * 0.0035, rz: h.rz * capScale + H * 0.0035,
-    eU: 1, eV: 0.95, segU: 26, segV: 4,
-    vFrom: Math.max(0.02, bc - bw * 0.5), vTo: Math.min(0.99, bc + bw * 0.5),
-  });
+  // --- the highlight band: a strip riding the shell a hair's breadth proud of
+  // it, in the light hair tone. The reference's single most identifiable hair
+  // cue, and it costs about 250 triangles. Columns whose hairline sits above
+  // the band are skipped, so the band can never float in front of the face.
+  const bandLo = Math.PI * 0.5 * ((hp.highlightBand ?? 0.6) - (hp.highlightWidth ?? 0.13) * 0.5) * 2 - Math.PI * 0.25;
+  const bandHi = bandLo + Math.PI * (hp.highlightWidth ?? 0.13);
+  const lift = 1 + H * 0.004 / Math.max(1e-4, h.ry);
+  {
+    const segU = 26;
+    const prev = [];
+    for (let j = 0; j <= segU; j++) {
+      const theta = ((j % segU) / segU) * TAU;
+      const line = hairlinePhi(theta, frontPhi, backPhi, peak);
+      const lo = Math.max(bandLo, line);
+      const hi = Math.max(bandHi, line + 1e-4);
+      if (hi <= line + 2e-4) { prev.length = 0; continue; }
+      const pt = (phi) => {
+        const sc = capScale * lift * (1 + 0.06 * Math.pow(Math.max(0, Math.sin(phi)), 2));
+        const cp = Math.cos(phi);
+        return band.vertex(
+          center.x + h.rx * sc * cp * Math.cos(theta),
+          center.y + h.ry * sc * Math.sin(phi),
+          center.z + h.rz * sc * cp * Math.sin(theta),
+        );
+      };
+      const a = pt(lo);
+      const b = pt(hi);
+      if (prev.length === 2) band.quad(prev[0], a, b, prev[1]);
+      prev[0] = a; prev[1] = b;
+    }
+  }
 
   const lock = (from, ctrl, to, w0, w1, twist = 0) => {
     const path = smoothPath([from, ctrl, to], 8);
