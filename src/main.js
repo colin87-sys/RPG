@@ -1,0 +1,123 @@
+/**
+ * Bootstrap. Builds the engine, wires the service registry in dependency
+ * order, mounts the title scene, and publishes the debug surface the capture
+ * harness drives.
+ */
+import * as THREE from 'three';
+import { Engine } from './core/Engine.js';
+import { bus } from './core/EventBus.js';
+import { input } from './core/Input.js';
+import { gameState } from './core/GameState.js';
+
+import { AssetForge } from './art/AssetForge.js';
+import { PostFX } from './render/PostFX.js';
+import { VFXSystem } from './vfx/VFXSystem.js';
+import { Physics } from './physics/Physics.js';
+import { AudioEngine } from './audio/AudioEngine.js';
+import { UIRoot } from './ui/UIRoot.js';
+import { Director } from './story/Director.js';
+
+import { TitleScene } from './world/TitleScene.js';
+import { FieldScene } from './world/FieldScene.js';
+import { BattleScene } from './battle/BattleScene.js';
+
+const canvas = document.getElementById('stage');
+const engine = new Engine(canvas);
+
+input.attach(window);
+
+// Order matters: art before anything that builds materials, postfx before the
+// first render, ui last so it can query everything else.
+const forge = engine.register('art', new AssetForge(engine.renderer));
+engine.register('postfx', new PostFX(engine));
+engine.register('vfx', new VFXSystem(engine));
+engine.register('physics', new Physics(engine));
+engine.register('audio', new AudioEngine());
+engine.register('story', new Director(engine));
+engine.register('ui', new UIRoot(engine));
+
+// Audio can only start inside a user gesture; arm it on the first interaction.
+const armAudio = () => {
+  engine.get('audio').resume();
+  window.removeEventListener('pointerdown', armAudio);
+  window.removeEventListener('keydown', armAudio);
+};
+window.addEventListener('pointerdown', armAudio);
+window.addEventListener('keydown', armAudio);
+
+bus.on('settings:changed', ({ key, value }) => {
+  if (key === 'quality') engine.get('postfx').setQuality(value);
+});
+
+/** Wait until the engine has presented `n` frames, so captures see settled state. */
+function framesSettled(n = 3) {
+  return new Promise((resolve) => {
+    let left = n;
+    const step = () => (--left <= 0 ? resolve() : requestAnimationFrame(step));
+    requestAnimationFrame(step);
+  });
+}
+
+async function boot() {
+  await engine.setScene(new TitleScene(engine));
+  engine.start();
+  document.getElementById('boot')?.classList.add('done');
+}
+
+window.__AW__ = {
+  engine,
+  THREE,
+  bus,
+  gameState,
+  async gotoTitle() {
+    await engine.setScene(new TitleScene(engine));
+    await framesSettled();
+  },
+  async gotoField(zoneId = 'lumen-quay') {
+    await engine.setScene(new FieldScene(engine, { zoneId }));
+    await framesSettled(4);
+  },
+  async gotoBattle(encounterId = 'shorewatch-ambush') {
+    await engine.setScene(new BattleScene(engine, { encounterId }));
+    await framesSettled(4);
+  },
+  async poseCamera(pose) {
+    engine.scene?.poseCamera?.(pose);
+    await framesSettled(2);
+  },
+  async setTimeOfDay(t) {
+    gameState.state.timeOfDay = t;
+    engine.get('sky')?.setTimeOfDay(t);
+    engine.scene?.setTimeOfDay?.(t);
+    await framesSettled(2);
+  },
+  async castAbility(abilityId) {
+    await engine.scene?.debugCast?.(abilityId);
+  },
+  async summon(esperId) {
+    await engine.scene?.debugSummon?.(esperId);
+  },
+  async openMenu(panel) {
+    engine.get('ui').open(panel);
+    await framesSettled(2);
+  },
+  setQuality(level) {
+    gameState.setSetting('quality', level);
+  },
+  stats() {
+    const r = engine.renderer.info;
+    return {
+      fps: Math.round(1 / Math.max(1e-6, engine.clock.getDelta() || 1 / 60)),
+      drawCalls: r.render.calls,
+      triangles: r.render.triangles,
+      programs: r.programs?.length ?? 0,
+      scene: engine.scene?.constructor.name,
+    };
+  },
+};
+
+boot().catch((err) => {
+  console.error('[boot] fatal', err);
+  const el = document.getElementById('boot');
+  if (el) el.innerHTML = `<pre style="color:#f88;padding:2rem;white-space:pre-wrap">${err.stack ?? err}</pre>`;
+});
