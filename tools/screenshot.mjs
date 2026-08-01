@@ -24,6 +24,21 @@ const args = parseArgs(process.argv.slice(2));
  */
 const SCENARIOS = {
   boot: [{ wait: 2500, shot: 'boot' }],
+  lookdev: [
+    { hook: ['gotoLookdev'], wait: 4000, shot: 'lookdev-wide' },
+    { hook: ['poseCamera', 'sphere-grid'], wait: 1200, shot: 'lookdev-spheres' },
+    { hook: ['poseCamera', 'materials'], wait: 1200, shot: 'lookdev-materials' },
+    { hook: ['poseCamera', 'hero-closeup'], wait: 1200, shot: 'lookdev-closeup' },
+    { hook: ['poseCamera', 'horizon'], wait: 1200, shot: 'lookdev-horizon' },
+  ],
+  daycycle: [
+    { hook: ['gotoLookdev'], wait: 4000 },
+    { hook: ['poseCamera', 'horizon'], wait: 800 },
+    { hook: ['setTimeOfDay', 0.24], wait: 1400, shot: 'tod-dawn' },
+    { hook: ['setTimeOfDay', 0.5], wait: 1400, shot: 'tod-noon' },
+    { hook: ['setTimeOfDay', 0.79], wait: 1400, shot: 'tod-dusk' },
+    { hook: ['setTimeOfDay', 0.96], wait: 1400, shot: 'tod-night' },
+  ],
   field: [
     { hook: ['gotoField'], wait: 3500, shot: 'field-wide' },
     { hook: ['poseCamera', 'hero-closeup'], wait: 1200, shot: 'field-hero' },

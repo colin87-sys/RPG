@@ -18,6 +18,7 @@ import { UIRoot } from './ui/UIRoot.js';
 import { Director } from './story/Director.js';
 
 import { TitleScene } from './world/TitleScene.js';
+import { LookdevScene } from './world/LookdevScene.js';
 import { FieldScene } from './world/FieldScene.js';
 import { BattleScene } from './battle/BattleScene.js';
 
@@ -72,6 +73,10 @@ window.__AW__ = {
   async gotoTitle() {
     await engine.setScene(new TitleScene(engine));
     await framesSettled();
+  },
+  async gotoLookdev() {
+    await engine.setScene(new LookdevScene(engine));
+    await framesSettled(4);
   },
   async gotoField(zoneId = 'lumen-quay') {
     await engine.setScene(new FieldScene(engine, { zoneId }));
