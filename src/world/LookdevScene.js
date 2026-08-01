@@ -379,9 +379,18 @@ const CAMERA_POSES = {
   'hero-closeup': {
     subject: 'auren',
     swing: 0.55,
-    range: 1.12,
-    rise: -0.035,
-    aim: { right: 0.145, up: -0.072 },
+    // 1.55 m, not 1.12. `range` is measured to the **head bone**, which sits at
+    // the top of the neck — roughly half a head-radius below the crown — so a
+    // station solved to put the bone at frame centre puts the top of a chibi's
+    // skull outside it. At 1.55 m the 34° lens frames 0.95 m of subject height,
+    // the head fills ~44% of it, and the whole silhouette from crown to belt is
+    // inside the frame with room for the diagonal behind.
+    range: 1.55,
+    rise: -0.03,
+    // `up` is positive for the same reason: the aim point sits *above* the head
+    // bone, which drops the subject in frame until the crown clears the top
+    // edge and lands the eyes just over the upper third (ART_BIBLE §5.2).
+    aim: { right: 0.20, up: 0.05 },
     fov: 34, aperture: 8.0, grade: 'dusk',
   },
   /**
