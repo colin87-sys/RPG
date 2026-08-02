@@ -4,6 +4,17 @@ This document supersedes any character-rendering guidance elsewhere in the repo.
 It exists because the first attempt failed in a specific, diagnosable way, and
 the failure was architectural rather than a matter of tuning.
 
+## Settled: characters are 3D, not sprites
+
+Confirmed with the client. Characters are **real 3D geometry** — skinned meshes
+on skeletons, procedurally animated, lit by the scene, casting and receiving
+shadows, and viewable from any angle so summon and limit-break cameras can move
+around them.
+
+The **face is 2D art on a 3D head**, which is not a contradiction and is exactly
+how every 3D anime game does it. Do not read "painted face texture" as licence
+to build billboard sprites.
+
 ## Why the first attempt failed
 
 The cast was built as **modelled geometry lit by a physically-based-ish shader
