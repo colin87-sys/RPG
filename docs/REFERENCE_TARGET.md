@@ -1,5 +1,10 @@
 # REFERENCE TARGET — the look we are actually chasing
 
+> **⚠ SUPERSEDED for characters and environments by `docs/BRAVELY_REFERENCE.md`.**
+> Read that document first; it corrects the proportions, face, outline, shading
+> and environment specs below. This file remains useful only for its account of
+> general JRPG battle staging and UI conventions.
+
 The user supplied five reference screenshots from the Final Fantasy Brave Exvius
 line. This document is a forensic record of what is **visible in those frames**,
 and it **overrides any conflicting instruction in ARCHITECTURE.md or

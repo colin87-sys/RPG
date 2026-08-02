@@ -255,8 +255,8 @@ window.__AW__ = {
 
 ## Art direction (binding on every visual module)
 
-> **`docs/REFERENCE_TARGET.md` is authoritative and overrides this section
-> wherever they disagree.** It records the actual reference frames supplied by
+> **`docs/BRAVELY_REFERENCE.md` is authoritative and overrides this section and
+> every other art document wherever they disagree.** It records the actual reference frames supplied by
 > the user: chibi / super-deformed characters (3.0–3.5 heads tall) staged in a
 > fixed side-view battle camera, inside full-3D painterly environments with
 > heavy mist and depth of field. Read it first.

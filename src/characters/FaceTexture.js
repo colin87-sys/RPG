@@ -121,11 +121,16 @@ export const FACE_LAYOUT = Object.freeze({
    * 0.34 puts the brow's lower edge roughly a fifth of an eye height clear of
    * the lash — close enough to read as one feature with the eye.
    *
+   * The clearance is measured to the brow's **lowest ink**, not to its spine
+   * (see `browDrop`), so a steeply raked determined brow gets the room its inner
+   * end needs while a flat cool one sits close — which is what stops the same
+   * number from crushing Bramm's brow into his lash and leaving Seren's floating.
+   *
    * `browGap` is left at its published value because `Rig.computeMetrics`
    * derives the hair-clearance guard band from it, and the brow only ever moves
    * *down* from there, so that guard stays conservative.
    */
-  browClear: 0.34,
+  browClear: 0.20,
 });
 
 /**
@@ -324,6 +329,12 @@ const SPEC_SKIN_SHADE = 0xe0a98f;
  * 2D animation has always given a flat face volume anyway. This forces the band
  * colour into that same 0.75–0.90 luminance window relative to the base, so the
  * face gains form without ever carving dark.
+ *
+ * The ceiling is 0.82 rather than 0.90. At 0.90 the band came out about 4% of a
+ * stop below the base — under the contrast the art director could see at all,
+ * hence *"there is no terminator anywhere on any character"*. 0.75–0.82 is
+ * still inside §2's face window (a face never carves dark) but the break is now
+ * an unmistakable two-band read at the jaw and the temples.
  */
 /**
  * The painted island: where a mark is allowed to exist, in the elliptical
@@ -346,6 +357,22 @@ const SPEC_SKIN_SHADE = 0xe0a98f;
  * from any angle. Every drawn feature — eyes, brows, mouth, blush, nose — sits
  * inside `litTo`.
  *
+ * ### The metric, and why it is the plate's and not an arbitrary one
+ *
+ * `halfW` / `halfH` mirror `Rig.computeMetrics`' `face.halfX / face.size` and
+ * `face.halfY / face.size` (0.94 and 0.88 head-radii over a 1.90 head-radius
+ * square), rounded *down* so this island is strictly inside the plate for any
+ * retune of those numbers. They cannot be imported: `Rig` imports `FACE_LAYOUT`
+ * from this file, and the dependency must not become a cycle.
+ *
+ * `buildFacePlate` walks a **superellipse** of exponent 2.6 in that same frame,
+ * and a superellipse strictly contains the ellipse with the same half-axes — so
+ * for every point, plate-radius ≤ this island's radius. Bounding a mark here is
+ * therefore a proof that it lands inside the plate, which a hand-tuned offset
+ * ellipse is not: the previous band was centred at 0.38 and stretched 1.2, and
+ * while it cleared the plate's *sides* it ran at full strength straight through
+ * the plate's diagonal corners, which is where the crown patch was.
+ *
  * `litTo → shadowFrom` is the terminator: 5% of the radius, a hard cel edge, not
  * a ramp. `holdTo → fadeTo` is the band's *outer* dissolve, and it is soft on
  * purpose — it lands where the plate has already turned more than 60° away from
@@ -353,12 +380,11 @@ const SPEC_SKIN_SHADE = 0xe0a98f;
  * would print a ring around the face instead.
  */
 const ISLAND = Object.freeze({
-  litTo: 0.79, shadowFrom: 0.84, holdTo: 0.93, fadeTo: 0.995,
-  /** Band centre and vertical stretch, as fractions of the texture edge. */
-  centerY: 0.38, aspect: 1.20,
+  halfW: 0.49, halfH: 0.46,
+  litTo: 0.74, shadowFrom: 0.79, holdTo: 0.86, fadeTo: 0.92,
 });
 
-function clampShadowBand(hex, skin, lo = 0.75, hi = 0.90) {
+function clampShadowBand(hex, skin, lo = 0.75, hi = 0.82) {
   const base = lumOf(skin);
   let out = hex;
   for (let i = 0; i < 8 && lumOf(out) < base * lo; i++) out = mixHex(out, skin, 0.25);
@@ -644,7 +670,13 @@ function eyeFrame(t, x, S) {
    * occludes the iris instead of shrinking it.
    */
   const irisRX = Math.min(0.85 * hh * t.irisFill, hw * 0.84);
-  const irisRY = clamp(0.85 * hh * t.irisFill, irisRX, irisRX * 1.35);
+  // The vertical radius must *overrun* the lids — §1's iris is cut by them, not
+  // parked between them. `0.55 × aperture height` guarantees the overrun on the
+  // tall `round` apertures, where 85% of the envelope alone leaves bare sclera
+  // above and below and the iris reads as a disc floating in an egg.
+  const irisRY = clamp(
+    Math.max(0.85 * hh * t.irisFill, 0.55 * (hu0 + hl0)), irisRX, irisRX * 1.5,
+  );
 
   /**
    * Iris centre, solved in the *unrotated* frame so that after the eye's tilt it
@@ -845,18 +877,16 @@ function drawEye(ctx, t, x, f) {
 }
 
 /**
- * One brow: a short tapered stroke, thick at the inner end. Built as two
- * offset quadratics rather than a stroked line so the taper is real — a
+ * The brow outline: two offset quadratics, so the taper is real — a
  * constant-width brow reads as a marker mark, not a brow.
  *
- * Drawn in the same mirrored frame as the eye, so -x is the inner end.
+ * Authored in the same mirrored frame as the eye, so -x is the inner end, and
+ * returned rather than drawn because the *placement* has to know the shape.
+ * A brow's angle, arch and thickness move its lowest ink by up to a tenth of a
+ * face height between families and expressions, and spacing the spine — which
+ * is what this used to do — therefore spaces something the viewer cannot see.
  */
-function drawBrow(ctx, t, x, halfW, S) {
-  // The brow follows the eye's tilt at reduced gain: locking it level while the
-  // eye rakes reads as a mistake, matching it exactly reads as a decal.
-  ctx.save();
-  ctx.rotate(-t.eyeTilt * 0.6);
-
+function browOutline(t, x, halfW, S) {
   const bw = halfW * 2 * FACE_LAYOUT.browW;
   const th = atLeast(t.browThick * S * x.browThick, MIN_PX.brow);
   // Positive angle raises the inner end (see the sign note in `faceTraits`).
@@ -881,12 +911,47 @@ function drawBrow(ctx, t, x, halfW, S) {
   const tMid = th * 0.42;
   const tOut = th * 0.06;
 
+  return {
+    a: { x: inX + nIn.x * tIn, y: inY + nIn.y * tIn },
+    b: { x: cx + nMid.x * tMid, y: cy + nMid.y * tMid },
+    c: { x: outX + nOut.x * tOut, y: outY + nOut.y * tOut },
+    d: { x: outX - nOut.x * tOut, y: outY - nOut.y * tOut },
+    e: { x: cx - nMid.x * tMid, y: cy - nMid.y * tMid },
+    f: { x: inX - nIn.x * tIn, y: inY - nIn.y * tIn },
+  };
+}
+
+/**
+ * How far the brow's ink reaches *below* its origin, after the tilt.
+ *
+ * A quadratic is contained in the convex hull of its endpoints and control, so
+ * the six outline points bound the shape exactly — no sampling and no slack.
+ */
+function browDrop(t, x, halfW, S) {
+  const o = browOutline(t, x, halfW, S);
+  const ca = Math.cos(-t.eyeTilt * 0.6);
+  const sa = Math.sin(-t.eyeTilt * 0.6);
+  let low = -Infinity;
+  for (const p of [o.a, o.b, o.c, o.d, o.e, o.f]) {
+    const y = p.x * sa + p.y * ca;
+    if (y > low) low = y;
+  }
+  return low;
+}
+
+/** Fill the outline from `browOutline` at the current origin. */
+function drawBrow(ctx, t, x, halfW, S) {
+  // The brow follows the eye's tilt at reduced gain: locking it level while the
+  // eye rakes reads as a mistake, matching it exactly reads as a decal.
+  ctx.save();
+  ctx.rotate(-t.eyeTilt * 0.6);
+  const o = browOutline(t, x, halfW, S);
   ctx.fillStyle = cssHex(t.brow);
   ctx.beginPath();
-  ctx.moveTo(inX + nIn.x * tIn, inY + nIn.y * tIn);
-  ctx.quadraticCurveTo(cx + nMid.x * tMid, cy + nMid.y * tMid, outX + nOut.x * tOut, outY + nOut.y * tOut);
-  ctx.lineTo(outX - nOut.x * tOut, outY - nOut.y * tOut);
-  ctx.quadraticCurveTo(cx - nMid.x * tMid, cy - nMid.y * tMid, inX - nIn.x * tIn, inY - nIn.y * tIn);
+  ctx.moveTo(o.a.x, o.a.y);
+  ctx.quadraticCurveTo(o.b.x, o.b.y, o.c.x, o.c.y);
+  ctx.lineTo(o.d.x, o.d.y);
+  ctx.quadraticCurveTo(o.e.x, o.e.y, o.f.x, o.f.y);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
@@ -936,6 +1001,15 @@ export function drawFace(ctx, def, size = FACE_TEXTURE_SIZE, opts = {}) {
   ctx.save();
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
+  // The cel band is painted as a full-plane fill in a scaled frame, so it runs
+  // past the square. On a dedicated face texture the canvas bounds crop it; in
+  // an atlas cell — which `buildFaceSheetTexture` and any future packer use —
+  // nothing does, and a character's jaw shadow prints across their neighbour.
+  // Clipping here makes "fills [0,size]², touches nothing else" a property of
+  // the function rather than of how it happens to be called.
+  ctx.beginPath();
+  ctx.rect(0, 0, S, S);
+  ctx.clip();
 
   // Flat skin — the roster's own `palette.skin`, so the plate and the skull are
   // one colour (see `SPEC_SKIN`) — then **one painted cel band**.
@@ -957,15 +1031,16 @@ export function drawFace(ctx, def, size = FACE_TEXTURE_SIZE, opts = {}) {
     ctx.fillStyle = cssHex(t.skin);
     ctx.fillRect(0, 0, S, S);
 
-    // Radius 0.50 of the square about (0.50, 0.38), stretched 1.20 vertically.
-    // The centre sits above the eye line and the stretch reaches the jaw, so
-    // the band closes under the chin (n ≈ 0.87) and hugs the temples (n ≈ 0.86
-    // a tenth of the way in from the edge) while the crown and all four corners
-    // sit past `fadeTo` and stay bare skin.
+    // The island's own frame: squashing by halfH/halfW turns its ellipse into
+    // the circle a radial gradient can express, so `n` below is exactly
+    // hypot(dx/halfW, dy/halfH). The band closes under the chin (n ≈ 0.87),
+    // hugs both temples (n ≈ 0.82 a tenth in from the edge) and reaches the
+    // brow line at the top — while the crown (n ≈ 1.02) and all four plate
+    // corners (n > 1.15) sit past `fadeTo` and stay bare skin.
     ctx.save();
-    ctx.translate(S * 0.5, S * ISLAND.centerY);
-    ctx.scale(1, ISLAND.aspect);
-    const band = ctx.createRadialGradient(0, 0, 0, 0, 0, S * 0.5);
+    ctx.translate(S * 0.5, S * 0.5);
+    ctx.scale(1, ISLAND.halfH / ISLAND.halfW);
+    const band = ctx.createRadialGradient(0, 0, 0, 0, 0, S * ISLAND.halfW);
     band.addColorStop(0, cssRgba(t.skinShade, 0));
     band.addColorStop(ISLAND.litTo, cssRgba(t.skinShade, 0));
     band.addColorStop(ISLAND.shadowFrom, cssRgba(t.skinShade, 1));
@@ -987,10 +1062,10 @@ export function drawFace(ctx, def, size = FACE_TEXTURE_SIZE, opts = {}) {
   // pink on the jaw shadow, and one that reaches the plate rim is paint on the
   // side of the skull.
   const blush = mixHex(t.skinShade, 0xff6a5e, 0.38);
-  const blushR = S * 0.08;
+  const blushR = S * 0.07;
   for (const side of [-1, 1]) {
-    const bx = S * (0.5 + side * 0.285);
-    const by = S * 0.715;
+    const bx = S * (0.5 + side * 0.26);
+    const by = S * 0.70;
     const bg = ctx.createRadialGradient(bx, by, 0, bx, by, blushR);
     bg.addColorStop(0, cssRgba(blush, 0.13));
     bg.addColorStop(0.6, cssRgba(blush, 0.06));
@@ -1010,7 +1085,7 @@ export function drawFace(ctx, def, size = FACE_TEXTURE_SIZE, opts = {}) {
   const inkTop = eyeInkTop(t, x, S, f);
   const inkHeight = f.hl - inkTop;
   const browY = eyeCy + inkTop - FACE_LAYOUT.browClear * inkHeight
-    - (x.browLift - t.browDrop) * S;
+    - browDrop(t, x, f.hw, S) - (x.browLift - t.browDrop) * S;
 
   for (const side of [-1, 1]) {
     const cx = S * (0.5 + side * halfSpanX);
@@ -1067,7 +1142,7 @@ export function faceMetrics(def, expression = 'neutral') {
     /** Top of the drawn lash bar — what a viewer reads as the top of the eye. */
     eyeInkTop: FACE_LAYOUT.eyeY + inkTop,
     browY: FACE_LAYOUT.eyeY + inkTop - FACE_LAYOUT.browClear * (f.hl - inkTop)
-      - (x.browLift - t.browDrop),
+      - browDrop(t, x, f.hw, 1) - (x.browLift - t.browDrop),
     mouthY: FACE_LAYOUT.mouthY,
     roundness: t.round,
     skin: t.skin,

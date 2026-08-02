@@ -1,5 +1,14 @@
 # ANIME CHARACTER PIPELINE — how the cast is actually built
 
+> **⚠ PARTIALLY SUPERSEDED by `docs/BRAVELY_REFERENCE.md`. Read that first.**
+> Bravely Default II reference frames showed several specs below are wrong:
+> proportions are 4.0–4.5 heads (not 3.0–3.5), eyes are moderate and refined
+> (not enormous), the nose and mouth are present (not omitted), outlines are
+> subtle to absent (not a heavy ink line), and shading is soft stylised-PBR
+> (not a hard two-band terminator).
+> What remains correct here: **the face is a painted texture on a 3D head**,
+> and **no procedural noise touches a character surface**.
+
 This document supersedes any character-rendering guidance elsewhere in the repo.
 It exists because the first attempt failed in a specific, diagnosable way, and
 the failure was architectural rather than a matter of tuning.
