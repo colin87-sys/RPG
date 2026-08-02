@@ -15,6 +15,7 @@
  * | mown lawn near camera | fine directional streaks, boots fully clear of it | 0.09–0.17 m blades |
  * | meadow tufts in the bed | arch to the lavender's shoulder | 0.55–1.05 m blades |
  * | lavender plant | 0.65–0.85 × character | 1.05–1.35 m, spike is the top ~35% |
+ * | lavender raceme, across | contiguous violet runs 7 px median / 18 px p90; ~0.13 × its own length | 5.4 cm on a 1.2 m spike |
  * | tulip | heads sit just under the lavender tips | 0.42–0.62 m stem, 0.085 m head |
  * | cherry blossom | 1.6–1.75 × character, canopy wider than tall (~1.15:1) | 2.9 m tall, 3.3 m across |
  * | boulder wall | 2.8 × character tall, 5.4 × wide | see `props/RockForms.js` |
@@ -945,16 +946,39 @@ export function buildGrassField(opts = {}) {
   // that may be pulled. 26 mm with the flatter taper below is a little over
   // twice the projected area per blade at the same count.
   const bladeWidth = opts.bladeWidth ?? (isMeadow ? 0.030 : 0.026);
+  /**
+   * How far a blade's tip travels horizontally, as a multiple of its height —
+   * the instance's Z scale, against which `droop` is expressed.
+   *
+   * This is the number that decides whether a lawn is made of *blades* or of
+   * *streaks*, and at 0.55 it was making blades. Compared at the party's own
+   * depth, the plate's mown lawn has no discrete blade in it anywhere: it is a
+   * continuous surface carrying fine directional streaks, and every individual
+   * leaf visible in that frame belongs to the taller bed behind. Ours put 30 px
+   * spikes standing proud of the ground at the same station.
+   *
+   * 1.25 with the 0.85 droop below gives a horizontal reach of about 1.06 × the
+   * blade's height while the tip falls to 0.75 of it — an arc that lies over and
+   * runs along the ground rather than standing on it. That converts the same
+   * blade, at the same count and the same vertex cost, from an object casting
+   * its own silhouette into a stroke lying in the surface, which is what the
+   * plate shows and what this module's own header already described.
+   *
+   * The bed's tufts keep 0.55: there the blade is meant to stand and arch, and
+   * its silhouette against the sky is the whole read.
+   */
+  const bladeReach = isMeadow ? 0.55 : 1.25;
 
   const geo = setSway(
     bladeGeometry({
       segments: isMeadow ? 6 : 4,
-      // The lawn blade arcs much harder than it did. A 6–10 cm blade standing at
+      // The lawn blade arcs far harder than it did. A 6–10 cm blade standing at
       // droop 0.30 is a vertical tick with clear ground either side of it; the
       // plate's mown lawn has no visible ground between its blades at all,
       // because each one lies over into its neighbours. This is the same
-      // coverage argument as the width and it is likewise free.
-      droop: isMeadow ? 0.62 : 0.55,
+      // coverage argument as the width and it is likewise free. See
+      // `bladeReach` — droop is a fraction of that reach, so the two multiply.
+      droop: isMeadow ? 0.62 : 0.85,
       // `halfWidth = 0.5·(1−t)^taper`, so the exponent decides how quickly the
       // blade comes to a point. 0.62 puts a needle on the lawn — 24% of full
       // width nine tenths of the way up — and a field of needles is a field of
@@ -1016,7 +1040,7 @@ export function buildGrassField(opts = {}) {
     // a slope. Width is not scaled by height — coupling them turns a tuft of
     // grass into agave.
     _v3.set(p.x, heightAt(p.x, p.z) - h * 0.06, p.z);
-    _s3.set(rng.range(0.65, 1.05) * bladeWidth * size, h, h * 0.55);
+    _s3.set(rng.range(0.65, 1.05) * bladeWidth * size, h, h * bladeReach);
     m.compose(_v3, _q, _s3);
     // Value drift across the field — still there, but now at the *spatial*
     // frequency the plate actually shows it at.

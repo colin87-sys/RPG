@@ -314,11 +314,16 @@ const DEFAULT_AMBIENT_FLATNESS = 0.28;
  * `rimGain` changes it, because the solve divides the gains out again.
  *
  * At 0.28 the band lands near 172 code values on a black surface, and lower on
- * anything already lit because the headroom term takes its share first. Under
- * the cel ruling the rim is drawn as a *band with an edge* rather than a fresnel
- * wash, which makes the cap matter more, not less: a shape at a stated level
- * reads as a lit contour, while the same shape at 215 code values reads as a
- * blown highlight and competes with the ink line for the silhouette.
+ * anything already lit because the headroom term takes its share first. That is
+ * the prop-class default and it is unchanged.
+ *
+ * The **character** classes now run 0.16–0.28, below it. Two reasons, both from
+ * the capture: the rim used to be resolved into a hard band, so its energy was
+ * concentrated into a 1.3 px line and the cap was effectively sizing a line
+ * rather than a wash — spread over a soft profile the same cap reads brighter.
+ * And with the form ramp restored the rim is no longer the only thing describing
+ * the edge of a figure, so it can afford to be quieter. The cyan piping down the
+ * knight's cape in the previous capture was this term at its old level.
  */
 const DEFAULT_RIM_MAX = 0.28;
 
@@ -489,7 +494,7 @@ export const TOON_PRESETS = Object.freeze({
     // albedo the cast owns, so it is the surface with the least headroom left —
     // and it is the one surface where a wide band eats into the painted face.
     rimPower: 3.4, rimGain: CHARACTER_RIM_GAIN.skin, rimFloor: 0.40,
-    rimWidth: 0.50, rimCeiling: 1.35, rimMax: 0.20,
+    rimWidth: 0.50, rimCeiling: 1.35, rimMax: 0.16,
     roughness: 0.62, metalness: 0.0, envMapIntensity: 0.30, envSpecular: 0.06,
     flat: true,
   },
@@ -505,7 +510,7 @@ export const TOON_PRESETS = Object.freeze({
   // it is what turns a modelled mass into a carved one: the top plane of the
   // clump reads brighter than its front, grading between the two.
   hair: {
-    terminator: 0.18, softness: 0.70, rampGamma: 1.10, edgePixels: DEFAULT_EDGE_PIXELS,
+    terminator: 0.18, softness: 0.70, rampGamma: 1.20, edgePixels: DEFAULT_EDGE_PIXELS,
     highBand: 0.78, highGain: 1.24,
     shadowMix: 0.42, shadowSat: 1.28, shadowValue: 0.88,
     shadowLevel: 0.22, shadowGain: 1.0, shadowLift: 0.12, shadowFloor: 0.0,
@@ -521,7 +526,7 @@ export const TOON_PRESETS = Object.freeze({
     specCeiling: 1.30,
     aniso: true, anisoShift: 0.18,
     rimPower: 3.6, rimGain: CHARACTER_RIM_GAIN.hair, rimFloor: 0.32,
-    rimWidth: 0.62, rimCeiling: 1.50, rimMax: 0.30,
+    rimWidth: 0.62, rimCeiling: 1.50, rimMax: 0.24,
     roughness: 0.40, metalness: 0.0, envMapIntensity: 0.30, envSpecular: 0.10,
     flat: true,
   },
@@ -543,7 +548,7 @@ export const TOON_PRESETS = Object.freeze({
     // described by a long climb into a bright pass on the shoulder and lapel.
     // `terminator` low plus `rampGamma` above 1 is that distribution: the ramp
     // spends most of its length in the lower half.
-    terminator: 0.16, softness: 0.80, rampGamma: 1.20, edgePixels: DEFAULT_EDGE_PIXELS,
+    terminator: 0.16, softness: 0.80, rampGamma: 1.32, edgePixels: DEFAULT_EDGE_PIXELS,
     shadowMix: 0.42, shadowSat: 1.30, shadowValue: 0.88,
     shadowLevel: 0.24, shadowGain: 1.0, shadowLift: 0.14, shadowFloor: 0.0,
     // The dark side of a garment is a mass and has to be dark enough to anchor
@@ -552,11 +557,11 @@ export const TOON_PRESETS = Object.freeze({
     // asymptote reached only where the surface turns well away from the key,
     // rather than a plateau covering half the piece.
     shadowDepth: 0.28,
-    ambientGain: 0.90, ambientFlatness: DEFAULT_AMBIENT_FLATNESS, envLevels: 0.0,
+    ambientGain: 0.80, ambientFlatness: DEFAULT_AMBIENT_FLATNESS, envLevels: 0.0,
     specGain: 0.0,
     specCeiling: 1.00,
     rimPower: 3.2, rimGain: CHARACTER_RIM_GAIN.cloth, rimFloor: 0.38,
-    rimWidth: 0.66, rimCeiling: 1.45, rimMax: 0.28,
+    rimWidth: 0.66, rimCeiling: 1.45, rimMax: 0.22,
     roughness: 0.92, metalness: 0.0, envMapIntensity: 0.28, envSpecular: 0.06,
     flat: true,
   },
@@ -572,7 +577,7 @@ export const TOON_PRESETS = Object.freeze({
   // the widest in the set so the mass softens at its edge rather than being
   // sliced.
   fur: {
-    terminator: 0.14, softness: 0.82, rampGamma: 1.12, edgePixels: 2.4,
+    terminator: 0.14, softness: 0.82, rampGamma: 1.20, edgePixels: 2.4,
     shadowMix: 0.40, shadowSat: 1.25, shadowValue: 0.90,
     shadowLevel: 0.22, shadowGain: 1.0, shadowLift: 0.18, shadowFloor: 0.0,
     shadowDepth: 0.30,
@@ -583,7 +588,7 @@ export const TOON_PRESETS = Object.freeze({
     // The widest rim in the set, and the only one that earns it: a fur edge is
     // hundreds of grazing strand tips, so a back light genuinely lands on it.
     rimPower: 2.6, rimGain: CHARACTER_RIM_GAIN.fur, rimFloor: 0.35,
-    rimWidth: 0.85, rimCeiling: 1.50, rimMax: 0.32,
+    rimWidth: 0.85, rimCeiling: 1.50, rimMax: 0.26,
     roughness: 0.95, metalness: 0.0, envMapIntensity: 0.26, envSpecular: 0.05,
     flat: true,
   },
@@ -636,13 +641,18 @@ export const TOON_PRESETS = Object.freeze({
   // chibi pauldron carries a painted base colour under its reflection, and at
   // zero the armour is nothing but environment.
   metal: {
-    terminator: 0.12, softness: 0.85, rampGamma: 1.30, edgePixels: DEFAULT_EDGE_PIXELS,
+    terminator: 0.12, softness: 0.85, rampGamma: 1.45, edgePixels: DEFAULT_EDGE_PIXELS,
     highBand: 0.74, highGain: 1.35,
     shadowMix: 0.38, shadowSat: 1.20, shadowValue: 0.84,
     shadowLevel: 0.18, shadowGain: 1.0, shadowLift: 0.06, shadowFloor: 0.0,
     shadowDepth: 0.18,
-    ambientGain: 0.75, ambientFlatness: 0.15, envLevels: 0.0,
-    metalAlbedo: 0.35,
+    // The lowest ambient in the set, lowered again after the first capture with
+    // the reflection restored: with the probe sweeping rather than quantised to
+    // zero, the old `ambientGain` was lifting a pauldron to p50 203 sRGB against
+    // the plate's 56 — a pale grey shell rather than steel. Armour is the one
+    // class that should be reading almost entirely off the key and the probe.
+    ambientGain: 0.55, ambientFlatness: 0.15, envLevels: 0.0,
+    metalAlbedo: 0.28,
     // `roughness: 0.28` puts the Blinn exponent near 300, so the lobe is a narrow
     // streak before any shaping; the threshold decides how much of it survives
     // and the shoulder decides how it fades out.
@@ -652,8 +662,8 @@ export const TOON_PRESETS = Object.freeze({
     // which is what the review measured as "clipped speculars with no bloom".
     specCeiling: 1.70,
     rimPower: 3.6, rimGain: CHARACTER_RIM_GAIN.metal, rimFloor: 0.30,
-    rimWidth: 0.58, rimCeiling: 1.90, rimMax: 0.34,
-    roughness: 0.28, metalness: 1.0, envMapIntensity: 1.5, envSpecular: 0.85,
+    rimWidth: 0.58, rimCeiling: 1.90, rimMax: 0.28,
+    roughness: 0.28, metalness: 1.0, envMapIntensity: 1.2, envSpecular: 0.85,
     flat: true,
   },
 
