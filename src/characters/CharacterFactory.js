@@ -210,12 +210,20 @@ class Surface {
 
   /**
    * Lay out a `(rows+1) × (cols+1)` patch and triangulate it.
+   *
+   * Faces come out wound as `∂row × ∂col`. That is outward for `blob`, whose
+   * (latitude, longitude) parameterisation is right-handed, and *inward* for
+   * `sweep`, whose (path, section) parameterisation is not — see the note on
+   * `sweep`. `flip` reverses every quad so a caller can state its handedness
+   * once instead of every call site guessing.
+   *
    * @param {number} rows @param {number} cols
    * @param {boolean} wrapCols share the seam column (tubes, spheroids)
    * @param {(i:number, j:number) => {x:number,y:number,z:number}} fn
+   * @param {boolean} [flip] reverse the winding of every quad
    * @returns {number[][]} the vertex-id grid, so callers can cap or stitch
    */
-  patch(rows, cols, wrapCols, fn) {
+  patch(rows, cols, wrapCols, fn, flip = false) {
     const grid = [];
     for (let i = 0; i <= rows; i++) {
       const row = [];
@@ -232,7 +240,8 @@ class Surface {
         const a = grid[i][j], b = grid[i][j + 1];
         const c = grid[i + 1][j + 1], d = grid[i + 1][j];
         if (a === b && c === d) continue;
-        this.quad(a, d, c, b);
+        if (flip) this.quad(a, b, c, d);
+        else this.quad(a, d, c, b);
       }
     }
     return grid;
@@ -372,6 +381,21 @@ function transportFrames(path) {
 
 /**
  * Sweep a cross-section along a path.
+ *
+ * The wall is emitted with the winding **flipped**, and that is a correctness
+ * fix rather than a preference. `transportFrames` returns a right-handed basis
+ * with `u × v = t`, so the patch's own `∂path × ∂section` evaluates to
+ * `t × (−u sinθ + v cosθ) = −(u cosθ + v sinθ)` — the *inward* radial. Left
+ * unflipped every swept solid on a character (hair clumps, weapon hafts, belt
+ * straps, collar shells, boot shafts) renders back-face-culled inside out: the
+ * far inner wall shows through the near one, which on an opaque cel surface
+ * reads as a glassy, seam-cracked shell rather than as a solid lock of hair.
+ * `Garments.js` carries the identical note on its own copy of this primitive.
+ *
+ * The two caps are *not* flipped: a cap ring wound in increasing section angle
+ * already gives `r × ĉ = +t`, so the start cap (which faces `−t`) is the one
+ * that reverses, which is what `cap(grid[0], true)` below does.
+ *
  * @param {Surface} s
  * @param {THREE.Vector3[]} path
  * @param {number[][]} section unit cross-section
@@ -395,7 +419,7 @@ function sweep(s, path, section, scaleFn, opts = {}) {
       y: p.y + u[i].y * px * su + v[i].y * py * sv,
       z: p.z + u[i].z * px * su + v[i].z * py * sv,
     };
-  });
+  }, true);
   if (opts.capStart !== false) s.cap(grid[0], true);
   if (opts.capEnd !== false) s.cap(grid[rows], false);
   return grid;
@@ -1609,7 +1633,7 @@ function hairShell(s, {
    * they differ in colour. It is the same technique `buildTorso` uses for the
    * sash.
    */
-  const build = (scale, ring, from = 0, to = 1) => {
+  const build = (scale, ring, from = 0, to = 1, flip = false) => {
     const grid = s.patch(segV, segU, true, (i, j) => {
       const theta = (j / segU) * TAU;
       const lo = hairlinePhi(theta, frontPhi, backPhi, peak);
@@ -1620,7 +1644,7 @@ function hairShell(s, {
       // silhouette scale.
       const bulk = scale * (1 + swell * Math.pow(Math.max(0, Math.sin(phi)), 2));
       return skullPoint(head, theta, phi, bulk, p);
-    });
+    }, flip);
     if (ring) for (const id of grid[0]) ring.push(id);
     return grid;
   };
@@ -1639,11 +1663,22 @@ function hairShell(s, {
     build(outer, ringOuter);
   }
   if (base) s.ink(base);
-  build(inner, ringInner);
-  // Rim: wound so its normals face outward from the hair mass.
+  // The inner wall is the *underside* of the hair, so it has to face the skull,
+  // which is the opposite handedness to the outer wall built from the identical
+  // parameterisation. Wound the same way round — as it was — both walls face
+  // away from the head centre, and since every character material is
+  // `FrontSide` the underside of a fringe or a bob then culls away and the
+  // viewer looks straight through the hair volume onto the scalp. That hole,
+  // seen through the outer wall's own culled back faces, is what made every
+  // head in the previous captures read as cracked glass rather than as hair.
+  build(inner, ringInner, 0, 1, true);
+  // Rim: the exposed edge at the hairline, so its normal runs *down and out*,
+  // away from the crown. `quad(a,b,c,d)` normals are `(b−a)×(c−b)`; walking
+  // outer→outer→inner→inner gives −φ̂ there, walking outer→inner→inner→outer
+  // gives +φ̂ and buries the lip inside the hair mass.
   const n = ringOuter.length - 1;
   for (let j = 0; j < n; j++) {
-    s.quad(ringOuter[j], ringInner[j], ringInner[j + 1], ringOuter[j + 1]);
+    s.quad(ringOuter[j], ringOuter[j + 1], ringInner[j + 1], ringInner[j]);
   }
 }
 
@@ -1729,8 +1764,9 @@ function clumpSweep(surface, head, path, combAxis, widthAt, thickAt, section, ro
     // because a spine running radially out of the skull is exactly where the
     // orientation test below is worst conditioned.
     if (i > 0 && wide.dot(frames[i - 1][0]) < 0) wide.negate();
-    // `v = t × u` matches `sweep`'s handedness, so the shared `patch` winding
-    // and the cap orientations below stay correct.
+    // `v = t × u` matches `sweep`'s handedness, so this shares `sweep`'s flip
+    // on the wall (the parameterisation is left-handed and the unflipped patch
+    // faces inward) and `sweep`'s cap orientations unchanged.
     rad.crossVectors(tan, wide).normalize();
     frames.push([wide.clone(), rad.clone()]);
   }
@@ -1761,7 +1797,7 @@ function clumpSweep(surface, head, path, combAxis, widthAt, thickAt, section, ro
       y: p.y + u.y * sx + v.y * sy,
       z: p.z + u.z * sx + v.z * sy,
     };
-  });
+  }, true);
   // The caps take the colour of the ring they close, not whatever the last row
   // happened to leave set — otherwise the root disc carries the tip's ink and
   // any style whose root is not fully buried shows a wrong-coloured lid.

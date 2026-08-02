@@ -58,12 +58,22 @@ function base(overrides) {
       // into it, because they drive stages that are not a colour lookup.
       grain: 0.035,
       vignette: 0.28,
-      // ART_BIBLE §6 steady state, verbatim. The unit is the total R<->B
-      // separation at the frame corner as a fraction of frame width — the same
-      // unit the bible quotes its 0.002 `void` and 0.004 impact figures in — so
-      // these numbers are resolution-independent and directly auditable against
-      // the document. Anything larger fringes geometry instead of the edge.
-      aberration: 0.0012,
+      // Total R<->B separation at the frame corner as a fraction of frame
+      // width — the same unit ART_BIBLE §6 quotes its `void` and impact figures
+      // in, so these numbers are resolution-independent and directly auditable
+      // against the document.
+      //
+      // Every steady-state figure in this file is the bible's value divided by
+      // four. The art review found visible fringing on high-contrast edges at
+      // the bible's 0.0012, and it is right: 0.0012 is 2.3 px of separation on
+      // a 1920-wide frame, which is wider than the ink outline the cast is
+      // supposed to be read by. At 0.0003 the corner separation is 0.58 px —
+      // below the threshold at which three channels can resolve as colour, so
+      // the steady state is a lens characteristic you cannot name rather than
+      // an artefact you can see. The *impact* spike is deliberately not scaled
+      // (see PostFX.ABERRATION_IMPACT_SPIKE): a crit is a transient and is
+      // supposed to be seen.
+      aberration: 0.0003,
       exposure: 1.0, // multiplicative trim on renderer.toneMappingExposure
     },
     overrides,
@@ -141,7 +151,7 @@ export const GRADES = {
     vignette: 0.3,
     // A hair over steady state; a battle frame should read fractionally more
     // 'lensed' than a field frame without the difference being nameable.
-    aberration: 0.00135,
+    aberration: 0.00034,
   }),
 
   boss: base({
@@ -156,7 +166,7 @@ export const GRADES = {
     highMix: 0.32,
     crosstalk: [0.0, 0.05, 0.0, 0.0, 0.06, 0.0],
     vignette: 0.36,
-    aberration: 0.0015,
+    aberration: 0.00038,
     exposure: 0.98,
   }),
 
@@ -178,7 +188,7 @@ export const GRADES = {
     grain: 0.052,
     vignette: 0.34,
     // Half steady state: a faded print has soft optics, not dispersive ones.
-    aberration: 0.0006,
+    aberration: 0.00015,
     exposure: 0.95,
   }),
 
@@ -222,7 +232,9 @@ export const GRADES = {
     shadowTint: [0.169, 0.071, 0.271], // #2B1245
     shadowMix: 0.68,
     highMix: 0.35,
-    aberration: 0.002, // ART_BIBLE §6 names this figure for `void` explicitly
+    // ART_BIBLE §6 names 0.002 for `void`; quartered with every other steady
+    // state above, so `void` keeps its 1.67x lead over `neutral`.
+    aberration: 0.0005,
     vignette: 0.34,
   }),
 

@@ -173,7 +173,9 @@ export class DialogueUI {
 
   /** Reveal the rest of the line immediately. */
   complete() {
-    for (let i = this.revealed; i < this.chars.length; i++) this.chars[i].classList.add('is-on');
+    // `revealed` is a fractional cursor while typing; floor it before it is
+    // used as an index.
+    for (let i = Math.floor(this.revealed); i < this.chars.length; i++) this.chars[i].classList.add('is-on');
     this.revealed = this.chars.length;
     this.root.classList.add('is-complete');
     this.autoTimer = this._autoDwell();
@@ -296,11 +298,8 @@ export class DialogueUI {
     if (!this.open) return;
     const step = Math.min(0.1, Math.max(0, dt || 0));
 
-    if (this.choice) {
-      this._updateChoiceInput();
-      return;
-    }
-
+    // The reveal runs whether or not a branch is pending: a choice's prompt is
+    // an ordinary line and has to finish typing before it can be answered.
     if (this.isTyping) {
       const speed = Math.max(0.25, gameState.state.settings.textSpeed || 1);
       this.revealed = Math.min(this.chars.length, this.revealed + BASE_CPS * speed * step);
@@ -310,7 +309,14 @@ export class DialogueUI {
         if (!ch.classList.contains('is-on')) ch.classList.add('is-on');
       }
       if (upTo >= this.chars.length) this.complete();
-    } else if (this.autoAdvance && this.autoTimer > 0) {
+    }
+
+    if (this.choice) {
+      this._updateChoiceInput();
+      return;
+    }
+
+    if (!this.isTyping && this.autoAdvance && this.autoTimer > 0) {
       this.autoTimer -= step;
       if (this.autoTimer <= 0) this.advance('auto');
     }
@@ -323,7 +329,12 @@ export class DialogueUI {
   _updateChoiceInput() {
     if (input.consume('up')) this._highlightChoice(this.choiceIndex - 1);
     if (input.consume('down')) this._highlightChoice(this.choiceIndex + 1);
-    if (input.consume('confirm')) this._pickChoice(this.choiceIndex);
+    // Confirm finishes the prompt before it selects, so a fast reader never
+    // answers a question they have only seen half of.
+    if (input.consume('confirm')) {
+      if (this.isTyping) this.complete();
+      else this._pickChoice(this.choiceIndex);
+    }
   }
 
   dispose() {

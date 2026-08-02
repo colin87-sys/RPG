@@ -7,27 +7,45 @@
  *     material bar and the chibi scale proxy. If the game looks wrong, this
  *     tells you which layer is lying — sky, probe, lighting rig, texture
  *     pipeline or post chain.
- *  2. **Battle stage**: the six roster characters staged exactly as
- *     REFERENCE_TARGET.md §2 describes a battle frame — a loose staggered
- *     diagonal on the **right**, facing left, against an **enemy mass on the
- *     left** that is dramatically larger than they are. This is the frame the
- *     art-direction critics judge, so it is composed to ART_BIBLE §5 rather
- *     than merely populated: three depth layers, a foreground occluder,
- *     thirds placement and visible atmospheric separation.
+ *  2. **Battle stage**: the six roster characters staged as
+ *     `docs/reference/bravely01.jpg` stages its party — a loose line across the
+ *     middle of frame in a bright, sharp, sunlit flower meadow.
  *
  * The two never share a framing, and the constraint runs one way: the bay is
  * parked far to the south-west, *behind* every stage camera's station point,
- * so composition is never negotiated against it. An earlier layout put the bay
- * due west of the stage, which silently forbade every camera that looks west —
- * i.e. every reverse angle — and that is backwards: the diagnostic set should
- * bend around the shipped frame, not the other way round.
+ * so composition is never negotiated against it.
  *
- * The battle camera looks down -Z with no yaw, so screen-right is world +X and
- * the staggered diagonal is solvable on paper instead of by nudging. Slots are
- * authored as (screen x, depth along the view axis) and converted to world
- * coordinates by `stagePlacement`, which is what keeps every figure's *frame
- * height* — the number REFERENCE §2 actually specifies — under authorial
- * control rather than emergent from hand-placed metres.
+ * ## What changed against the prose specs, and why
+ *
+ * `REFERENCE_TARGET.md` §2/§3 and `ANIME_PIPELINE.md` describe this frame as a
+ * staggered diagonal on the right, facing a dramatically larger enemy mass on
+ * the left, in a dark misty landscape whose background elements are near
+ * silhouettes. **The plate is none of those things**, and the plate wins:
+ *
+ *  - There is **no enemy in frame**. The party addresses something off the
+ *    right edge; the read is four (here six) figures and the meadow they stand
+ *    in. The husk creature this stage used to carry was the largest single
+ *    departure from the reference and is gone with the rest of the fiction it
+ *    served.
+ *  - The line runs **across the frame**, not along a diagonal into one corner,
+ *    and the camera sits at roughly the cast's own eye height. That is what
+ *    puts every head on a near-level line and every pair of feet on a *staggered*
+ *    one — measured on the plate, the four heads span y≈280–330 of 1080 while
+ *    the feet span y≈745–870.
+ *  - The nearest figure occupies **39% of frame height** (knight, y326→y745),
+ *    not the 23–30% §2 specifies, and the run recedes to ~25% at the back.
+ *  - There is **no mist and no aerial perspective worth the name**: individual
+ *    lavender florets resolve at the far edge of the bed. The mist bank and the
+ *    3× fog multiplier both went with it.
+ *  - The light is a **high, warm, front-left key under a blue sky**, not a
+ *    low dusk contre-jour.
+ *
+ * The camera looks down -Z with no yaw, so screen-right is world +X and the
+ * line is solvable on paper instead of by nudging. Slots are authored as
+ * (screen x, depth along the view axis) and converted to world coordinates by
+ * `stagePlacement`, which is what keeps every figure's *frame height* — the
+ * number actually measured off the plate — under authorial control rather than
+ * emergent from hand-placed metres.
  *
  * OWNED BY: integration. Foundation modules are validated here before they
  * are wired into FieldScene or BattleScene.
@@ -42,32 +60,72 @@ import { buildCharacter } from '../characters/CharacterFactory.js';
 import {
   createToonMaterial, createToonOutline, createToonOutlineMaterial,
 } from '../render/ToonMaterial.js';
-import { LIGHT, ELEMENT, HERO_TIME_OF_DAY } from '../art/Palette.js';
+import { LIGHT } from '../art/Palette.js';
 import { makeNoise, smootherstep } from '../art/noise.js';
+import {
+  buildGrassField, buildLavender, buildTulips, buildBlossomTree,
+  buildConiferTree, buildBoulderCluster, buildFlowerPatch,
+  updateFlora, setFloraWind, FLORA_PALETTE,
+} from './Flora.js';
 
 /**
- * Stage frame — the fixed side view of REFERENCE_TARGET §2.
+ * Stage frame — solved against `bravely01.jpg` rather than against the prose.
  *
- * Every number here is a composition constraint rather than a preference:
+ * Every number here is a composition constraint, and each is derived from a
+ * measurement on the plate rather than chosen:
  *
- *  - `pitch` 12° sits inside §2's "elevated ~10–18°". It is also the only
- *    control over where the horizon lands, because for a level-rolled camera
- *    the horizon's NDC height is exactly `tan(pitch) / tan(fov/2)` — 0.48 here,
- *    i.e. 74% up the frame. Steeper would push the sky out; shallower would
- *    walk the horizon toward frame centre, which ART_BIBLE §7.12 forbids.
- *  - `fov` 48° is mid-band of §2's "roughly 45–55°" and of ART_BIBLE §5.3's
- *    wide-lens range.
- *  - `camY` / `aimDist` are then the only free variables, and they are set so
- *    the party lands at 23–30% of frame height and the enemy boss at 41%.
+ *  - `camY` **1.24 m** against a 1.00–1.19 m cast, i.e. a shade above the tallest
+ *    crown. This is the single most important number in the file. On the plate
+ *    the four heads sit within 50 px of each other while the four pairs of feet
+ *    span 125 px, and there is exactly one camera height that does that: eye
+ *    level. Below it heads fan out and feet converge; well above it the frame
+ *    becomes the map-view this stage used to ship.
+ *  - `pitch` **9°** down. For a level-rolled camera the horizon's NDC height is
+ *    `tan(pitch) / tan(fov/2)` = 0.435, i.e. 28% down from the top edge, which
+ *    is where the meadow's far bank crests on the plate once the bank's own
+ *    rise is added (see `groundHeight`). "Only a slight downward tilt" is a
+ *    statement about this number and it is deliberately half what the old
+ *    diagonal staging needed.
+ *  - `fov` **40°**. The plate's line is visibly compressed — the far figures are
+ *    barely smaller than the near ones — and a 48° lens over the same depth run
+ *    shrinks the back of the line by half again as much.
+ *  - `camX` **0**, because the line is now centred in frame instead of pushed
+ *    into one half of it.
+ *
+ * Note the invariant those first two imply: the world *width* available to the
+ * line is fixed once the nearest figure's frame height is chosen, and is
+ * independent of the focal length. At `f = 0.39` of frame height for a 1.19 m
+ * figure the half-width is `aspect · H / 2f` = 2.7 m either side of the axis,
+ * which is what sets the slot pitch in {@link PARTY}.
  */
 const STAGE = {
-  camX: 1.90,     // camera x; party to the right of it, enemy mass to the left
-  camY: 2.00,
-  camZ: 8.40,
-  pitch: 12,      // degrees down
-  aimDist: 6.00,  // where the view axis crosses the aim height
-  fov: 48,
+  camX: 0.00,
+  camY: 1.24,
+  camZ: 7.60,
+  pitch: 9,       // degrees down
+  aimDist: 5.20,  // where the view axis crosses the aim height
+  fov: 40,
 };
+
+/**
+ * The stage clock.
+ *
+ * `HERO_TIME_OF_DAY` is 0.72 — the dusk key, and the reason every previous
+ * capture of this stage came back mauve. The plate is a clear, high, warm day
+ * under a blue zenith, so the stage runs its own hour and publishes it.
+ *
+ * 0.56 rather than a clean 0.50 for two reasons, both read off the plate.
+ * First elevation: `Sky` puts noon at 62°, which is close enough to overhead
+ * that a painted face loses its eye sockets to its own brow shadow; 0.56
+ * interpolates to **48.6°**, which is where the plate's figures are keyed.
+ * Second azimuth: `Sky` solves it as `90° − (t − 0.25)·360°`, so the sun crosses
+ * from screen-right to screen-left at t = 0.5 — and on the plate the key is
+ * unambiguously front-**left** (every figure's screen-left plane is the lit
+ * one). 0.56 puts the sun at −21.6° of azimuth and 48.6° up, i.e. high, behind
+ * the lens and over its left shoulder. The colour cost is 24% of the way toward
+ * the dusk key, which reads as warm sunlight rather than as evening.
+ */
+const STAGE_TIME_OF_DAY = 0.56;
 
 /** Aim point of the battle axis, derived so the pitch is exact. */
 const STAGE_PITCH_RAD = (STAGE.pitch * Math.PI) / 180;
@@ -94,11 +152,11 @@ const BAY = { x: -34, z: 30 };
  * cubes at 0.95 m pitch is 7.6 m wide, and 9 m west of the grid puts the whole
  * row outside the `sphere-grid` pose's 3.4 m half-width at that depth.
  *
- * `CLEARING` then has to cover both installations. The treeline scatters over
- * an annulus centred on the battle stage whose outer radius (240 m) swallows
- * the bay whole, so without an explicit hole conifers grow through the sphere
- * grid — which is what the previous captures show, and it makes the one frame
- * whose job is reading material response unreadable.
+ * `CLEARING` then has to cover both installations: the far conifer belt
+ * scatters over an annulus centred on the battle stage whose outer radius
+ * swallows the bay whole, so without an explicit hole trees grow through the
+ * sphere grid and the one frame whose job is reading material response becomes
+ * unreadable.
  */
 const BAR = { x: -43, z: 31 };
 const CLEARING = { x: -39, z: 30.5, radius: 15 };
@@ -106,18 +164,20 @@ const CLEARING = { x: -39, z: 30.5, radius: 15 };
 /**
  * Multiplier on the ART_BIBLE §3 fog density, via the hook Sky publishes.
  *
- * The bible's densities (0.0018 noon … 0.0055 dusk) are authored for a world
- * where the subject is 1.75 m tall. Ours is 1.1 m, and every distance in the
- * staging shrinks with it — at 0.0055 the fog has removed 2% of contrast by
- * 25 m, where §5.5 requires layers to be *visibly* separating. Scaling the
- * density is exactly what `fogDensityScale` exists for, and it is the single
- * biggest contributor to REFERENCE §3's "heavy atmospheric perspective is the
- * signature": at 3× the treeline reads as the near-silhouette the reference
- * frames show instead of a fully-lit forest. Higher than 3 was tried and
- * rejected — past that the fog's own chroma becomes the largest area in frame
- * and the shot stops being a scene with haze in it.
+ * This was **3.0**, on `REFERENCE_TARGET` §3's "heavy atmospheric perspective
+ * is the signature". The plate says otherwise and says it unambiguously:
+ * individual lavender florets and individual tulip petals are resolvable at the
+ * *far* edge of the bed, twenty-odd metres back, and the boulder wall behind
+ * that still carries full-contrast facet edges. There is no signature haze in
+ * this reference; there is a clear day.
+ *
+ * 0.9 is therefore very nearly "off", chosen to leave the far conifer belt a
+ * touch of desaturation and nothing else. At the stage hour that is a density of
+ * ~0.0021/m: `FogExp2` removes 0.6% of contrast at 40 m, where 3.0 removed 6%,
+ * and only reaches a visible 13% at 200 m — which is past everything except the
+ * horizon skirt.
  */
-const FOG_SCALE = 3.0;
+const FOG_SCALE = 0.9;
 
 /** Shared height-field noise. Module scope because `BAY` and the stage-level
  *  plateau both need to sample it before any instance exists. */
@@ -311,7 +371,7 @@ function personalRadius(character) {
 /**
  * Spawn-time capsule separation for the staged party.
  *
- * The authored diagonal above already clears this by 30–40 cm, so on a healthy
+ * The authored ranks above already clear this by ~70 cm, so on a healthy
  * table it is a no-op that runs once at mount. It exists because the table is
  * the thing people edit: a slot nudged for composition has no way to know how
  * wide the rig it is positioning turned out to be, and the failure mode is
@@ -742,15 +802,18 @@ const CONTACT = {
   /** Floor contribution from anything overhead at any height. This is what the
    *  reference frames' broad soft ellipse *is*: a body occludes the sky over
    *  its whole footprint, not only where it touches. At 0.15 the pool was a
-   *  boot-print; at 0.32 it is a figure's shadow with a boot-print inside it. */
-  ambient: 0.32,
+   *  boot-print; at 0.38 it is a figure's shadow with a boot-print inside it,
+   *  which is also what grounds a husk — a four-legged mass whose body is a
+   *  metre clear of the floor has almost no *contact* to report and would
+   *  otherwise stand on four small dots. */
+  ambient: 0.38,
   /** Peak fraction of the way to `tint` the ground is driven. */
   strength: 1.0,
-  /** Penumbra sigma in texels — 5.4 texels is ~18 cm, so the pool reaches about
+  /** Penumbra sigma in texels — 6.2 texels is ~21 cm, so the pool reaches about
    *  two boot-widths past the silhouette and a crescent of it clears the body
    *  from the battle camera. Run separably (H then V), which is nine taps a
    *  pass against the eighty-one a comparable 2D kernel would cost. */
-  blurSigma: 5.4,
+  blurSigma: 6.2,
   /** Gamma on the resolved occlusion. Below 1 it lifts the penumbra's midtones,
    *  which is what turns a mathematically-correct-but-invisible gradient into a
    *  pool with a readable edge. Less lift is needed now that `ambient` carries
@@ -1670,7 +1733,7 @@ export class LookdevScene extends Scene {
       // than neutral per ART_BIBLE §2.1, and the tint does real work here —
       // SHADOW_TINT attenuates red about four times harder than blue, so the
       // pool cools as it darkens instead of going grey.
-      uContactTint: { value: new THREE.Color(LIGHT.SHADOW_TINT).multiplyScalar(0.55) },
+      uContactTint: { value: new THREE.Color(LIGHT.SHADOW_TINT).multiplyScalar(0.45) },
       uContactStrength: { value: CONTACT.strength },
       /**
        * Floor conditioning — the other half of making a contact shadow visible.
@@ -1843,7 +1906,8 @@ ${shader.fragmentShader}`
 
   /**
    * Build the six roster characters and stage them on the right of the battle
-   * frame, in the staggered diagonal REFERENCE §2 specifies.
+   * frame, in the two staggered ranks REFERENCE §2's "loose staggered diagonal"
+   * actually requires — see {@link PARTY} for why a single rank cannot work.
    *
    * `lighting` is passed so `ToonMaterial` aliases the rig's key/rim uniform
    * objects — that is what makes the whole party re-key on a time-of-day change

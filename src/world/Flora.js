@@ -210,7 +210,7 @@ const WIND_BODY = /* glsl */`
   #ifdef USE_INSTANCING
     windAnchor = instanceMatrix[3].xz;
     // The world gust rotated into this instance's own frame. Instances carry a
-    // random yaw, and without this every blade bends along its private axis —
+    // random yaw, and without this every blade bends along its private axis:
     // a field that shivers rather than one a wind crosses. Columns are
     // normalised because the same matrix also carries the per-blade scale.
     vec3 windIx = normalize(instanceMatrix[0].xyz);
@@ -1507,8 +1507,12 @@ export function buildConiferTree(opts = {}) {
   const { rng, lighting, forge, heightAt, mask } = common(opts);
   const count = opts.count ?? 1;
   const height = opts.height ?? 5.2;
-  const tiers = opts.tiers ?? 9;
-  const spraysPerTier = opts.spraysPerTier ?? 10;
+  const tiers = opts.tiers ?? 11;
+  // Sixteen, because a conifer's read is *density* — the plate's cedars are a
+  // solid feathery mass with the trunk only glimpsed through it. At ten the
+  // tiers separate into visible spokes. It costs about 2 000 triangles for the
+  // whole tree and the tree is instanced, so a grove pays for it once.
+  const spraysPerTier = opts.spraysPerTier ?? 16;
 
   const group = new THREE.Group();
   group.name = 'conifer';
@@ -1692,6 +1696,8 @@ export function buildBoulderCluster(opts = {}) {
     normalScale: new THREE.Vector2(0.8, 0.8),
   });
 
+  const geometries = [];
+
   /* --- the wall ----------------------------------------------------------- */
   const blocks = [];
   for (let i = 0; i < count; i++) {
@@ -1721,14 +1727,17 @@ export function buildBoulderCluster(opts = {}) {
     );
     blocks.push(geo);
   }
-  const wallGeo = mergeAndDispose(blocks);
-  const wall = new THREE.Mesh(wallGeo, material);
-  wall.name = 'boulder-wall';
-  wall.castShadow = true;
-  wall.receiveShadow = true;
-  group.add(wall);
-
-  const geometries = [wallGeo];
+  // `mergeGeometries` returns null for an empty list, so a caller asking for
+  // chips only ( `count: 0` ) must not reach it.
+  if (blocks.length > 0) {
+    const wallGeo = mergeAndDispose(blocks);
+    const wall = new THREE.Mesh(wallGeo, material);
+    wall.name = 'boulder-wall';
+    wall.castShadow = true;
+    wall.receiveShadow = true;
+    group.add(wall);
+    geometries.push(wallGeo);
+  }
 
   /* --- scatter chips ------------------------------------------------------ */
   if (chipCount > 0) {

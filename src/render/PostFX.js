@@ -9,7 +9,7 @@
  *
  * Chain order, fixed by ARCHITECTURE.md:
  *
- *   RenderPass (HDR half-float, depth texture)
+ *   RenderPass (HDR half-float, MSAA, depth texture)
  *     -> depth tap
  *     -> SSAO           contact darkening, tinted toward SHADOW_TINT
  *     -> bloom          progressive mip pyramid, soft knee at 1.0
@@ -19,6 +19,12 @@
  *     -> composite      chromatic aberration, depth-keyed value structure,
  *                       flash, ACES, LUT grade, grain, vignette
  *     -> FXAA
+ *
+ * Anti-aliasing is deliberately split across the two ends of that chain: the
+ * beauty target is multisampled so *coverage* is resolved before any pass can
+ * widen or contrast-stretch a staircase, and FXAA cleans up the *shading*
+ * aliasing MSAA structurally cannot see (the cel terminator, the specular band,
+ * the painted lash line). See `_applyMsaa`.
  *
  * The value structure is the one stage that is not a colour operation. It reads
  * the same depth texture AO and DOF read, splits the frame into foreground /
@@ -89,13 +95,15 @@ const SENSOR_HEIGHT_MM = 24;
  * Chromatic aberration, in the units the composite pass and ART_BIBLE §6 both
  * use: total R↔B separation at the frame *corner* as a fraction of frame width.
  *
- * The steady state is the bible's 0.0012 exactly. The impact peak is its 0.004,
- * expressed here as the *additive* spike a `punch()` lays on top of the grade's
- * baseline, because the baseline is a cross-faded per-grade value and a spike
- * that clobbered it would make a crit under `void` weaker than a crit under
- * `neutral`.
+ * The steady state is a quarter of the bible's 0.0012, matching every grade in
+ * colorGrades.js — see the rationale there. The impact peak keeps the bible's
+ * 0.004, expressed here as the *additive* spike a `punch()` lays on top of the
+ * grade's baseline, because the baseline is a cross-faded per-grade value and a
+ * spike that clobbered it would make a crit under `void` weaker than a crit
+ * under `neutral`. Quartering the steady state while leaving the transient
+ * alone is the whole point: the frame stops fringing, and a crit still snaps.
  */
-const ABERRATION_STEADY = 0.0012;
+const ABERRATION_STEADY = 0.0003;
 const ABERRATION_IMPACT_SPIKE = 0.004 - ABERRATION_STEADY;
 
 /**
@@ -140,19 +148,51 @@ const VALUE_STRUCTURE = {
 
 /**
  * Quality ladder. Everything here is switchable at runtime; nothing here
- * reallocates a target except `bloomMips`, which is handled explicitly.
+ * reallocates a target except `bloomMips` and `msaa`, both handled explicitly.
  *
  * 'low' drops the three depth-consuming passes entirely, which also lets the
  * chain skip two full-resolution round trips — on integrated GPUs that is the
  * difference between 60 and 35 fps, and none of the three are load-bearing for
  * readability the way bloom and the grade are.
+ *
+ * `msaa` is the sample count on the beauty target. It is on the ladder rather
+ * than fixed because it is the single most expensive line item here — 4x MSAA
+ * on a 1080p RGBA16F target is 33 MB of renderbuffer and a full-frame resolve —
+ * and because 'low' exists for machines that cannot pay it.
  */
 const QUALITY = {
-  low: { ao: false, aoSamples: 6, bloomMips: 4, dof: false, dofTaps: 16, motionBlur: false, mbTaps: 4, radialTaps: 8, maxCoc: 8 },
-  medium: { ao: true, aoSamples: 8, bloomMips: 5, dof: true, dofTaps: 20, motionBlur: true, mbTaps: 5, radialTaps: 10, maxCoc: 11 },
-  high: { ao: true, aoSamples: 14, bloomMips: 6, dof: true, dofTaps: 28, motionBlur: true, mbTaps: 8, radialTaps: 14, maxCoc: 16 },
-  ultra: { ao: true, aoSamples: 24, bloomMips: 7, dof: true, dofTaps: 40, motionBlur: true, mbTaps: 12, radialTaps: 18, maxCoc: 22 },
+  low: { ao: false, aoSamples: 6, bloomMips: 4, dof: false, dofTaps: 16, motionBlur: false, mbTaps: 4, radialTaps: 8, maxCoc: 8, msaa: 0 },
+  medium: { ao: true, aoSamples: 8, bloomMips: 5, dof: true, dofTaps: 20, motionBlur: true, mbTaps: 5, radialTaps: 10, maxCoc: 11, msaa: 4 },
+  high: { ao: true, aoSamples: 14, bloomMips: 6, dof: true, dofTaps: 28, motionBlur: true, mbTaps: 8, radialTaps: 14, maxCoc: 16, msaa: 4 },
+  ultra: { ao: true, aoSamples: 24, bloomMips: 7, dof: true, dofTaps: 40, motionBlur: true, mbTaps: 12, radialTaps: 18, maxCoc: 22, msaa: 8 },
 };
+
+/**
+ * Guaranteed background defocus, as a fraction of frame height, and the number
+ * of depth doublings past the focal plane over which it ramps in. Consumed by
+ * `dofShader.js`'s far-field floor — the operator is documented there.
+ *
+ * 0.0085 is 9.2 px at 1080p. Expressed against frame height rather than in
+ * pixels so the softness of the background is the same *picture* at 720p as at
+ * 4K, which is the same reason `uMmToPixels` is derived from the sensor height
+ * rather than hard-coded.
+ *
+ * 3 octaves means the floor is fully in once the background is 8x further away
+ * than the subject, and — the number that actually matters — still under one
+ * pixel out to 1.42x the focal distance. The battle staging puts the party
+ * across 3.3-8.4 m on a 6.2 m plane and the enemy at 8.6 m, so every actor in
+ * the frame sits inside that sharp core while the treeline at 30 m+ does not.
+ */
+const DOF_FAR_FLOOR_FRACTION = 0.0085;
+const DOF_FAR_OCTAVES = 3.0;
+
+/**
+ * The artistic CoC multiplier the floor is authored against. The floor scales
+ * with whatever `setDof` is handed, so `setDof(d, f, 0)` still means "deep
+ * focus, nothing softened" — a scene that genuinely wants a sharp stage (a menu
+ * backdrop, the world-map diorama) keeps that option without editing PostFX.
+ */
+const DEFAULT_BOKEH_SCALE = 4.0;
 
 /** HDR intermediate. No depth buffer — only the beauty pass ever writes depth. */
 function hdrTarget(w, h, name) {
@@ -505,13 +545,13 @@ class DofPass extends Pass {
       uFocalLength: { value: 27 },
       uMmToPixels: { value: 180 },
       uMaxCoc: { value: settings.maxCoc },
-      // Physical optics makes near blur grow without bound and far blur
-      // saturate at A*f/S — the opposite of what this art direction wants,
-      // which is a crisp midground and a genuinely soft horizon. These two
-      // scalars break that symmetry; they are the one non-physical knob in
-      // the pass and they are why it looks like the reference.
-      uNearStrength: { value: 0.8 },
-      uFarStrength: { value: 2.5 },
+      // Physical optics makes far blur saturate at A*f/(S-f), which is the
+      // opposite of what this art direction wants — a crisp midground and a
+      // genuinely soft horizon. These two break that ceiling without touching
+      // the depth of field around the subject; the operator and the reason a
+      // plain scalar multiplier cannot do it live in dofShader.js.
+      uFarFloor: { value: 9.2 },
+      uFarOctaves: { value: DOF_FAR_OCTAVES },
     };
 
     this.prepassUniforms = Object.assign(
@@ -523,6 +563,8 @@ class DofPass extends Pass {
       uTexel: { value: new THREE.Vector2() },
       uMaxCoc: this.coc.uMaxCoc,
     };
+    // The gather never evaluates CoC — it reads the prepass' packed alpha — so
+    // it deliberately does not receive the rest of `this.coc`.
     this.compositeUniforms = Object.assign(
       { tDiffuse: { value: null }, tDepth: { value: null }, tBlur: { value: null } },
       this.coc,
@@ -555,6 +597,10 @@ class DofPass extends Pass {
     // mm -> px conversion depends on the vertical resolution of the frame the
     // CoC will actually be measured in.
     this._pixelsPerMm = height / SENSOR_HEIGHT_MM;
+    // Same reasoning for the far-field floor: it is authored as a fraction of
+    // frame height so the background reads equally soft at any resolution.
+    // `syncCamera` turns this into the live uniform.
+    this._farFloorPx = Math.max(1, height) * DOF_FAR_FLOOR_FRACTION;
   }
 
   /** Called once a frame by PostFX with the live camera. */
@@ -567,6 +613,14 @@ class DofPass extends Pass {
     this.coc.uMmToPixels.value = (this._pixelsPerMm ?? 45) * bokehScale;
     this.coc.uNear.value = camera.near;
     this.coc.uFar.value = camera.far;
+    // The floor rides the same artistic multiplier as the physical CoC — see
+    // DEFAULT_BOKEH_SCALE — and is capped at the radius the gather is actually
+    // budgeted to walk, because a floor the composite can see but the gather
+    // cannot produce would show up as a hard blur ceiling rather than as depth.
+    this.coc.uFarFloor.value = Math.min(
+      this.coc.uMaxCoc.value,
+      (this._farFloorPx ?? 9.2) * (bokehScale / DEFAULT_BOKEH_SCALE),
+    );
   }
 
   render(renderer, writeBuffer, readBuffer) {
@@ -649,6 +703,9 @@ export class PostFX {
     // the chain is half-float. Half-float rather than full float because the
     // chain is bandwidth-bound and 11 bits of mantissa is far more than an
     // 8-bit display path can resolve after tone mapping.
+    //
+    // `samples` is the anti-aliasing. See `_applyMsaa` for why a post-resolve
+    // filter alone was never going to be enough here.
     this.beauty = new THREE.WebGLRenderTarget(bw, bh, {
       type: THREE.HalfFloatType,
       format: THREE.RGBAFormat,
@@ -657,6 +714,7 @@ export class PostFX {
       depthBuffer: true,
       stencilBuffer: false,
       generateMipmaps: false,
+      samples: this._wantedSamples(settings),
     });
     this.beauty.texture.name = 'PostFX.beauty';
     // A real depth texture, not a renderbuffer: AO, DOF and motion blur all
@@ -825,7 +883,7 @@ export class PostFX {
     this._focusDistance = 9;
     this._focusGoal = 9;
     this._fNumber = 4.0;
-    this._bokehScale = 4.0;
+    this._bokehScale = DEFAULT_BOKEH_SCALE;
 
     /** Live copy of the value-structure defaults; `setValueStructure` mutates
      *  this and re-syncs, so a scene can widen the band for a group shot
@@ -1079,8 +1137,60 @@ export class PostFX {
     this._applyQuality();
   }
 
+  /** Sample count this quality level asks for, clamped to what the GL context
+   *  can actually give us. `getRenderTargetSamples` clamps again internally,
+   *  but a stale unclamped value here would make `_applyMsaa` thrash the
+   *  target every frame on a context whose `MAX_SAMPLES` is below the ladder. */
+  _wantedSamples(settings) {
+    const max = this.renderer.capabilities?.maxSamples ?? 0;
+    return Math.max(0, Math.min(settings.msaa ?? 0, max));
+  }
+
+  /**
+   * Multisample the beauty pass.
+   *
+   * The chain shipped with FXAA as its only anti-aliasing and the art review
+   * scored it as absent, correctly: FXAA is a *post-resolve* filter. By the time
+   * it runs, a hair spike or a pine bough has already been quantised to whole
+   * pixels, the coverage information that would say how much of each pixel the
+   * geometry actually covered is gone, and all FXAA can do is guess an edge
+   * direction from three tone-mapped, graded, bloomed neighbours and smear along
+   * it. On this content it guesses badly and often: the cast is a mass of thin
+   * near-vertical silhouettes (spikes, staves, blades) against a smooth sky
+   * gradient, which is the pathological case for a luma-gradient edge detector,
+   * and the toon surface gives it hard interior bands that look exactly like
+   * geometric edges. Every stage between the raster and the filter — bloom,
+   * the depth-keyed value structure, the LUT — also compounds the staircase
+   * before FXAA ever sees it.
+   *
+   * MSAA fixes the cause instead: coverage is resolved at the raster, before
+   * bloom widens it, before DOF gathers around it and before the grade pushes
+   * contrast across it. It is affordable here specifically because this is a
+   * forward renderer with one geometry pass — there is no G-buffer to
+   * multisample.
+   *
+   * FXAA stays on the tail, and is not redundant: MSAA does nothing for
+   * *shading* aliasing, and this build is full of it — the cel terminator, the
+   * hard specular band, the painted face texture's lash line and the one-pixel
+   * depth step where the value structure's subject band meets the background.
+   * Coverage AA for geometry, morphological AA for shading, which is the
+   * standard pairing.
+   *
+   * Sample count is baked into the framebuffer when three first sets the target
+   * up, so a runtime change has to release the GL objects; `dispose()` does
+   * exactly that and leaves the JS instances (and therefore every uniform in the
+   * chain pointing at `beauty.texture` and `beauty.depthTexture`) untouched.
+   */
+  _applyMsaa() {
+    const want = this._wantedSamples(this._settings);
+    if (want === this.beauty.samples) return;
+    this.beauty.samples = want;
+    this.beauty.dispose();
+  }
+
   _applyQuality() {
     const s = this._settings;
+    this._applyMsaa();
     this.aoPass.enabled = s.ao;
     this.aoPass.setQuality(s);
     this.bloomPass.setQuality(s);
@@ -1114,13 +1224,16 @@ export class PostFX {
    * A silhouette/flat-shape check exists to answer exactly one question — does
    * this character read as a black shape — and every creative stage in this
    * chain actively obstructs that answer. Bloom bleeds a rim outward and fattens
-   * the shape; DOF softens the very edge being judged; the grade's tinted floor
-   * lifts "black" off black; grain puts noise on a flat field; and aberration
-   * puts colour on the outline of a render whose whole point is that it has no
-   * colour. So the diagnostic path keeps only what is required to get linear HDR
-   * onto an sRGB display — exposure, the ACES fit, the encode — plus FXAA, which
-   * is an edge *resolve* rather than a look and without which the silhouette
-   * would be judged on staircasing.
+   * the shape; the grade's tinted floor lifts "black" off black; grain puts
+   * noise on a flat field; and aberration puts colour on the outline of a render
+   * whose whole point is that it has no colour. So the diagnostic path keeps
+   * only what is required to get linear HDR onto an sRGB display — exposure, the
+   * ACES fit, the encode — plus the two stages that *resolve* an edge rather
+   * than decorate it: MSAA on the beauty target and FXAA on the tail, without
+   * which the silhouette would be judged on staircasing.
+   *
+   * DOF is kept too, which looks like an exception and is not; the argument sits
+   * at its enable site in `render()`.
    *
    * @param {boolean|null} on `true`/`false` to pin, `null` to follow the scene.
    */
@@ -1351,7 +1464,15 @@ export class PostFX {
     this._diagnostic = diag;
 
     this.aoPass.enabled = this._settings.ao && perspective && !diag;
-    this.dofPass.enabled = this._settings.dof && perspective && !diag;
+    // DOF is the one creative stage the diagnostic path keeps, and the reason is
+    // that on a *matte* frame it is provably an identity: the subject sits on
+    // the focal plane so its CoC is under the composite's 0.75 px sharp
+    // threshold and it survives bit-exact, while the ground and backdrop are one
+    // flat white value that blurs to itself. It costs the silhouette check
+    // nothing, and it means the pose cannot ship a fully-sharp frame — which
+    // REFERENCE_TARGET §3 calls wrong outright — on the days the matte swap does
+    // not take and the pose renders in full colour.
+    this.dofPass.enabled = this._settings.dof && perspective;
     this.bloomPass.enabled = !diag;
     this.motionBlurPass.enabled = this._motionBlurWanted && !diag;
     this.radialPass.enabled = this._radialActive && !diag;

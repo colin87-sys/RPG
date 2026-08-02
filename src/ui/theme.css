@@ -76,9 +76,13 @@
      Eight offset shadows rather than `-webkit-text-stroke` + `paint-order`:
      where `paint-order` is unsupported the stroke paints *over* the fill and
      the text becomes solid ink blobs. A wrong-but-legible outline beats an
-     illegible one, and the same property carries the soft shadow for free. */
-  --aw-o: calc(1.5 * var(--px));
-  --aw-od: calc(1.1 * var(--px)); /* diagonals, pulled in so corners stay round */
+     illegible one, and the same property carries the soft shadow for free.
+
+     The offset is 1.25px rather than the plate's 1.5: eight stacked copies
+     union into a visibly heavier edge than a single stroke of the same width,
+     and at 1.5 the names read as stickers. */
+  --aw-o: calc(1.25 * var(--px));
+  --aw-od: calc(0.9 * var(--px)); /* diagonals, pulled in so corners stay round */
   --aw-text-edge:
     calc(-1 * var(--aw-o)) 0 0 var(--aw-ink),
     var(--aw-o) 0 0 var(--aw-ink),
@@ -133,8 +137,13 @@ body {
      value digit height 22px  (baseline y 611)
      label cap height   18px  (shares the value baseline)
      HP bar 132 x 9  |  MP bar 117 x 7   <- the MP bar really is the thinner one
-   Note this contradicts REFERENCE_TARGET's "boxed translucent party panel":
-   there is no box in the plate at all. Image wins. */
+
+   REFERENCE_TARGET.md §6 describes this as a *horizontal bottom bar* on "a
+   dark translucent slab with a subtle light top border", with names "in small
+   clean caps" set in a "clean humanist sans". The plate shows none of that: a
+   vertical right-hand stack, no slab of any kind, mixed-case names, and an
+   old-style serif throughout. BRAVELY_REFERENCE.md §6 describes the plate
+   correctly and is what this implements. Image wins. */
 
 .aw-party {
   position: absolute;
@@ -293,7 +302,7 @@ body {
 }
 .aw-bp-gem::before {
   inset: calc(2 * var(--px));
-  background: linear-gradient(155deg, var(--aw-gold-hi) 0%, var(--aw-gold) 45%, var(--aw-gold-lo) 100%);
+  background: linear-gradient(155deg, var(--aw-gold-hi) 0%, var(--aw-gold) 26%, var(--aw-gold-lo) 62%, #7a4d10 100%);
 }
 .aw-bp-gem::after {
   inset: calc(5 * var(--px));
@@ -350,7 +359,7 @@ body {
   border-radius: calc(2 * var(--px));
   background: linear-gradient(180deg, #7d5824 0%, #3d2711 100%);
   box-shadow:
-    inset 0 calc(1 * var(--px)) 0 rgba(251, 228, 164, 0.45),
+    inset 0 calc(1 * var(--px)) 0 rgba(251, 228, 164, 0.22),
     0 0 0 calc(1 * var(--px)) var(--aw-bronze-lo);
   font-size: calc(15 * var(--px));
   line-height: 1;
@@ -388,7 +397,7 @@ body {
 .aw-bp.is-charged {
   filter:
     drop-shadow(0 calc(2 * var(--px)) calc(4 * var(--px)) rgba(0, 0, 0, 0.7))
-    drop-shadow(0 0 calc(10 * var(--px)) rgba(255, 196, 92, 0.75));
+    drop-shadow(0 0 calc(7 * var(--px)) rgba(255, 196, 92, 0.5));
 }
 /* Overdrawn BP (the debt state) reads cold instead of gold. */
 .aw-bp.is-debt .aw-bp-face {
@@ -418,8 +427,8 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: calc(130 * var(--px));
-  height: calc(45 * var(--px));
+  bottom: calc(128 * var(--px));
+  height: calc(38 * var(--px));
   display: grid;
   place-items: center;
   background: linear-gradient(
@@ -454,11 +463,11 @@ body {
 .aw-ability::after  { bottom: 0; }
 
 .aw-ability-text {
-  font-size: calc(24 * var(--px));
+  font-size: calc(30 * var(--px));
   line-height: 1;
-  letter-spacing: .18em;
+  letter-spacing: .12em;
   /* Optical centring: the tracking adds a trailing gap after the last glyph. */
-  text-indent: .18em;
+  text-indent: .12em;
   color: var(--aw-cream);
   text-shadow: 0 calc(2 * var(--px)) calc(5 * var(--px)) rgba(0, 0, 0, 0.9);
   white-space: nowrap;
@@ -487,9 +496,9 @@ body {
   border-radius: 50%;
   cursor: pointer;
   font: inherit;
-  font-size: calc(24 * var(--px));
+  font-size: calc(28 * var(--px));
   line-height: 1;
-  color: #f6ecd8;
+  color: #fdf5e4;
   background: radial-gradient(circle at 34% 28%, #c98b45 0%, #8a5a24 58%, #4d2f10 100%);
   box-shadow:
     inset 0 0 0 calc(2 * var(--px)) rgba(251, 228, 164, 0.35),
@@ -547,10 +556,10 @@ body {
   transform: translateX(-50%);
   max-width: min(calc(1120 * var(--px)), 86vw);
   filter:
-    drop-shadow(calc(2 * var(--px)) 0 0 var(--aw-parchment-edge))
-    drop-shadow(calc(-2 * var(--px)) 0 0 var(--aw-parchment-edge))
-    drop-shadow(0 calc(2 * var(--px)) 0 var(--aw-parchment-edge))
-    drop-shadow(0 calc(-2 * var(--px)) 0 var(--aw-parchment-edge))
+    drop-shadow(calc(1.6 * var(--px)) 0 0 var(--aw-parchment-edge))
+    drop-shadow(calc(-1.6 * var(--px)) 0 0 var(--aw-parchment-edge))
+    drop-shadow(0 calc(1.6 * var(--px)) 0 var(--aw-parchment-edge))
+    drop-shadow(0 calc(-1.6 * var(--px)) 0 var(--aw-parchment-edge))
     drop-shadow(0 calc(6 * var(--px)) calc(10 * var(--px)) rgba(0, 0, 0, 0.45));
   opacity: 0;
   transform-origin: 50% 100%;
@@ -570,24 +579,24 @@ body {
   border-radius: calc(40 * var(--px)) / calc(34 * var(--px));
   background: var(--aw-parchment);
   /* Interior lift only — kept clear of the edges so it never meets a seam. */
-  box-shadow: inset 0 calc(10 * var(--px)) calc(22 * var(--px)) rgba(255, 255, 255, 0.55),
-              inset 0 calc(-12 * var(--px)) calc(20 * var(--px)) rgba(190, 148, 78, 0.28);
+  box-shadow: inset 0 calc(8 * var(--px)) calc(20 * var(--px)) rgba(255, 255, 255, 0.32),
+              inset 0 calc(-12 * var(--px)) calc(20 * var(--px)) rgba(190, 148, 78, 0.3);
 }
 
 /* Four lobes give the plate's cloud-edged silhouette. They sit behind the
    body, which is opaque, so only their outer arcs survive. */
 .aw-bubble-lobe {
   position: absolute;
-  width: calc(34 * var(--px));
-  height: calc(34 * var(--px));
+  width: calc(28 * var(--px));
+  height: calc(28 * var(--px));
   border-radius: 50%;
   background: var(--aw-parchment);
   z-index: -1;
 }
-.aw-bubble-lobe.tl { left: calc(-9 * var(--px)); top: calc(10 * var(--px)); }
-.aw-bubble-lobe.bl { left: calc(-9 * var(--px)); bottom: calc(10 * var(--px)); }
-.aw-bubble-lobe.tr { right: calc(-9 * var(--px)); top: calc(10 * var(--px)); }
-.aw-bubble-lobe.br { right: calc(-9 * var(--px)); bottom: calc(10 * var(--px)); }
+.aw-bubble-lobe.tl { left: calc(-6 * var(--px)); top: calc(14 * var(--px)); }
+.aw-bubble-lobe.bl { left: calc(-6 * var(--px)); bottom: calc(14 * var(--px)); }
+.aw-bubble-lobe.tr { right: calc(-6 * var(--px)); top: calc(14 * var(--px)); }
+.aw-bubble-lobe.br { right: calc(-6 * var(--px)); bottom: calc(14 * var(--px)); }
 
 .aw-bubble-tail {
   position: absolute;
@@ -596,10 +605,12 @@ body {
      outline runs unbroken around the join. */
   margin-top: calc(-1 * var(--px));
   left: var(--aw-tail-x);
-  width: calc(24 * var(--px));
+  width: calc(32 * var(--px));
   height: calc(26 * var(--px));
-  margin-left: calc(-12 * var(--px));
-  background: var(--aw-parchment-lo);
+  margin-left: calc(-16 * var(--px));
+  /* Matched to the value the body's bottom inset shadow lands on, so the join
+     reads as one silhouette rather than as a patch stuck to the underside. */
+  background: #efd6a0;
   clip-path: polygon(0% 0%, 100% 0%, 38% 100%);
 }
 

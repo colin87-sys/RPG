@@ -123,11 +123,17 @@ ${GLSL_ACES}
 ${GLSL_LUT}
 
 // Radius, as a fraction of the half-diagonal, inside which aberration is
-// identically zero. The centre-40% box of a 16:9 frame has its own corners at
-// r = 0.400 of the half-diagonal, so 0.45 encloses the whole of it with margin:
-// faces, hair silhouettes and every UI glyph composed on a thirds intersection
-// sit in a region where the weight is not "small", it is exactly 0.0.
-const float CA_INNER = 0.45;
+// identically zero.
+//
+// The centre *third* of any aspect ratio has its own corners at exactly
+// r = 1/3 of the half-diagonal — the ratio is independent of the frame's
+// proportions, because both the box and the diagonal scale with it. The art
+// review's requirement is that no fringing appear inside that box; 0.55 clears
+// it by two thirds of its own radius, which also takes in the rule-of-thirds
+// intersections where the cast is actually staged. Faces, hair silhouettes and
+// UI glyphs therefore sit in a region where the weight is not "small", it is
+// exactly 0.0.
+const float CA_INNER = 0.55;
 
 // Sub-half-pixel separation cannot resolve as colour: the three channels land
 // inside one bilinear footprint. Skipping the gather there is both a bandwidth
