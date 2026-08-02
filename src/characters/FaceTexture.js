@@ -1002,27 +1002,31 @@ export function drawFace(ctx, def, size = FACE_TEXTURE_SIZE, opts = {}) {
   }
 
   const halfSpanX = (0.5 - FACE_LAYOUT.eyeX) * t.spacing;
-  const halfW = (FACE_LAYOUT.eyeW * t.eyeScale * t.widen * S) / 2;
-  const halfH = (FACE_LAYOUT.eyeH * t.eyeScale * S) / 2;
+  const f = eyeFrame(t, x, S);
   const eyeCy = FACE_LAYOUT.eyeY * S;
-  // `browDrop` is the family's own height offset — a hard brow crowds the lid,
-  // a gentle one sits high and clear of it.
-  const browY = eyeCy - halfH - (FACE_LAYOUT.browGap + x.browLift - t.browDrop) * S;
+  // Spaced from the **drawn ink**, not from the layout cell — see
+  // `FACE_LAYOUT.browClear`. `browDrop` is the family's own trim on top of it:
+  // a hard brow crowds the lid, a gentle one sits high and clear of it.
+  const inkTop = eyeInkTop(t, x, S, f);
+  const inkHeight = f.hl - inkTop;
+  const browY = eyeCy + inkTop - FACE_LAYOUT.browClear * inkHeight
+    - (x.browLift - t.browDrop) * S;
 
   for (const side of [-1, 1]) {
     const cx = S * (0.5 + side * halfSpanX);
     // Mirroring is what lets both eyes and both brows come from one authored
     // shape with "+x is outboard" — the alternative is every sign written twice.
+    // Both sides consume the same solved `f`, so the pair cannot desync.
     ctx.save();
     ctx.translate(cx, eyeCy);
     ctx.scale(side, 1);
-    drawEye(ctx, t, x, S);
+    drawEye(ctx, t, x, f);
     ctx.restore();
 
     ctx.save();
     ctx.translate(cx, browY);
     ctx.scale(side, 1);
-    drawBrow(ctx, t, x, halfW, S);
+    drawBrow(ctx, t, x, f.hw, S);
     ctx.restore();
   }
 
@@ -1049,13 +1053,21 @@ export function faceMetrics(def, expression = 'neutral') {
   const x = EXPRESSIONS[expression] ?? EXPRESSIONS.neutral;
   const w = FACE_LAYOUT.eyeW * t.eyeScale * t.widen;
   const h = FACE_LAYOUT.eyeH * t.eyeScale;
+  // Solved at unit size so every number below is already a texture fraction,
+  // and derived from the same two functions the painter uses — a metric that
+  // re-implements the layout is a metric that drifts away from the drawing.
+  const f = eyeFrame(t, x, 1);
+  const inkTop = eyeInkTop(t, x, 1, f);
   return {
     eyeCenterY: FACE_LAYOUT.eyeY,
     eyeHalfSpan: (0.5 - FACE_LAYOUT.eyeX) * t.spacing,
     eyeWidth: w,
     eyeHeight: h,
     eyeTilt: t.eyeTilt,
-    browY: FACE_LAYOUT.eyeY - h / 2 - (FACE_LAYOUT.browGap + x.browLift - t.browDrop),
+    /** Top of the drawn lash bar — what a viewer reads as the top of the eye. */
+    eyeInkTop: FACE_LAYOUT.eyeY + inkTop,
+    browY: FACE_LAYOUT.eyeY + inkTop - FACE_LAYOUT.browClear * (f.hl - inkTop)
+      - (x.browLift - t.browDrop),
     mouthY: FACE_LAYOUT.mouthY,
     roundness: t.round,
     skin: t.skin,
