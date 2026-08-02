@@ -513,7 +513,15 @@ function rigidSkin(geometry, boneIndex) {
 const ALBEDO_BAND = Object.freeze({
   skin: null,
   face: null,
-  hair: [0.04, 0.50],
+  // The hair floor is 0.085 rather than 0.04. Four of the six carry a hair
+  // swatch whose linear luminance is under 0.06, and on a surface that also
+  // takes a `shadowFloor: 0` cel band and an ink outline derived from the same
+  // albedo, the result is not "dark hair" — it is a hole in the character with
+  // no internal form at all, which is half of why the rebuilt clumps still read
+  // as flat black slabs. 0.085 is still unambiguously dark hair; what it buys is
+  // enough range between the lit band, the shadow band and the outline for the
+  // carved volume to be visible, which is the entire point of building it.
+  hair: [0.085, 0.50],
   cloth: [0.09, 0.62],
   metal: [0.26, 0.72],
   glow: null,
@@ -1270,20 +1278,31 @@ function clumpSweep(surface, head, path, combAxis, widthAt, thickAt, section) {
       if (wide.lengthSq() < 1e-8) wide.set(-tan.y, tan.x, 0);
     }
     wide.normalize();
+    // Carry the previous sample's sign forward. Without this the frame can
+    // invert between two adjacent rings, which twists the section 180° across a
+    // single quad and prints a dark pinched patch — visible on every crown,
+    // because a spine running radially out of the skull is exactly where the
+    // orientation test below is worst conditioned.
+    if (i > 0 && wide.dot(frames[i - 1][0]) < 0) wide.negate();
     // `v = t × u` matches `sweep`'s handedness, so the shared `patch` winding
     // and the cap orientations below stay correct.
     rad.crossVectors(tan, wide).normalize();
-
-    outward.set(
-      path[i].x / (head.rx * head.rx),
-      (path[i].y - head.center.y) / (head.ry * head.ry),
-      path[i].z / (head.rz * head.rz),
-    );
-    // Negating *both* axes turns the section's +y side away from the skull
-    // while preserving the handedness — so the flat underside beds down and the
-    // domed side is the one the highlight band runs across.
-    if (rad.dot(outward) < 0) { wide.negate(); rad.negate(); }
     frames.push([wide.clone(), rad.clone()]);
+  }
+
+  // Which way round the section sits is decided **once**, at the root, where the
+  // spine is tangential to the skull and the radial is therefore unambiguous —
+  // then applied to the whole clump. Negating *both* axes turns the section's +y
+  // side away from the head while preserving the handedness, so the profile's
+  // flat underside beds down and the domed side is the one the highlight band
+  // runs across.
+  outward.set(
+    path[0].x / (head.rx * head.rx),
+    (path[0].y - head.center.y) / (head.ry * head.ry),
+    path[0].z / (head.rz * head.rz),
+  );
+  if (frames[0][1].dot(outward) < 0) {
+    for (const f of frames) { f[0].negate(); f[1].negate(); }
   }
 
   const grid = surface.patch(rows, cols, true, (i, j) => {
@@ -1550,7 +1569,11 @@ function buildHair(parts, m, def, pal) {
     const th = w * 0.62;
     const runTheta = fringeSweep * 0.45 * Math.sign(off || 1);
     const root = frontPhi + 0.34;
-    let end = root - (0.52 + 1.20 * Math.min(1, Math.abs(off) * 2.2)) * (fLen / 0.30);
+    // 0.40 rad at the parting to 1.15 at the temples, before the length dial.
+    // The span matters more than the absolute: clumps that all bottom out on the
+    // guard floor fuse into one horizontal bar across the forehead, which reads
+    // as a headband rather than as a fringe.
+    let end = root - (0.40 + 0.75 * Math.min(1, Math.abs(off) * 2.4)) * (fLen / 0.30);
     // Hold the tip clear of the painted eye block. Outside the column a clump
     // may hang to the jaw, which is where a fringe earns its silhouette corners.
     const tip = P(theta + runTheta, end, seat(theta, end, th));
@@ -1594,6 +1617,12 @@ function buildHair(parts, m, def, pal) {
     const n = hp.backCount ?? 6;
     const lean = hp.lean ?? 0.22;
     const depth = hp.backDepth ?? 1.0;
+    // Rooted near the crown rather than halfway down it: a fan that starts low
+    // leaves the top of the skull as bare shell, and a bare shell is a smooth
+    // unbroken dome — the swim cap the review has objected to twice. 1.05 rad is
+    // a ring at about half the head's radius, far enough off the pole that the
+    // clumps do not all collapse onto one point and close enough that their own
+    // width covers what is left.
     for (let i = 0; i < n; i++) {
       const t = (i + 0.5) / n;
       const theta = 0.32 - (Math.PI + 0.64) * t;
@@ -1612,7 +1641,7 @@ function buildHair(parts, m, def, pal) {
       const mid = base.clone().lerp(tip, 0.46);
       mid.z -= h.rz * 0.22;
       clump({
-        theta, phi: 0.82, runTheta: 0.10, runPhi: end - 0.82, lift: 0.03,
+        theta, phi: 1.05, runTheta: 0.10, runPhi: end - 1.05, lift: 0.03,
         via: [mid, tip],
         w: h.rx * 0.26, tipRatio: 0.18, hold: 0.44,
       });
@@ -1650,7 +1679,7 @@ function buildHair(parts, m, def, pal) {
         base.z * 0.72 - h.rz * 0.10,
       );
       clump({
-        theta, phi: 0.62, runPhi: end - 0.62, lift: 0.02,
+        theta, phi: 1.02, runPhi: end - 1.02, lift: 0.02,
         via: [base.clone().lerp(tip, 0.5), tip],
         w: h.rx * 0.30, tipRatio: 0.68, hold: 0.55,
       });
@@ -1680,7 +1709,7 @@ function buildHair(parts, m, def, pal) {
       const t = (i + 0.5) / 5;
       const theta = 0.40 - (Math.PI + 0.80) * t;
       clump({
-        theta, phi: 0.86, runTheta: 0.08, runPhi: -1.18, lift: 0.05,
+        theta, phi: 1.06, runTheta: 0.08, runPhi: -1.38, lift: 0.05,
         w: h.rx * 0.26, tipRatio: 0.16, hold: 0.46,
       });
     }
@@ -1743,7 +1772,7 @@ function buildHair(parts, m, def, pal) {
         base.z * 0.88,
       );
       clump({
-        theta, phi: 0.68, runPhi: end - 0.68, lift: 0.02,
+        theta, phi: 1.02, runPhi: end - 1.02, lift: 0.02,
         via: [base.clone().lerp(tip, 0.48), tip],
         w: h.rx * 0.28, tipRatio: 0.46, hold: 0.50,
       });
@@ -1758,18 +1787,30 @@ function buildHair(parts, m, def, pal) {
     const len0 = (hp.spikeLength ?? 0.55) * D;
     for (let i = 0; i < n; i++) {
       const theta = (i / n) * TAU + rand.jitter(hp.spikeJitter ?? 0.3);
-      const phi = 0.30 + rand.next() * 0.50;
+      // Roots spread from the temples to just short of the pole, so the spikes
+      // themselves cover the crown instead of standing on a bare dome.
+      const phi = 0.42 + rand.next() * 0.62;
       const len = len0 * (0.72 + rand.next() * 0.52);
       const base = P(theta, phi, seat(theta, phi, 0));
       // Flattening the vertical component of the growth direction is what turns
       // a hedgehog into a splayed crown.
       const dir = new THREE.Vector3(
-        base.x * splay, (base.y - h.center.y) * 0.52, base.z * splay,
+        base.x * splay, (base.y - h.center.y) * 0.30, base.z * splay,
       ).normalize();
       const tip = base.clone().addScaledVector(dir, len);
+      // Hard ceiling on the mass, not a tuned one. REFERENCE §1 measures the
+      // silhouette head — hair included — against the 3.0–3.5 heads band, and a
+      // starburst is the one style whose randomised roots can spend the whole
+      // budget upward. Nothing may rise more than a tenth of a head-radius above
+      // the crown; a spike that wants to goes wide instead, which is what the
+      // outline wanted anyway.
+      const ceiling = h.crownY + h.ry * 0.04;
+      const mid = base.clone().lerp(tip, 0.44);
+      mid.y = Math.min(mid.y + len * 0.10, ceiling);
+      tip.y = Math.min(tip.y, ceiling);
       clump({
         theta, phi, runPhi: 0.05, lift: 0.02,
-        via: [base.clone().lerp(tip, 0.44).add(new THREE.Vector3(0, len * 0.10, 0)), tip],
+        via: [mid, tip],
         w: h.rx * 0.23, tipRatio: 0.05, hold: 0.22,
       });
     }

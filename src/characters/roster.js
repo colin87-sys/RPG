@@ -438,11 +438,13 @@ export const ROSTER = Object.freeze([
     // frame in the party. `eye` at 1.16 is the top of the band — at 80 px the
     // eye block is the only thing that says "kid".
     proportions: proportions({
-      // Head at 1.02 rather than 1.08 — still the largest ratio in the party.
-      // REFERENCE §1 measures the head *mass*, hair shell included, and at 1.08
-      // his silhouette head was 39% of a 1.00-unit frame: 2.87 heads, outside
-      // the 3.0–3.5 band.
-      height: 1.00, headScale: 1.02, legLength: 0.94, shoulder: 0.83, chest: 0.88,
+      // Head at 1.00 rather than 1.08. REFERENCE §1 measures the head *mass* —
+      // hair shell and style included — against its 3.0–3.5 heads band, and on
+      // the shortest frame in the party a 1.08 skull under a starburst measured
+      // 2.6 heads. The child read survives without it: it is carried by the
+      // 1.16 eye multiplier and by the coat that swamps him, which are the two
+      // channels that actually survive to 80 px.
+      height: 1.00, headScale: 1.00, legLength: 0.94, shoulder: 0.83, chest: 0.88,
       hip: 0.90, limb: 0.85, arm: 0.92, hand: 0.92, foot: 0.94,
       eye: 1.16, eyeSpacing: 1.05, browAngle: 0.06, eyeShape: 'round', brow: 'gentle',
     }),
