@@ -15,6 +15,9 @@
  *     `w ≈ 0.03–0.06`. Nothing subdivides the shadow. A third band is available
  *     *above* the terminator — a brighter plateau on the lit side, for hair and
  *     metal only — because that is the one extra band the idiom actually uses.
+ *     The per-light band positions the edge; `awToonEdge` then resolves the
+ *     accumulated result to a **fixed pixel width**, which is what makes it an
+ *     edge on a large smooth form rather than a three-hundred-pixel wash.
  *  2. **The shadow is a hue shift with rising saturation**, not a multiply.
  *     `awToonShadowAlbedo` decomposes the albedo into chroma and value, rotates
  *     the chroma toward the shadow tint, scales HSV saturation *up*, and drops
@@ -77,8 +80,10 @@ uniform float uRimStrength;
 
 uniform float uToonTerminator;
 uniform float uToonSoftness;
+uniform float uToonEdgePixels;
 uniform float uToonShadowFloor;
 uniform float uToonShadowLift;
+uniform float uToonShadowCeiling;
 
 uniform vec3  uToonShadowTint;
 uniform float uToonShadowHue;
@@ -165,6 +170,39 @@ float awToonBand( const in float ndl ) {
   float w = max( uToonSoftness, 0.008 ) * 0.5;
 
   return smoothstep( t - w, t + w, ndl );
+
+}
+
+/**
+ * Resolve an accumulated band into **one edge that is a fixed number of pixels
+ * wide**, wherever it lands on the surface.
+ *
+ * This is the correction the review demanded, and it is a change of technique
+ * rather than of constants. 'awToonBand' states the edge's width in N·L, and a
+ * width in N·L is not a width on screen: the same 0.05 is a two-pixel line
+ * across a chibi forearm, where the normal swings through a right angle in
+ * twenty pixels, and a *three-hundred*-pixel wash across a shoulder pauldron in
+ * a close-up, where it swings through the same angle over half the frame. The
+ * review measured exactly that — "the closeup's cheek ramps from ~240 to ~180
+ * across 300 px with no edge" — and no value of 'uToonSoftness' fixes it,
+ * because the largest, smoothest, most prominent forms in frame are precisely
+ * the ones where an angular width resolves to the widest gradient.
+ *
+ * 'fwidth( x )' is how much the banded term moves between neighbouring pixels,
+ * so 'uToonEdgePixels * fwidth( x )' is the threshold half-width that spans
+ * exactly that many pixels here — on a flat cheek and on a tight knuckle alike.
+ * One pixel is the floor at which a step still antialiases rather than crawling
+ * under animation, and 1.2–1.5 is what a drawn ink terminator measures.
+ *
+ * The absolute floor guards the degenerate case: a facet whose banded term is
+ * constant has a zero derivative, and a zero-width 'smoothstep' is undefined.
+ * There is no edge to draw there, so any positive width gives the same answer.
+ */
+float awToonEdge( const in float x, const in float threshold ) {
+
+  float w = max( uToonEdgePixels * fwidth( x ), 1e-4 );
+
+  return smoothstep( threshold - w, threshold + w, x );
 
 }
 

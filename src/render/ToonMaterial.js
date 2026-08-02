@@ -223,6 +223,30 @@ const CHARACTER_RIM_GAIN = Object.freeze({
 const DEFAULT_RIM_PIXELS = 1.6;
 
 /**
+ * Width of the shadow terminator, in **device pixels**.
+ *
+ * ANIME_PIPELINE §2 states the edge as a width in N·L (`w ≈ 0.03–0.06`), and
+ * that is the right way to *author* it but the wrong way to *resolve* it. A
+ * width in N·L is an angular width, and the number of pixels an angular width
+ * covers is the surface's curvature: on a chibi forearm the normal sweeps
+ * through 90° in twenty pixels and 0.05 is a two-pixel line, while on the
+ * shoulder pauldron in a close-up it sweeps through the same 90° across half
+ * the frame and the identical 0.05 is a two-hundred-pixel wash. The review
+ * measured the second case directly — "the closeup's cheek ramps from ~240 to
+ * ~180 across 300 px with no edge" — and it is not a tuning failure: the
+ * largest, smoothest, most prominent forms in the frame are exactly the ones an
+ * angular width resolves to the softest gradient, so every value of `softness`
+ * is wrong on something.
+ *
+ * `awToonEdge` therefore resolves the accumulated band through `fwidth`, which
+ * makes this the terminator's width everywhere, on every form, at every
+ * distance. 1.3 px is a drawn ink edge that still antialiases; below ~1 px a
+ * hard step crawls under animation, and above ~2 px it starts to read as a
+ * gradient again.
+ */
+const DEFAULT_EDGE_PIXELS = 1.3;
+
+/**
  * Named surface classes.
  *
  * These exist so that six characters authored by different agents cannot end up
@@ -245,7 +269,21 @@ const DEFAULT_RIM_PIXELS = 1.6;
  *    lights the shadow mass.
  *  - `shadowLift` — the share of the key the shadow band keeps, so the dark side
  *    still carries the key's colour and dies with it at night.
- *  - `shadowFloor` — the face-flattening clamp. 0 everywhere except the face.
+ *  - `shadowCeiling` — **the value break, stated rather than left to chance.**
+ *    The shadow mass is held to at most this fraction of the lit mass's peak,
+ *    after every other term has been summed. Without it the break is whatever
+ *    survives the hemisphere fill, the environment probe and the flat shadow
+ *    fill — three terms this material does not own, all of which lift the dark
+ *    side toward the light side, and which between them erased the terminator
+ *    in the shipped build. With it, "the shadow is 0.45 of the light" is true at
+ *    noon, at dusk and by torchlight, which is what makes two bands read as two
+ *    bands. The face carries the highest value in the set, because §2 wants a
+ *    face that resists shadowing rather than one that has none.
+ *  - `shadowFloor` — the face-flattening clamp: the shadow mass's radiance is
+ *    lifted this far toward the lit mass's. 0 everywhere except the face. It
+ *    deliberately does *not* touch the band, so a flattened face still shows a
+ *    full rose-tan shadow shape at a gentle value break.
+ *  - `edgePixels` — the terminator's width on screen. See `DEFAULT_EDGE_PIXELS`.
  *  - `specGain: 0` removes the highlight from the compiled program outright.
  *  - `specAlbedoMix` — how much of the surface's own colour the highlight keeps.
  *    Hair wants roughly half: a bright, slightly desaturated version of the hair
@@ -266,9 +304,10 @@ const DEFAULT_RIM_PIXELS = 1.6;
  */
 export const TOON_PRESETS = Object.freeze({
   generic: {
-    bands: 2, terminator: 0.50, softness: 0.05,
-    shadowMix: 0.45, shadowSat: 1.25, shadowValue: 0.80,
+    bands: 2, terminator: 0.50, softness: 0.05, edgePixels: DEFAULT_EDGE_PIXELS,
+    shadowMix: 0.45, shadowSat: 1.25, shadowValue: 0.88,
     shadowLevel: 0.26, shadowGain: 1.0, shadowLift: 0.10, shadowFloor: 0.0,
+    shadowCeiling: 0.50,
     ambientGain: 0.85, metalAlbedo: 0.0,
     specColor: 0xffffff, specGain: 0.25, specExponent: 56,
     specThreshold: 0.50, specSoftness: 0.05, specAlbedoMix: 0.25,
@@ -286,10 +325,17 @@ export const TOON_PRESETS = Object.freeze({
   // a specular lobe on a near-spherical chibi cranium is a hotspot that slides
   // with the camera and reads as wet plastic.
   skin: {
-    bands: 2, terminator: 0.46, softness: 0.045,
+    bands: 2, terminator: 0.46, softness: 0.045, edgePixels: DEFAULT_EDGE_PIXELS,
     shadowTint: SKIN_SHADOW_TINT,
-    shadowMix: 0.80, shadowSat: 1.18, shadowValue: 0.88,
-    shadowLevel: 0.30, shadowGain: 1.0, shadowLift: 0.14, shadowFloor: 0.75,
+    shadowMix: 0.80, shadowSat: 1.18, shadowValue: 0.94,
+    shadowLevel: 0.30, shadowGain: 1.0, shadowLift: 0.14, shadowFloor: 0.72,
+    // Floor and ceiling meet: the face's shadow mass lands in a narrow window
+    // just under three-quarters of its lit mass, which is §2's "clamp the
+    // face's shadow term to a minimum of ~0.75" read as what it says — a face
+    // that resists shadowing, not a face without one. The rose-tan hue swap is
+    // at full strength there, so the shape reads even where the value barely
+    // moves, which is how a painted anime face carries a jaw shadow.
+    shadowCeiling: 0.76,
     ambientGain: 0.90,
     specGain: 0.0,
     // The tightest rim in the set, and the lowest ceiling. Skin is the brightest
@@ -313,9 +359,10 @@ export const TOON_PRESETS = Object.freeze({
   // lightened hair rather than as white plastic. Three bands: hair is one of the
   // two classes §2 allows the extra lit-side plateau.
   hair: {
-    bands: 3, terminator: 0.50, softness: 0.04,
-    shadowMix: 0.50, shadowSat: 1.35, shadowValue: 0.74,
+    bands: 3, terminator: 0.50, softness: 0.04, edgePixels: DEFAULT_EDGE_PIXELS,
+    shadowMix: 0.50, shadowSat: 1.35, shadowValue: 0.84,
     shadowLevel: 0.24, shadowGain: 1.0, shadowLift: 0.08, shadowFloor: 0.0,
+    shadowCeiling: 0.42,
     ambientGain: 0.80, litBandThreshold: 0.86, litBandGain: 0.22,
     // 1.05, not 1.45, and 0.58 albedo rather than 0.45. The band is now held
     // under the class ceiling by the composite, so a higher gain no longer
@@ -340,9 +387,10 @@ export const TOON_PRESETS = Object.freeze({
   // at eighty pixels tall. Its shadow is the most saturated in the set, because
   // a garment shadow is where a painter puts the frame's richest colour.
   cloth: {
-    bands: 2, terminator: 0.50, softness: 0.05,
-    shadowMix: 0.48, shadowSat: 1.35, shadowValue: 0.78,
+    bands: 2, terminator: 0.50, softness: 0.05, edgePixels: DEFAULT_EDGE_PIXELS,
+    shadowMix: 0.48, shadowSat: 1.35, shadowValue: 0.86,
     shadowLevel: 0.25, shadowGain: 1.0, shadowLift: 0.10, shadowFloor: 0.0,
+    shadowCeiling: 0.46,
     ambientGain: 0.85,
     specGain: 0.0,
     rimPower: 3.2, rimGain: CHARACTER_RIM_GAIN.cloth, rimFloor: 0.38,
@@ -354,9 +402,10 @@ export const TOON_PRESETS = Object.freeze({
   // Props and monster hides rather than a party garment, so this one keeps its
   // detail maps and a modest highlight.
   leather: {
-    bands: 2, terminator: 0.50, softness: 0.055,
-    shadowMix: 0.46, shadowSat: 1.25, shadowValue: 0.78,
+    bands: 2, terminator: 0.50, softness: 0.055, edgePixels: DEFAULT_EDGE_PIXELS,
+    shadowMix: 0.46, shadowSat: 1.25, shadowValue: 0.86,
     shadowLevel: 0.22, shadowGain: 1.0, shadowLift: 0.10, shadowFloor: 0.0,
+    shadowCeiling: 0.48,
     ambientGain: 0.85,
     specColor: 0xffffff, specGain: 0.18, specExponent: 44,
     specThreshold: 0.48, specSoftness: 0.05, specAlbedoMix: 0.30,
@@ -374,9 +423,10 @@ export const TOON_PRESETS = Object.freeze({
   // flat colour zone. The probe is kept but quantised into plates and held well
   // below full strength, so armour acknowledges the world without mirroring it.
   metal: {
-    bands: 3, terminator: 0.48, softness: 0.035,
-    shadowMix: 0.42, shadowSat: 1.25, shadowValue: 0.70,
+    bands: 3, terminator: 0.48, softness: 0.035, edgePixels: DEFAULT_EDGE_PIXELS,
+    shadowMix: 0.42, shadowSat: 1.25, shadowValue: 0.82,
     shadowLevel: 0.20, shadowGain: 1.0, shadowLift: 0.06, shadowFloor: 0.0,
+    shadowCeiling: 0.38,
     ambientGain: 0.80, litBandThreshold: 0.84, litBandGain: 0.28,
     metalAlbedo: 0.70,
     // 1.15, down from 2.4. ART_BIBLE §2.3 lets a specular *ping* clip, and a
@@ -402,9 +452,10 @@ export const TOON_PRESETS = Object.freeze({
   // primary path — but where it is used, an iris must never take a shadow band
   // (hence the 0.9 floor) and its catch-light is the whole point.
   eye: {
-    bands: 2, terminator: 0.0, softness: 0.10,
-    shadowMix: 0.15, shadowSat: 1.10, shadowValue: 0.94,
+    bands: 2, terminator: 0.0, softness: 0.10, edgePixels: DEFAULT_EDGE_PIXELS,
+    shadowMix: 0.15, shadowSat: 1.10, shadowValue: 0.96,
     shadowLevel: 0.12, shadowGain: 1.0, shadowLift: 0.30, shadowFloor: 0.90,
+    shadowCeiling: 0.94,
     ambientGain: 0.90,
     specColor: 0xffffff, specGain: 3.0, specExponent: 220,
     specThreshold: 0.60, specSoftness: 0.03, specAlbedoMix: 0.0,
@@ -417,9 +468,10 @@ export const TOON_PRESETS = Object.freeze({
   // Interior glow is the caller's `emissive`; this supplies the fresnel rim and
   // a hard highlight over the top of it. A prop class, so detail maps stay.
   crystal: {
-    bands: 2, terminator: 0.30, softness: 0.06,
-    shadowMix: 0.40, shadowSat: 1.20, shadowValue: 0.82,
+    bands: 2, terminator: 0.30, softness: 0.06, edgePixels: DEFAULT_EDGE_PIXELS,
+    shadowMix: 0.40, shadowSat: 1.20, shadowValue: 0.88,
     shadowLevel: 0.18, shadowGain: 1.0, shadowLift: 0.16, shadowFloor: 0.0,
+    shadowCeiling: 0.66,
     ambientGain: 0.90,
     specColor: 0xffffff, specGain: 1.4, specExponent: 120,
     specThreshold: 0.42, specSoftness: 0.04, specAlbedoMix: 0.20,
@@ -647,8 +699,10 @@ export function createToonMaterial(opts = {}) {
     // ---- the two-band terminator (ANIME_PIPELINE §2) ----------------------
     uToonTerminator: { value: opts.terminator ?? p.terminator },
     uToonSoftness: { value: opts.softness ?? p.softness },
+    uToonEdgePixels: { value: opts.edgePixels ?? p.edgePixels ?? DEFAULT_EDGE_PIXELS },
     uToonShadowFloor: { value: shadowFloor },
     uToonShadowLift: { value: opts.shadowLift ?? p.shadowLift },
+    uToonShadowCeiling: { value: opts.shadowCeiling ?? p.shadowCeiling ?? 0.50 },
 
     // ---- shadow colour: hue shift, saturation up --------------------------
     uToonShadowTint: { value: chromaUnit(shadowTint) },
@@ -819,8 +873,10 @@ const SCALAR_KEYS = Object.freeze({
   time: 'uToonTime',
   terminator: 'uToonTerminator',
   softness: 'uToonSoftness',
+  edgePixels: 'uToonEdgePixels',
   shadowFloor: 'uToonShadowFloor',
   shadowLift: 'uToonShadowLift',
+  shadowCeiling: 'uToonShadowCeiling',
   shadowMix: 'uToonShadowHue',
   shadowSat: 'uToonShadowSat',
   shadowValue: 'uToonShadowValue',
@@ -916,7 +972,7 @@ export function updateToonUniforms(material, opts = {}) {
     u.uToonShadowTint.value.copy(chromaUnit(opts.shadowTint));
   }
   if (opts.faceFlatten !== undefined && u.uToonShadowFloor) {
-    u.uToonShadowFloor.value = opts.faceFlatten ? 0.75 : 0.0;
+    u.uToonShadowFloor.value = opts.faceFlatten ? FACE_SHADOW_FLOOR : 0.0;
   }
 
   if (opts.rimColor !== undefined && u.uRimColor) {
