@@ -22,9 +22,13 @@
  *     oriented terminators, and their sum is a muddle rather than a form. What
  *     is collected is the raw geometric term, so the composite can threshold one
  *     dominant direction exactly once.
- *  2. **Specular** in the same pass: a Blinn-Phong lobe under a soft shoulder
- *     with a graded core, or a Kajiya-Kay band shaped the same way for hair. Fur
- *     takes a Charlie/Neubelt sheen. Classes with no gloss compile all of it out.
+ *  2. **Specular** in the same pass, dispatched by **shading class at compile
+ *     time**: a tight Blinn glint at a clamped roughness for metal, a narrowed
+ *     Kajiya-Kay arc for hair, the old broad shoulder for the prop classes, a
+ *     Charlie/Neubelt sheen for fur. Cloth, skin and every world surface compile
+ *     the entire chain out — including the environment Fresnel in
+ *     `RE_IndirectSpecular_Toon`, which is the half that survived the previous
+ *     `specGain: 0` and put a grazing sheen on every garment in the frame.
  *  3. **Indirect** is held, not applied, so the composite can decide once which
  *     albedo it multiplies. On a character class it is *partly* flattened
  *     (`TOON_FLAT_AMBIENT` plus `uToonAmbientFlatness`) so the ambient cannot
@@ -132,15 +136,13 @@ void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryP
 
   #ifdef TOON_SPECULAR
 
-    // Gated by this light's own form ramp so a highlight cannot survive on the
-    // dark side. Now that the ramp is broad this also *grades* the highlight as
-    // the surface turns away from the key, which is the correct behaviour and
-    // was not available while the gate was a 5°-wide switch: a bright pass along
-    // a plate edge should fade as the edge rolls out of the light rather than
-    // being cut off at a contour.
-    float awGate = awToonBand( ndl, uToonTerminator, uToonSoftness );
+    // The gate that keeps a mark off the unlit side of a surface. A constant
+    // rather than the form band, because the form band is now five degrees wide
+    // on a character and would slice a glint in half with a straight line
+    // wherever a plate edge crosses the terminator. See 'SPEC_GATE'.
+    float awGate = smoothstep( SPEC_GATE.x, SPEC_GATE.y, ndl );
 
-    #ifdef TOON_ANISO
+    #if defined( TOON_SPEC_HAIR )
 
       // Sculpted hair in this style is a carved volume, not strands, so there is
       // no tangent attribute to trust; the strand axis arrives as a world-space
@@ -152,31 +154,44 @@ void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryP
       tangent = normalize( tangent - geometryNormal * dot( geometryNormal, tangent ) + geometryNormal * uToonAnisoShift );
       vec3 halfDir = normalize( directLight.direction + geometryViewDir );
 
-      float awLobe = awToonSpecShape( awToonAnisoLobe( tangent, halfDir ) );
+      // One arc, with a defined inner and outer edge and a flat interior. How
+      // bright that interior may be is decided in the composite, against the
+      // diffuse level underneath — see 'awToonSpecRelBound'.
+      float awLobe = awToonArcShape( awToonAnisoLobe( tangent, halfDir ) );
 
-      // ANIME_PIPELINE §3: "a bright, slightly desaturated band" — the
-      // highlight's colour is the surface's own, lightened toward
-      // 'uToonSpecColor'. Pure white on a saturated hair mass reads as plastic;
-      // the albedo alone reads as a lighting artefact.
+      // ANIME_PIPELINE §3: "a bright, slightly desaturated band" — the band's
+      // colour is the surface's own, lightened toward 'uToonSpecColor'. Pure
+      // white on a saturated hair mass reads as plastic; the albedo alone reads
+      // as a lighting artefact.
       vec3 awSpecTint = mix( uToonSpecColor, uToonSpecColor * material.diffuseColor,
                              clamp( uToonSpecAlbedoMix, 0.0, 1.0 ) );
 
       reflectedLight.directSpecular += directLight.color * awSpecTint
         * ( uToonSpecGain * awLobe * awGate );
 
-    #else
+    #elif defined( TOON_SPEC_METAL )
 
-      // A Blinn-Phong term under a soft shoulder with a graded core. Blinn
-      // rather than 'BRDF_GGX' because the lobe is bounded in 0..1, so a
-      // threshold on it means the same thing on every surface; a normalised
-      // microfacet lobe peaks anywhere from 1 to 100 depending on roughness and
-      // cannot be shaped by a stated number at all.
+      // The steel glint: a Blinn lobe at a roughness clamped to 0.25 inside
+      // 'awToonMetalLobe', graded from its threshold to the mirror direction and
+      // exactly zero below it. A few pixels across on a chibi pauldron, which is
+      // the size the mark is on the plate.
       //
       // It is half of what carries metal. The other half is the environment
       // reflection in 'RE_IndirectSpecular_Toon', which on the reference plates
-      // is the stronger of the two and was being quantised to zero.
-      float awLobe = awToonSpecShape( awToonBlinn( geometryNormal, directLight.direction,
-                                                   geometryViewDir, material.roughness ) );
+      // is the stronger of the two.
+      float awLobe = awToonGlintShape( awToonMetalLobe( geometryNormal, directLight.direction,
+                                                        geometryViewDir, material.roughness ) );
+
+      reflectedLight.directSpecular += directLight.color * uToonSpecColor
+        * ( uToonSpecGain * awLobe * awGate );
+
+    #else
+
+      // The prop classes — leather, crystal, the geometry eye. A broad graded
+      // highlight is right on all three and wrong on every character surface,
+      // which is the distinction this dispatch exists to draw.
+      float awLobe = awToonGlossShape( awToonGlossLobe( geometryNormal, directLight.direction,
+                                                        geometryViewDir, material.roughness ) );
 
       reflectedLight.directSpecular += directLight.color * uToonSpecColor
         * ( uToonSpecGain * awLobe * awGate );
@@ -277,26 +292,41 @@ void RE_IndirectSpecular_Toon( const in vec3 radiance, const in vec3 irradiance,
 
   awToonAmbient += awProbe * RECIPROCAL_PI * uToonAmbientGain;
 
-  // The grazing Fresnel lift, over a reflection that is now *swept* rather than
-  // levelled. On 'bravely01.jpg' the environment reflection is the strongest
-  // single metal cue the knight's plate carries: one 42 px patch of a pauldron
-  // runs p2 5 → p98 190 sRGB with a longest flat run of 4.8% of its own width,
-  // which is a continuous sweep and cannot be produced by any number of plates.
-  //
-  // 'uToonEnvLevels' still exists and still quantises, but it is 0 on every
-  // class including metal. At the three levels metal used to carry, a peak
-  // radiance below 1/6 quantises to exactly zero and everything up to 1/2 snaps
-  // to one constant — and with 'LookdevScene' authoring
-  // 'environmentIntensity = 0.28' the armour sat inside that dead zone, so the
-  // reflection was being deleted outright rather than stylised.
-  float awNdv = saturate( dot( geometryNormal, geometryViewDir ) );
-  vec3 awF = material.specularColorBlended
-    + ( vec3( material.specularF90 ) - material.specularColorBlended ) * pow( 1.0 - awNdv, 5.0 );
+  #ifdef TOON_ENV_SPEC
 
-  vec3 awEnv = mix( awProbe * RECIPROCAL_PI, radiance, material.metalness );
-  awEnv = awToonQuantise( awEnv, uToonEnvLevels );
+    // The grazing Fresnel lift, over a *swept* rather than levelled reflection.
+    // On 'bravely01.jpg' the environment reflection is the strongest single
+    // metal cue the knight's plate carries: one 42 px patch of a pauldron runs
+    // p2 5 → p98 190 sRGB with a longest flat run of 4.8% of its own width,
+    // which is a continuous sweep and cannot be produced by any number of
+    // plates.
+    //
+    // Compiled in only for the classes that are allowed a reflection at all —
+    // metal, and the three prop classes at a much lower gain. It is the other
+    // half of the vinyl defect and the half that was easiest to miss: a Fresnel
+    // term over a probe is brightest exactly along a silhouette, so at
+    // 'envSpecular: 0.06' every cloth panel and every square centimetre of skin
+    // in the frame carried a pale grazing sheen that no 'specGain: 0' switched
+    // off, because this term never consulted it. On a matte class the whole
+    // block — the Fresnel, the probe fetch it multiplies and the quantiser — now
+    // leaves the program.
+    //
+    // 'uToonEnvLevels' still exists and still quantises, but it is 0 on every
+    // class including metal. At the three levels metal used to carry, a peak
+    // radiance below 1/6 quantises to exactly zero and everything up to 1/2
+    // snaps to one constant — and with 'LookdevScene' authoring
+    // 'environmentIntensity = 0.28' the armour sat inside that dead zone, so the
+    // reflection was being deleted outright rather than stylised.
+    float awNdv = saturate( dot( geometryNormal, geometryViewDir ) );
+    vec3 awF = material.specularColorBlended
+      + ( vec3( material.specularF90 ) - material.specularColorBlended ) * pow( 1.0 - awNdv, 5.0 );
 
-  reflectedLight.indirectSpecular += awEnv * awF * uToonEnvSpecular;
+    vec3 awEnv = mix( awProbe * RECIPROCAL_PI, radiance, material.metalness );
+    awEnv = awToonQuantise( awEnv, uToonEnvLevels );
+
+    reflectedLight.indirectSpecular += awEnv * awF * uToonEnvSpecular;
+
+  #endif
 
 }
 
@@ -333,16 +363,31 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
   // soft grey patch floating inside it.
   float awVis = saturate( awToonWeight );
 
-  // The form ramp: 'smoothstep( t - w, t + w, N·L )' at a *wide* half-width, so
-  // it spans most of the N·L range and a curved surface picks up a continuous
-  // falloff across it. 'awToonBias' then curves that ramp; see 'awToonBias'.
-  //
-  // No pixel resolve. Compressing this to a fixed device-pixel width is what
-  // removed every surface's internal value variation: measured against
-  // 'bravely01.jpg', the longest run holding within ±2 sRGB code values inside
-  // one costume zone was 22–42% of the zone on ours against 5–18% on the plate.
-  float awShape = awToonBias( min( awToonBand( awNdl, uToonTerminator, uToonSoftness ),
-                                   awVis ) );
+  // The form ramp: 'smoothstep( t - w, t + w, N·L )'. Its half-width is per
+  // class — five degrees on a garment, half the N·L range on the meadow — so the
+  // same expression is a toon terminator on a coat and a soft falloff on a
+  // hedge. 'awToonBias' then curves it; see 'awToonBias'.
+  float awBand = awToonBand( awNdl, uToonTerminator, uToonSoftness );
+
+  #ifdef TOON_NARROW_BAND
+
+    // The antialias floor, and *only* the floor: 'awToonEdge' can widen a
+    // transition that has collapsed below 'uToonEdgePixels', never narrow one.
+    // A five-degree terminator goes sub-pixel wherever a limb turns near-tangent
+    // to the camera, and an unfiltered one there is a jagged staircase running
+    // the length of the silhouette — the exact artefact the ink line is supposed
+    // to be the only hard edge in the frame.
+    //
+    // This is not the term that flattened the costumes in the cel revision. That
+    // one *narrowed* the band to a fixed pixel count, which turned a ramp
+    // spanning a third of a figure into two flat fills. The narrowing path is
+    // gone from 'awToonEdge' entirely; what is left cannot make a band tighter
+    // than the preset asked for.
+    awBand = awToonEdge( awBand );
+
+  #endif
+
+  float awShape = awToonBias( min( awBand, awVis ) );
 
   // ---- surfaces that must not take a shadow at all -------------------------
   // A floor on the band itself, for the one class where a shadow is not a
@@ -437,23 +482,51 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
   // lookup — and splitting the sum across three's direct and indirect slots
   // would let '<aomap_fragment>' occlude one half of a value the placement above
   // just balanced.
-  reflectedLight.directDiffuse += mix( awShadeOut, awLitOut, awShape );
+  vec3 awSurface = mix( awShadeOut, awLitOut, awShape );
+  reflectedLight.directDiffuse += awSurface;
 
-  // ---- highlight ceiling --------------------------------------------------
-  // The highlight is accumulated per light inside 'RE_Direct_Toon', which cannot
-  // know what the rest of the surface will come to, so it needs a bound of its
-  // own — and a separate one from the rim's, because the two want opposite
-  // things and sharing one meant every attempt to calm the rim also flattened
-  // the metal.
-  //
-  // Compressed on the *peak channel* through a soft shoulder, so a gold blade's
-  // ping stays gold and the whole highlight is scaled by one factor — which
-  // leaves the gradation 'awToonSpecShape' built across it intact. A hard clamp
-  // would flatten every overshooting fragment to exactly the ceiling, turning a
-  // graded highlight back into the constant-valued sticker this revision removed.
-  float awSpecPeak = max3( reflectedLight.directSpecular );
-  reflectedLight.directSpecular *=
-    awToonSoftCap( awSpecPeak, uToonSpecCeiling ) / max( awSpecPeak, 1e-5 );
+  #if defined( TOON_SPECULAR ) || defined( TOON_SHEEN )
+
+    // ---- highlight bounds, absolute then relative --------------------------
+    // The highlight is accumulated per light inside 'RE_Direct_Toon', which
+    // cannot know what the rest of the surface will come to, so it needs a bound
+    // of its own — and a separate one from the rim's, because the two want
+    // opposite things and sharing one meant every attempt to calm the rim also
+    // flattened the metal.
+    //
+    // Compressed on the *peak channel* through a soft shoulder, so a gold
+    // blade's ping stays gold and the whole highlight is scaled by one factor,
+    // which leaves the gradation the shape function built across it intact. A
+    // hard clamp would flatten every overshooting fragment to exactly the
+    // ceiling, turning a graded highlight back into a constant-valued sticker.
+    float awSpecPeak = max3( reflectedLight.directSpecular );
+    float awSpecScale = awToonSoftCap( awSpecPeak, uToonSpecCeiling )
+      / max( awSpecPeak, 1e-5 );
+
+    // Then the bound that is stated against the surface underneath rather than
+    // in absolute radiance, because an absolute ceiling cannot express "never
+    // more than half again as bright as the hair": the same 1.7 that is a
+    // discreet ping on steel is a white blaze on a dark braid, and the hair band
+    // is the one mark in the frame whose whole job is to describe a *volume*
+    // rather than to be the brightest thing on the character. Hair runs
+    // 'specRelMax: 0.40', so the arc lands at most 1.4× the mass it sits on —
+    // measured off the plates, where every bright pass on a hair mass sits well
+    // inside the value range of the mass itself and never near white.
+    //
+    // Evaluated here because this is the first point at which the diffuse level
+    // exists. It scales the whole term, so the arc's shape survives the bound.
+    //
+    // Compiled only where there is a lobe to bound: the fur class reaches this
+    // block through 'TOON_SHEEN' and deliberately has no relative bound, because
+    // a Charlie lobe *is* the silhouette of the trim and clamping it against the
+    // dark albedo underneath would erase the one thing fur is for.
+    #ifdef TOON_SPECULAR
+      awSpecScale *= awToonSpecRelBound( awSpecPeak * awSpecScale, max3( awSurface ) );
+    #endif
+
+    reflectedLight.directSpecular *= awSpecScale;
+
+  #endif
 
   // ---- rim, a soft profile bounded twice ----------------------------------
   // REFERENCE_TARGET §1 requires a rim/back light separating the cast from the

@@ -160,8 +160,33 @@ const ALBEDO_BAND = Object.freeze({
  * rim floods an edge-on sheet.
  */
 const HARD_RIM = Object.freeze({ rimPower: 3.0, rimFloor: 0.55 });
+/**
+ * Large hanging panels — coat bodies, skirts, capes, aprons.
+ *
+ * The rim suppression here is **not** a taste setting and must not be relaxed
+ * back toward the `cloth` class's 0.70 gain. A fresnel rim is only a *rim* on a
+ * convex body, where `N·V → 0` along the silhouette and nowhere else; a skirt
+ * or a coat panel hangs edge-on to the battle camera over most of its area, so
+ * the term covers the whole piece and floods it with the rig's teal ring glow.
+ * `CharacterFactory`'s simulated-cloth material carries the same three numbers
+ * for the same reason, and `shots/gar1-cast/cast-lineup.png` shows what happens
+ * where the suppression is not landing: every simulated cape in the party is a
+ * sheet of pale cyan with no relation to its wearer's palette, while the
+ * garment panels next to them — these numbers — hold their authored colour.
+ *
+ * `rimWidth` is the one addition folds justify. Narrowing the band from the
+ * class's 0.66 concentrates what rim survives onto the fold ridges rather than
+ * spreading it evenly, so the small amount that is left works *for* the drape
+ * instead of averaging across it.
+ *
+ * The shadow overrides are the other half. A panel is seen from behind as often
+ * as from in front at this camera, so its *shadow* response is what the garment
+ * looks like in play: `shadowValue 0.60` keeps fold troughs genuinely dark
+ * enough to separate from their ridges, and the reduced `shadowMix` stops a
+ * wine coat tail rotating grey-violet on the largest area a character owns.
+ */
 const PANEL_RIM = Object.freeze({
-  rimGain: 0.10, rimPower: 4.5, rimFloor: 0.25,
+  rimGain: 0.10, rimPower: 4.5, rimFloor: 0.25, rimWidth: 0.50,
   shadowMix: 0.30, shadowValue: 0.60, shadowLevel: 0.14, ambientGain: 0.62,
 });
 
@@ -256,9 +281,89 @@ const HEM = Object.freeze({
   roll: 0.014,
   /** Fitted edges — collar, cuff, lapel, sash. Smaller pieces, finer turn. */
   edge: 0.010,
-  /** Two-skin separation for soft goods, held tight so hems clear the body. */
-  thickness: 0.009,
+  /**
+   * Two-skin separation for soft goods.
+   *
+   * 0.012 H, i.e. **1.5 cm** at this roster's scale (a 1.16-unit figure reading
+   * as roughly 1.5 m puts one world unit at 1.29 m), which is the low end of
+   * the 1–2 cm the finding asks a garment edge to model. It was 0.009 — 1.1 cm
+   * — held down because a skirt only clears the legs by about half of it, and
+   * `CLEARANCE` gives a skirt about 0.8 cm of room. The extra 0.2 cm of inward
+   * travel is inside that budget and it is the difference between a hem that
+   * has a visible dark underside and one that is a knife edge.
+   */
+  thickness: 0.012,
+  /**
+   * The doubled-back band at a hanging hem, as a fraction of the garment's
+   * own length, and how far its free lip stands proud of the garment skin.
+   *
+   * See {@link hemTurn}. Measured on `bravely01`: the hat-mage's skirt, the
+   * staff-mage's coat and the smith-equivalent apron all carry a band at the
+   * bottom that is *a separate value from the panel above it* — not a piped
+   * line but a strip 12–16% of the garment's height reading a half-stop darker,
+   * because it is the same cloth folded back on itself and therefore lit at a
+   * different angle. A rolled rim alone cannot produce that: a rim is one or
+   * two pixels of lip, and what the plate shows is a band.
+   */
+  turn: 0.135,
+  turnStand: 0.013,
 });
+
+/**
+ * Vertical drape folds, the single largest missing read in our costumes.
+ *
+ * **Measured against the plate.** On `bravely01` the staff-mage's coat carries
+ * seven distinct vertical creases across the ~150 px of panel the camera sees,
+ * each one about 20 px apart and each reading as a hard light/dark pair rather
+ * than as a gradient — the cel ramp lands one side of every fold in the shadow
+ * band and the other side out of it. The hat-mage's skirt does the same thing
+ * with eight. Ours had none: `skirt` carried a `goreDepth` of 0.03–0.05
+ * sampled at 30 segments for 8 gores, i.e. under four samples per period, which
+ * aliases the wave away before it can tilt a single normal.
+ *
+ * A fold is therefore not decoration here, it is *the* thing that makes cloth
+ * read as cloth on a two-band toon ramp, and it has to be built to the ramp's
+ * requirements:
+ *
+ *  - **Amplitude is set by the slope it produces, not by how it looks in
+ *    silhouette.** A radius modulated as `R(1 + A·cos(Nθ))` tilts its surface
+ *    normal by about `atan(A·N)`. At the defaults below — `A = 0.075`, `N = 7`
+ *    — that is 28°, which is comfortably more than the ~15° a fold needs to
+ *    swing across the key's terminator and put its two flanks in different
+ *    bands. Raising `A` alone would fatten the silhouette without steepening
+ *    anything; the product is what matters.
+ *  - **Six samples per fold, minimum.** Below about four the wave beats against
+ *    the tessellation and the skirt reads as a lumpy cone. `foldSegU` solves
+ *    the segment count from the fold count rather than leaving it to authors.
+ *  - **Integer fold counts only**, so the wave closes across the seam of a ring.
+ *  - **The crease is narrower than the ridge.** Hanging cloth gathers into
+ *    tight troughs separated by broad soft faces; `pw(cos, 0.65)` squares the
+ *    ridges out and pinches the troughs, which is what puts a hard edge on the
+ *    shadow band instead of a soft sine roll.
+ *  - **Folds deepen toward the hem**, because they are gathered at the waist
+ *    and free at the bottom. `onset` holds the top of the garment smooth so
+ *    the waist stays fitted, and `power` biases the growth downward.
+ */
+const DRAPE = Object.freeze({ folds: 7, depth: 0.075, onset: 0.10, power: 1.35, lobe: 0.28 });
+
+/** Radius multiplier for the drape field at `(u, v)`; see {@link DRAPE}. */
+function drapeAt(u, v, o) {
+  const folds = Math.max(1, Math.round(o.folds ?? DRAPE.folds));
+  const depth = o.depth ?? DRAPE.depth;
+  if (depth <= 0) return 1;
+  const onset = o.onset ?? DRAPE.onset;
+  const th = u * TAU;
+  const grow = Math.pow(clamp((v - onset) / (1 - onset), 0, 1), o.power ?? DRAPE.power);
+  // One slow cycle of depth variation around the body, so the folds are not a
+  // machined gear: real drape has two or three deep creases and the rest shallow.
+  const vary = 1 + (o.lobe ?? DRAPE.lobe) * Math.cos(th + 0.9);
+  return 1 + depth * grow * pw(Math.cos(th * folds), 0.65) * vary;
+}
+
+/** Segment count that resolves `folds` folds at six samples each. */
+function foldSegU(folds, min = 24, max = 60) {
+  return clamp(Math.round(Math.max(1, Math.round(folds)) * 6), min, max);
+}
 
 // ============================================================ small maths
 
@@ -597,6 +702,86 @@ const _dir = new THREE.Vector3();
 /** Scratch for per-strand tonal variation; see `furCollar`. */
 const _ink = new THREE.Color();
 const range = (n) => Array.from({ length: n }, (_, i) => i);
+
+/**
+ * **The doubled-back hem**: a second ring of cloth folded up behind the free
+ * edge of a hanging garment, with its own thickness and its own two lips.
+ *
+ * A garment edge in the plates is never a cut line. Look at the bottom of the
+ * staff-mage's coat in `bravely01` at 4×: there is a band roughly an eighth of
+ * the coat's height, standing very slightly proud of the panel above it, whose
+ * value sits between the coat face and the coat lining because it is the same
+ * cloth seen at a different angle. That band is what says "this is a thickness
+ * of fabric" rather than "this is where the polygon stops", and no amount of
+ * rim colour on a single-sided edge substitutes for it.
+ *
+ * Built by re-walking the host garment's own surface function past its hem, so
+ * the band inherits the drape folds and the flare exactly and cannot separate
+ * from the panel it belongs to. `w = 0` is the free lower lip, which hangs a
+ * little *below* the host's hem and stands furthest out; `w = 1` is the stitch
+ * line, tucked back against the panel. That taper is what makes the band read
+ * as folded rather than as a bolted-on skirt of its own, and it also guarantees
+ * the two pieces' rolled rims are never coplanar — coincident rims on a cel
+ * surface are a depth-test coin flip and print as a flickering bright line.
+ *
+ * @param {Surface} s
+ * @param {object} o `point`/`outward` from the host garment, plus shell options
+ */
+function hemTurn(s, o) {
+  const {
+    point, outward, at = 1.0, height = HEM.turn, stand,
+    thickness = 0, roll, face, back, rim, segU, closedU = true,
+  } = o;
+  const out = typeof outward === 'function' ? outward : () => outward;
+  shell(s, {
+    point: (u, w) => {
+      const v = at + height * (0.16 - w);
+      return point(u, v).addScaledVector(out(u, v), stand * (0.34 + 0.66 * (1 - w)));
+    },
+    segU, segV: 2, closedU,
+    thickness, roll, face, back, rim, outward,
+  });
+}
+
+/**
+ * A box buckle: four bars around a hole, with a tongue across it.
+ *
+ * The hole is the whole read. A buckle drawn as a solid plate is a bright
+ * lozenge and at eighty pixels it is indistinguishable from a button or a
+ * stud; the frame's interior lets the strap colour through and that
+ * two-tone-inside-a-bright-outline signature is what the eye files as hardware.
+ * `bravely05` carries five of these on one figure and every one of them is
+ * open.
+ *
+ * Oriented from a surface normal rather than assumed to face +Z, because the
+ * straps that carry these run diagonally across a curved torso and a buckle
+ * that faces the camera on a chest facing sideways floats off the ribbon.
+ *
+ * @param {Surface} s
+ * @param {object} o `at` centre, `normal` outward, `w`/`h` half-extents
+ */
+function buckleAt(s, o) {
+  const { at, normal, w, h, depth, frame = Math.min(w, h) * 0.34 } = o;
+  const n = normal.clone().normalize();
+  const side = new THREE.Vector3().crossVectors(V(0, 1, 0), n);
+  if (side.lengthSq() < 1e-8) side.set(1, 0, 0);
+  side.normalize();
+  const up = new THREE.Vector3().crossVectors(n, side).normalize();
+  const m = new THREE.Matrix4().makeBasis(side, up, n).setPosition(at);
+  for (const [ox, oy, rx, ry] of [
+    [0, h - frame, w, frame],
+    [0, -h + frame, w, frame],
+    [-w + frame, 0, frame, h],
+    [w - frame, 0, frame, h],
+  ]) {
+    blob(s, { cx: ox, cy: oy, cz: 0, rx, ry, rz: depth, eU: 0.25, eV: 0.25, segU: 8, segV: 4, matrix: m });
+  }
+  // Tongue, standing a little proud so it catches the key separately.
+  blob(s, {
+    cx: 0, cy: 0, cz: depth * 0.6, rx: Math.max(w * 0.15, depth * 0.5), ry: h * 0.86, rz: depth * 0.7,
+    eU: 0.3, eV: 0.3, segU: 6, segV: 4, matrix: m,
+  });
+}
 
 // ============================================================ swept solids
 
@@ -1624,33 +1809,60 @@ const BUILDERS = {
     const gap = (sp.gap ?? 0.20) * Math.PI;
     const flare = sp.flare ?? 2.30;
     const faceC = ctx.col(sp.color, 'identity', sp.material ?? 'panel');
+    const backC = ctx.col(sp.lining ?? 'trim', 'trim', sp.material ?? 'panel');
+    const rimC = ctx.col(sp.piping ?? sp.lining ?? 'trim', 'trim', sp.material ?? 'panel');
+    // Seven creases across the panel the camera sees is the count measured on
+    // the staff-mage; a coat is stiffer than a skirt so the field runs a little
+    // shallower and starts higher, which is where a coat actually breaks —
+    // under the arm, not at the waist.
+    const fold = {
+      folds: sp.folds ?? DRAPE.folds,
+      depth: sp.foldDepth ?? 0.062,
+      onset: sp.foldOnset ?? 0.22,
+      power: sp.foldPower ?? 1.15,
+      lobe: sp.foldLobe,
+    };
     const point = (u, v) => {
       const y = lerp(top, hemY, Math.pow(v, sp.hang ?? 1.0));
       const t = f.trunk(y, H * 0.010 + H * LAYER * 0.10);
       // Below the hip the trunk table has nothing to say, so the coat becomes a
       // free cone: this is the flare that takes it past shoulder width.
       const below = clamp((f.hipY - y) / (f.hipY - hemY || 1), 0, 1);
-      const k = 1 + below * (flare - 1);
+      const k = (1 + below * (flare - 1)) * drapeAt(u, v, fold);
       const a = Math.PI * 0.5 + gap * 0.5 + u * (TAU - gap);
       return V(Math.cos(a) * t.rx * k, y, t.z + Math.sin(a) * t.rz * k);
     };
+    const outward = (u) => {
+      const a = Math.PI * 0.5 + gap * 0.5 + u * (TAU - gap);
+      return V(Math.cos(a), 0, Math.sin(a));
+    };
+    const segU = foldSegU(fold.folds, 26);
     shell(s, {
-      point, segU: 26, segV: 9,
+      point, segU, segV: 9,
       thickness: H * (sp.thickness ?? HEM.thickness),
       // Hem *and* both front panel edges — the coat's rim is one closed walk —
       // so raising this is what puts a visible turned edge down the split as
       // well as along the bottom, which is where the plate's coat reads thick.
       roll: H * HEM.roll,
-      face: faceC,
-      back: ctx.col(sp.lining ?? 'trim', 'trim', sp.material ?? 'panel'),
-      rim: ctx.col(sp.piping ?? sp.lining ?? 'trim', 'trim', sp.material ?? 'panel'),
+      face: faceC, back: backC, rim: rimC,
       // No UV scale here, on purpose — see `resolveRepeat`. The coat's tiling
       // lives in the roster's `pattern.repeat` and nowhere else.
-      outward: (u) => {
-        const a = Math.PI * 0.5 + gap * 0.5 + u * (TAU - gap);
-        return V(Math.cos(a), 0, Math.sin(a));
-      },
+      outward,
     });
+    if (sp.turned !== false) {
+      // Unpatterned group — see the note in `skirt`: a turned hem shows the
+      // unprinted back of the cloth, and sharing the printed group would
+      // compress the whole motif into the band.
+      hemTurn(ctx.pull(sp.material ?? 'panel', 'chest'), {
+        point, outward, segU, closedU: false,
+        height: sp.turnHeight ?? HEM.turn * 0.78,
+        stand: H * (sp.turnStand ?? HEM.turnStand),
+        thickness: H * (sp.thickness ?? HEM.thickness),
+        roll: H * HEM.roll,
+        face: ctx.col(sp.turnColor ?? sp.lining ?? 'trim', 'trim', sp.material ?? 'panel'),
+        back: faceC, rim: rimC,
+      });
+    }
 
     // Buttoned placket down the wearer's right front edge.
     if (sp.buttons) {
@@ -1741,27 +1953,55 @@ const BUILDERS = {
     const s = ctx.pull(sp.material ?? 'panel', 'chest', sp.pattern);
     const top = lerp(f.J.chest.y, f.J.neck.y, sp.top ?? 0.70);
     const bot = f.hipY - H * (sp.drop ?? 0.22);
+    const faceC = ctx.col(sp.color, 'identity', sp.material ?? 'panel');
+    const bindC = ctx.col(sp.binding ?? 'trim', 'trim', sp.material ?? 'panel');
+    // Heavy canvas: fewer, deeper folds than tailored cloth, and they only
+    // start below the belt because the bib is pulled flat by the neck strap.
+    const fold = {
+      folds: sp.folds ?? 4,
+      depth: sp.foldDepth ?? 0.070,
+      onset: sp.foldOnset ?? 0.42,
+      power: sp.foldPower ?? 1.0,
+      lobe: sp.foldLobe,
+    };
+    // The apron spans only the front arc, so its parameter has to be remapped
+    // onto a whole fold cycle or the wave shows a fraction of a period and
+    // reads as a single lean rather than as gathers.
+    const point = (u, v) => {
+      const y = lerp(top, bot, v);
+      const t = f.trunk(y, H * (0.012 + LAYER * 0.10));
+      // Narrow bib over the chest, widening into a full apron below the belt.
+      const wide = lerp(sp.bib ?? 0.30, sp.skirt ?? 0.62, Math.pow(v, 0.7)) * Math.PI;
+      const a = Math.PI * 0.5 + lerp(-wide, wide, u);
+      const k = (1 + Math.max(0, (f.hipY - y) / (f.hipY - bot || 1)) * (sp.flare ?? 0.20))
+        * drapeAt(u, v, fold);
+      return V(Math.cos(a) * t.rx * k, y, t.z + Math.sin(a) * t.rz * k);
+    };
+    const segU = foldSegU(fold.folds, 18, 42);
     shell(s, {
-      point: (u, v) => {
-        const y = lerp(top, bot, v);
-        const t = f.trunk(y, H * (0.012 + LAYER * 0.10));
-        // Narrow bib over the chest, widening into a full apron below the belt.
-        const wide = lerp(sp.bib ?? 0.30, sp.skirt ?? 0.62, Math.pow(v, 0.7)) * Math.PI;
-        const a = Math.PI * 0.5 + lerp(-wide, wide, u);
-        const k = 1 + Math.max(0, (f.hipY - y) / (f.hipY - bot || 1)) * (sp.flare ?? 0.20);
-        return V(Math.cos(a) * t.rx * k, y, t.z + Math.sin(a) * t.rz * k);
-      },
-      segU: 14, segV: 7,
-      thickness: H * (sp.thickness ?? 0.010),
+      point, segU, segV: 7,
+      thickness: H * (sp.thickness ?? HEM.thickness),
       // An apron is bound all round with a contrasting tape, and that binding
       // is the thickest edge on the character wearing it.
       roll: H * HEM.roll,
-      face: ctx.col(sp.color, 'identity', sp.material ?? 'panel'),
+      face: faceC,
       back: ctx.col(sp.lining ?? 'leather', 'leather', sp.material ?? 'panel'),
-      rim: ctx.col(sp.binding ?? 'trim', 'trim', sp.material ?? 'panel'),
+      rim: bindC,
       uv: (u, v) => [u, 1 - v],
       outward: V(0, 0, 1),
     });
+    if (sp.turned !== false) {
+      // Unpatterned group — see the note in `skirt`.
+      hemTurn(ctx.pull(sp.material ?? 'panel', 'chest'), {
+        point, outward: V(0, 0, 1), segU, closedU: false,
+        height: sp.turnHeight ?? HEM.turn,
+        stand: H * (sp.turnStand ?? HEM.turnStand),
+        thickness: H * (sp.thickness ?? HEM.thickness),
+        roll: H * HEM.roll,
+        face: ctx.col(sp.turnColor ?? sp.lining ?? 'leather', 'leather', sp.material ?? 'panel'),
+        back: faceC, rim: bindC,
+      });
+    }
     // Neck strap, so the apron is worn rather than floating.
     if (sp.strap !== false) {
       const ss = ctx.pull(sp.strapMaterial ?? 'leather', null);
@@ -1785,15 +2025,19 @@ const BUILDERS = {
     const bot = top - H * (sp.length ?? 0.20);
     const wrap = (sp.wrap ?? 0.86) * Math.PI;
     const phase = sp.front ? Math.PI * 0.5 : -Math.PI * 0.5;
+    const fold = {
+      folds: sp.folds ?? 5, depth: sp.foldDepth ?? 0.058,
+      onset: sp.foldOnset ?? 0.20, power: sp.foldPower ?? 1.2, lobe: sp.foldLobe,
+    };
     const point = (u, v) => {
       const y = lerp(top, bot, v);
       const t = f.trunk(Math.max(y, f.hipY), H * (0.016 + LAYER * 0.16));
       const a = phase + lerp(-wrap, wrap, u);
-      const k = 1 + v * (sp.flare ?? 0.34);
+      const k = (1 + v * (sp.flare ?? 0.34)) * drapeAt(u, v, fold);
       return V(Math.cos(a) * t.rx * k, y, t.z + Math.sin(a) * t.rz * k);
     };
     shell(s, {
-      point, segU: 18, segV: 5,
+      point, segU: foldSegU(fold.folds, 18, 42), segV: 5,
       thickness: H * (sp.thickness ?? HEM.thickness),
       roll: H * HEM.roll,
       face: ctx.col(sp.color, 'cape', sp.material ?? 'panel'),
@@ -1868,45 +2112,79 @@ const BUILDERS = {
    * crinoline. The number the plate actually fixes is the hem *width*; the
    * ratio depends on where the garment is cut from.
    *
-   * `gores` scallops the hem so the panel seams read — a perfectly circular hem
-   * is the tell that a skirt is a cone rather than cloth.
+   * `folds` is the drape (see {@link DRAPE}) and it replaces the `gores`
+   * scallop this used to carry: a 0.05-amplitude cosine on 30 segments for 8
+   * gores is under four samples a period, so it aliased into a lumpy cone
+   * instead of tilting normals. The fold field is sampled at six segments per
+   * fold and cut deep enough to swing each flank across the cel terminator,
+   * and the hem below it is a real turned band rather than a cut edge.
    */
   skirt(ctx, sp) {
     const { f, H } = ctx;
     const s = ctx.pull(sp.material ?? 'panel', 'hips', sp.pattern);
     const top = sp.top !== undefined ? lerp(f.hipY, f.J.neck.y, sp.top) : f.waistY;
     const flare = sp.flare ?? 2.15;
-    const gores = sp.gores ?? 8;
+    const fold = {
+      folds: sp.folds ?? sp.gores ?? DRAPE.folds,
+      depth: sp.foldDepth ?? DRAPE.depth,
+      onset: sp.foldOnset, power: sp.foldPower, lobe: sp.foldLobe,
+    };
     const sag = sp.sag ?? 0.05;
     // A hem is never allowed through the floor, whatever the roster asks for.
     // Skirt length is authored against body height and the waist sits at a
     // different fraction of it on every character, so a length that clears the
     // ground on a 1.26-unit dragoon drags on a 1.06-unit oracle — and cloth
     // through the stage is the one costume failure that cannot be shaded away.
-    const len = Math.min(H * (sp.length ?? 0.41), (top - H * 0.015) / (1 + sag));
+    // The turn is cut out of the authored length rather than added below it, so
+    // a skirt with a hem band is exactly as long as one without and the floor
+    // guard below still holds.
+    const len = Math.min(H * (sp.length ?? 0.41), (top - H * 0.015) / (1 + sag + HEM.turn * 0.2));
+    const faceC = ctx.col(sp.color, 'identity', sp.material ?? 'panel');
+    const backC = ctx.col(sp.lining ?? 'secondary', 'secondary', sp.material ?? 'panel');
+    const rimC = ctx.col(sp.pipingColor ?? 'trim', 'trim', sp.material ?? 'panel');
+    const point = (u, v) => {
+      const a = u * TAU;
+      const y = top - len * v;
+      const t = f.trunk(Math.max(y, f.hipY - H * 0.01), H * 0.006);
+      const k = (1 + v * (flare - 1)) * drapeAt(u, v, fold);
+      return V(Math.cos(a) * t.rx * k, y - v * v * len * sag, t.z + Math.sin(a) * t.rz * k);
+    };
+    const outward = (u) => V(Math.cos(u * TAU), 0, Math.sin(u * TAU));
+    const segU = foldSegU(fold.folds, 30);
     shell(s, {
-      point: (u, v) => {
-        const a = u * TAU;
-        const y = top - len * v;
-        const t = f.trunk(Math.max(y, f.hipY - H * 0.01), H * 0.006);
-        const wave = 1 + Math.cos(a * gores) * (sp.goreDepth ?? 0.05) * v;
-        const k = (1 + v * (flare - 1)) * wave;
-        return V(Math.cos(a) * t.rx * k, y - v * v * len * sag, t.z + Math.sin(a) * t.rz * k);
-      },
-      segU: 30, segV: 6, closedU: true,
+      point, segU, segV: 6, closedU: true,
       thickness: H * (sp.thickness ?? HEM.thickness),
       // The piped hem, measured on the hat-mage as a pale line running the
       // whole circumference: a rolled rim in the trim colour, standing proud
       // enough to survive the downscale. `HEM.roll` is that measurement.
       roll: H * (sp.piped === false ? HEM.edge : HEM.roll),
-      face: ctx.col(sp.color, 'identity', sp.material ?? 'panel'),
-      back: ctx.col(sp.lining ?? 'secondary', 'secondary', sp.material ?? 'panel'),
-      rim: ctx.col(sp.pipingColor ?? 'trim', 'trim', sp.material ?? 'panel'),
+      face: faceC, back: backC, rim: rimC,
       // No UV scale — the print's tiling is `pattern.repeat` alone. This line
       // used to multiply u by three on top of it, which is what turned Seren's
       // petticoat weave into a magenta/white check; see `resolveRepeat`.
-      outward: (u) => V(Math.cos(u * TAU), 0, Math.sin(u * TAU)),
+      outward,
     });
+    if (sp.turned !== false) {
+      // The band takes the *lining* as its face: it is the inside of the cloth
+      // turned outward, so it must not be the panel colour or the whole point
+      // of the fold is lost. Its own back falls to the panel colour, which is
+      // what the sliver visible under the free lip should be.
+      //
+      // Drawn into the **unpatterned** group even when the skirt is printed,
+      // and that is not an optimisation: a print is applied to the outside of a
+      // bolt of cloth, so the face a hem turns outward is plain lining. Sharing
+      // the printed group would also squeeze a full vertical slice of the motif
+      // into a band an eighth as tall, which resolves as a smear.
+      hemTurn(ctx.pull(sp.material ?? 'panel', 'hips'), {
+        point, outward, segU, closedU: true,
+        height: sp.turnHeight ?? HEM.turn,
+        stand: H * (sp.turnStand ?? HEM.turnStand),
+        thickness: H * (sp.thickness ?? HEM.thickness),
+        roll: H * HEM.roll,
+        face: ctx.col(sp.turnColor ?? sp.lining ?? 'secondary', 'secondary', sp.material ?? 'panel'),
+        back: faceC, rim: rimC,
+      });
+    }
   },
 
   /**
@@ -1919,7 +2197,10 @@ const BUILDERS = {
   underskirt(ctx, sp) {
     BUILDERS.skirt(ctx, {
       material: 'panel',
-      length: 0.46, flare: 1.80, gores: 6, goreDepth: 0.03,
+      // Shallower folds than the outer layer and two fewer of them: a petticoat
+      // read through the gaps in the skirt over it has to be a *different*
+      // rhythm or the two lock into one surface at the hem.
+      length: 0.46, flare: 1.80, folds: 5, foldDepth: 0.052,
       color: 'secondary', lining: 'secondary', pipingColor: 'trim',
       ...sp,
     });
@@ -2022,40 +2303,76 @@ const BUILDERS = {
       section(8, 0.8), () => { const r = H * 0.016; return [r, r * 1.2]; },
       { capStart: false, capEnd: false });
 
-    const n = clamp(sp.tufts ?? 22, 6, 40);
+    /**
+     * **Clumps, in two interleaved rows — not a fringe of spines.**
+     *
+     * Fur in `bravely01` (the archer's black ruff) and `bravely05` (the ninja's
+     * cape trim) does not resolve as hairs. It resolves as *clumps*: eight or
+     * ten fat wedges per side, each wide enough to carry its own lit face and
+     * its own shadow, overlapping their neighbours so the outline is a run of
+     * shallow arcs rather than a comb. Ours built 22 tufts of `0.017 H` root
+     * radius on one ring, which is a 2 cm spine — thin enough that at the
+     * battle camera every one of them was under two pixels and the whole ruff
+     * averaged out to a smooth collar.
+     *
+     * Three things fix that and all three are load-bearing:
+     *
+     *  - **Root width scaled up to `0.030 H`** (≈3.9 cm) so a clump is wider
+     *    than the gap to its neighbour and the row genuinely overlaps. The
+     *    overlap test is `2·w > 2πr/n`; at the defaults it passes with room.
+     *  - **Two rows at different radii and lengths**, the inner one shorter and
+     *    darker (undercoat), the outer longer and lighter (guard hair), with
+     *    the outer row's angular phase offset half a step so no clump sits
+     *    directly behind another. That is what gives the mass depth instead of
+     *    a single scalloped ring.
+     *  - **A cone profile that is widest just past the root**, so a clump has a
+     *    shoulder to catch the key and a point to break the silhouette. A tube
+     *    that tapers only at the tip reads as a finger.
+     */
+    const rows = clamp(sp.rows ?? (feather ? 1 : 2), 1, 3);
+    const total = clamp(sp.tufts ?? 26, 6, 44);
     const arc = (sp.arc ?? 1.0) * TAU;
     const start = sp.arc ? Math.PI * 0.5 - arc * 0.5 : 0;
-    for (let k = 0; k < n; k++) {
-      // Angle, radius and height all carry their own jitter, and that is what
-      // fixes the defect rather than what decorates it. Evenly spaced tufts
-      // rooted on one ring at one radius put every neighbouring pair of plates
-      // on the same surface for most of their overlap, and the depth test then
-      // flickers between them — the "bundle of strands that z-fight each other"
-      // the review found on the bone ruff. Staggering the root is what makes
-      // each overlap a definite over/under.
-      const a = start + (k / n) * arc + ctx.rng.jitter((arc / n) * 0.30);
-      const dirOut = V(Math.cos(a), 0, Math.sin(a) * 0.95);
-      const lift = lerp(sp.liftBack ?? 0.55, sp.liftFront ?? -0.15, (Math.sin(a) + 1) * 0.5);
-      const len = H * (sp.length ?? 0.055) * (0.55 + ctx.rng.next() * 0.90);
-      const seat = rBase * (0.72 + ctx.rng.jitter(0.09));
-      const root = V(dirOut.x * seat, y + ctx.rng.jitter(H * 0.011), dirOut.z * seat - f.g.neck * 0.10);
-      const tip = root.clone()
-        .addScaledVector(dirOut, len)
-        .add(V(ctx.rng.jitter(len * 0.30), len * lift + ctx.rng.jitter(len * 0.22), ctx.rng.jitter(len * 0.30)));
-      const mid = root.clone().lerp(tip, 0.55).add(V(0, len * 0.12, 0));
-      // Strand-level tonal variation, which is what the plates' fur and feather
-      // actually carry — a continuous spread between the shade and the face
-      // colour, not the hard every-third-tuft alternation this used to do. The
-      // `fur` recipe's opened rim supplies the sheen over the top of it.
-      s.ink(_ink.copy(shadeC).lerp(faceC, 0.20 + ctx.rng.next() * 0.80));
-      const w = H * (feather ? 0.030 : 0.017) * (0.7 + ctx.rng.next() * 0.6);
-      sweep(s, [root.clone().addScaledVector(dirOut, -rBase * 0.30), root, mid, tip],
-        feather ? section(6, 0.55) : section(5, 0.85),
-        (i) => {
-          const scale = [0.55, 1.0, 0.72, 0.05][i];
-          return feather ? [w * scale, w * scale * 0.28] : [w * scale, w * scale];
-        },
-        { capStart: true, capEnd: true });
+    const rootW = H * (sp.clump ?? (feather ? 0.030 : 0.030));
+    for (let row = 0; row < rows; row++) {
+      const rowT = rows === 1 ? 1 : row / (rows - 1);
+      const n = Math.max(4, Math.round(total / rows));
+      const seatR = rBase * lerp(0.60, 0.88, rowT);
+      const seatY = y + H * lerp(-0.012, 0.010, rowT);
+      const lenK = lerp(0.70, 1.15, rowT);
+      const widK = lerp(0.82, 1.0, rowT);
+      for (let k = 0; k < n; k++) {
+        // Half-step phase offset per row plus per-clump jitter: evenly spaced
+        // clumps rooted at one radius put neighbouring pairs on the same
+        // surface for most of their overlap and the depth test flickers
+        // between them — the z-fighting the review found on the bone ruff.
+        const a = start + ((k + row * 0.5) / n) * arc + ctx.rng.jitter((arc / n) * 0.28);
+        const dirOut = V(Math.cos(a), 0, Math.sin(a) * 0.95);
+        const lift = lerp(sp.liftBack ?? 0.55, sp.liftFront ?? -0.15, (Math.sin(a) + 1) * 0.5);
+        const len = H * (sp.length ?? 0.062) * lenK * (0.62 + ctx.rng.next() * 0.72);
+        const seat = seatR * (1 + ctx.rng.jitter(0.10));
+        const root = V(dirOut.x * seat, seatY + ctx.rng.jitter(H * 0.010), dirOut.z * seat - f.g.neck * 0.10);
+        const tip = root.clone()
+          .addScaledVector(dirOut, len)
+          .add(V(ctx.rng.jitter(len * 0.28), len * lift + ctx.rng.jitter(len * 0.22), ctx.rng.jitter(len * 0.28)));
+        // The clump bends: its mid control point leans away from the direction
+        // the root left in, which is what stops a row of them reading parallel.
+        const mid = root.clone().lerp(tip, 0.52)
+          .add(V(ctx.rng.jitter(len * 0.16), len * 0.14, ctx.rng.jitter(len * 0.16)));
+        // Strand-level tonal variation, which is what the plates' fur and
+        // feather actually carry — a continuous spread between the shade and
+        // the face colour. The `fur` recipe's opened rim adds the sheen.
+        s.ink(_ink.copy(shadeC).lerp(faceC, 0.15 + ctx.rng.next() * 0.85));
+        const w = rootW * widK * (0.78 + ctx.rng.next() * 0.44);
+        sweep(s, [root.clone().addScaledVector(dirOut, -seatR * 0.34), root, mid, tip],
+          feather ? section(6, 0.55) : section(6, 0.85),
+          (i) => {
+            // Widest just past the root — the shoulder that catches the key.
+            const scale = [0.62, 1.0, 0.60, 0.05][i];
+            return feather ? [w * scale, w * scale * 0.28] : [w * scale, w * scale];
+          },
+          { capStart: true, capEnd: true });
+      }
     }
   },
 
@@ -2264,29 +2581,29 @@ const BUILDERS = {
     const { f, H } = ctx;
     const s = ctx.pull(sp.material ?? 'leather', null, sp.pattern);
     const y = sp.at === 'hip' ? f.hipY + f.g.hipX * 0.10 : f.waistY + H * (sp.raise ?? 0);
-    const t = f.trunk(y, H * (0.008 + LAYER * (sp.over ?? 0.20)));
+    // A belt is worn *over* the coat, and the old 0.20 layer put it 0.4 cm off
+    // the coat skin — inside the coat's own half-thickness, so it was buried
+    // for most of its circumference. 0.42 stands it a clear centimetre proud.
+    const t = f.trunk(y, H * (0.008 + LAYER * (sp.over ?? 0.42)));
     const w = H * (sp.width ?? 0.036);
     s.ink(ctx.col(sp.color, 'leather', sp.material ?? 'leather'));
-    sweep(s, ringPath(y, t.rx, t.rz, 26, t.z), section(10, 0.45),
-      () => [H * 0.008, w * 0.5], { capStart: false, capEnd: false });
+    sweep(s, ringPath(y, t.rx, t.rz, 26, t.z), section(10, 0.35),
+      () => [H * 0.010, w * 0.5], { capStart: false, capEnd: false });
 
     // Buckle: a frame, not a plate — the hole is what says "buckle" at 80 px.
+    // Shared with `strap`, so every buckle on the roster is the same object at
+    // a different size and the party's hardware reads as one wardrobe.
     const hs = ctx.pull('trim', null);
     hs.ink(ctx.col(sp.buckle ?? 'metal', 'metal', 'trim'));
-    const bw = H * (sp.buckleWidth ?? 0.083) * 0.5;
-    const bh = H * (sp.buckleHeight ?? 0.055) * 0.5;
     const zf = t.z + t.rz * 1.02;
-    const frame = H * 0.011;
-    for (const [ox, oy, rx, ry] of [
-      [0, bh - frame * 0.5, bw, frame * 0.5],
-      [0, -bh + frame * 0.5, bw, frame * 0.5],
-      [-bw + frame * 0.5, 0, frame * 0.5, bh],
-      [bw - frame * 0.5, 0, frame * 0.5, bh],
-    ]) {
-      blob(hs, { cx: ox, cy: y + oy, cz: zf, rx, ry, rz: H * 0.008, eU: 0.30, eV: 0.30, segU: 8, segV: 5 });
-    }
-    // Tongue across the frame.
-    blob(hs, { cx: 0, cy: y, cz: zf + H * 0.004, rx: bw * 0.14, ry: bh * 0.92, rz: H * 0.005, eU: 0.4, eV: 0.4, segU: 6, segV: 5 });
+    buckleAt(hs, {
+      at: V(0, y, zf),
+      normal: V(0, 0, 1),
+      w: H * (sp.buckleWidth ?? 0.083) * 0.5,
+      h: H * (sp.buckleHeight ?? 0.055) * 0.5,
+      depth: H * 0.008,
+      frame: H * 0.0075,
+    });
 
     if (sp.tail !== false) {
       const side = sp.tailSide === 'R' ? -1 : 1;
@@ -2340,42 +2657,125 @@ const BUILDERS = {
   /**
    * Diagonal strap across the torso — a baldric, a bandolier, a book strap.
    *
-   * The ninja carries four of these crossing at different angles, and they are
-   * most of why that costume reads as *assembled* rather than as a suit. Ours
-   * carries buckles and, optionally, a row of loops.
+   * **Rebuilt as a raised quad ribbon.** It used to be a swept tube of section
+   * `(8, 0.35)` and half-height `0.015 H`: a piece of piping about 3.5 cm wide
+   * whose cross-section had no flat face for the key to land on and no edge for
+   * the outline pass to find. At the battle camera that is a dark thread laid
+   * over a dark coat and it disappears completely — which is exactly what the
+   * review found. `bravely05` shows what the piece is actually for: broad flat
+   * bands, five to seven centimetres across, standing clear of the garment
+   * under them, with hard shadowed edges and hardware sitting on top.
+   *
+   * So the ribbon is now a `shell` — two flat skins with a real 1 cm thickness
+   * and a rolled edge on all four sides — laid *conformally* on the torso, and
+   * offset along the ribbon's own perpendicular in the (arc-length, height)
+   * chart so it keeps a constant width down a diagonal run instead of
+   * foreshortening into a wedge. It carries a box buckle (see {@link
+   * buckleAt}), leather keeper loops straddling the band, and a hanging strap
+   * end below the buckle with a punched-hole row.
    */
   strap(ctx, sp) {
     const { f, H } = ctx;
     const s = ctx.pull(sp.material ?? 'leather', null, sp.pattern);
-    s.ink(ctx.col(sp.color, 'leather', sp.material ?? 'leather'));
     const side = sp.side === 'R' ? -1 : 1;
     const yTop = lerp(f.J.chest.y, f.J.neck.y, sp.top ?? 0.62);
     const yBot = lerp(f.hipY, f.J.chest.y, sp.bottom ?? 0.18);
-    const w = H * (sp.width ?? 0.030);
-    const ring = (y, a) => {
-      const t = f.trunk(y, H * (0.010 + LAYER * (sp.over ?? 0.30)));
+    const w = H * (sp.width ?? 0.048);
+    // Straps are the outermost thing on the torso by definition — they are worn
+    // over the coat, not under it — so they sit a clear layer proud of the
+    // outerwear's own standoff rather than sharing it.
+    const stand = H * (0.012 + LAYER * (sp.over ?? 0.46));
+    const aAt = (v) => lerp(Math.PI * 0.5 + side * 0.48, Math.PI * 0.5 - side * 1.02, v);
+    const ringAt = (y, a) => {
+      const t = f.trunk(y, stand);
+      return { p: V(Math.cos(a) * t.rx, y, t.z + Math.sin(a) * t.rz), r: (t.rx + t.rz) * 0.5 };
+    };
+    /** Centre-line of the ribbon at `v`, plus the chart radius there. */
+    const centre = (v) => {
+      const y = lerp(yTop, yBot, v);
+      return { y, a: aAt(v), r: ringAt(y, aAt(v)).r };
+    };
+    const point = (u, v) => {
+      // Perpendicular offset taken in the (arc-length, height) chart, so a run
+      // that is mostly vertical gets a mostly horizontal band and one that
+      // wraps round the ribs gets a mostly vertical one.
+      const c0 = centre(Math.max(0, v - 0.02));
+      const c1 = centre(Math.min(1, v + 0.02));
+      const ds = (c1.a - c0.a) * c1.r;
+      const dy = c1.y - c0.y;
+      const L = Math.hypot(ds, dy) || 1;
+      const c = centre(v);
+      const off = (u - 0.5) * w;
+      const y = c.y + off * (ds / L);
+      const t = f.trunk(y, stand);
+      const a = c.a + (off * (dy / L)) / Math.max(c.r, 1e-4);
       return V(Math.cos(a) * t.rx, y, t.z + Math.sin(a) * t.rz);
     };
-    const path = [];
-    const steps = 12;
-    for (let i = 0; i <= steps; i++) {
-      const v = i / steps;
-      const y = lerp(yTop, yBot, v);
-      // Over the shoulder at the top, round to the opposite hip at the bottom.
-      const a = lerp(Math.PI * 0.5 + side * 0.45, Math.PI * 0.5 - side * 1.05, v);
-      path.push(ring(y, a));
-    }
-    sweep(s, path, section(8, 0.35), () => [H * 0.007, w * 0.5], { capStart: true, capEnd: true });
+    const outward = (u, v) => {
+      const a = aAt(v);
+      return V(Math.cos(a), 0, Math.sin(a));
+    };
+    const faceC = ctx.col(sp.color, 'leather', sp.material ?? 'leather');
+    shell(s, {
+      point, segU: 3, segV: 12,
+      thickness: H * (sp.thickness ?? 0.011),
+      roll: H * HEM.edge * 0.75,
+      face: faceC,
+      back: ctx.col(sp.lining ?? sp.color, 'leather', sp.material ?? 'leather'),
+      rim: ctx.col(sp.edge ?? sp.color, 'leather', sp.material ?? 'leather'),
+      outward,
+    });
 
+    // Buckle on the centre line, oriented off the torso normal there.
     const hs = ctx.pull('trim', null);
     hs.ink(ctx.col(sp.buckle ?? 'metal', 'metal', 'trim'));
-    const at = path[Math.round(steps * (sp.buckleAt ?? 0.42))];
-    blob(hs, { cx: at.x, cy: at.y, cz: at.z + H * 0.006, rx: w * 0.62, ry: w * 0.52, rz: H * 0.008, eU: 0.35, eV: 0.35, segU: 8, segV: 5 });
+    const bv = clamp(sp.buckleAt ?? 0.42, 0.05, 0.95);
+    const bc = centre(bv);
+    const bp = ringAt(bc.y, bc.a).p;
+    const bn = V(Math.cos(bc.a), 0, Math.sin(bc.a));
+    buckleAt(hs, {
+      at: bp.clone().addScaledVector(bn, H * 0.008),
+      normal: bn,
+      w: w * 0.62, h: w * 0.52, depth: H * 0.007,
+    });
+
+    // Keeper loops: bands of the strap's own leather wrapped round it, wider
+    // than the strap and thinner than the buckle. Metal studs were the wrong
+    // part — a bandolier's repeated element is a loop, and a loop reads as a
+    // dark band interrupting the strap rather than as a bright dot on it.
     if (sp.loops) {
+      const ls = ctx.pull(sp.material ?? 'leather', null);
+      ls.ink(ctx.col(sp.loopColor ?? sp.color, 'leather', sp.material ?? 'leather'));
       for (let k = 0; k < sp.loops; k++) {
-        const p = path[Math.round(lerp(2, steps - 2, k / Math.max(1, sp.loops - 1)))];
-        blob(hs, { cx: p.x, cy: p.y, cz: p.z + H * 0.007, rx: w * 0.30, ry: w * 0.34, rz: H * 0.007, eU: 0.5, eV: 0.5, segU: 8, segV: 5 });
+        const v = lerp(0.14, 0.90, k / Math.max(1, sp.loops - 1));
+        if (Math.abs(v - bv) < 0.09) continue; // never on top of the buckle
+        const c = centre(v);
+        const p = ringAt(c.y, c.a).p;
+        const n = V(Math.cos(c.a), 0, Math.sin(c.a));
+        const m = new THREE.Matrix4()
+          .makeBasis(new THREE.Vector3().crossVectors(V(0, 1, 0), n).normalize(),
+            V(0, 1, 0), n)
+          .setPosition(p);
+        blob(ls, {
+          cx: 0, cy: 0, cz: 0, rx: w * 0.60, ry: H * 0.010, rz: H * 0.019,
+          eU: 0.28, eV: 0.28, segU: 8, segV: 4, matrix: m,
+        });
       }
+    }
+
+    // Hanging strap end past the buckle, with a punched-hole row — the detail
+    // that makes a belt read as adjustable rather than as a painted stripe.
+    if (sp.tail !== false) {
+      const te = centre(Math.min(1, bv + 0.30));
+      const tp = ringAt(te.y, te.a).p;
+      s.ink(faceC);
+      sweep(s, [
+        bp.clone().addScaledVector(bn, H * 0.004),
+        bp.clone().lerp(tp, 0.55).addScaledVector(bn, H * 0.010),
+        tp.clone().addScaledVector(bn, H * 0.014).add(V(0, -H * 0.026, 0)),
+      ], section(6, 0.30),
+      (i) => { const k = [1, 0.94, 0.66][i]; return [H * 0.006 * k, w * 0.44 * k]; },
+      { capStart: true, capEnd: true });
     }
   },
 

@@ -30,29 +30,55 @@
  *    to be distinguishable as flat black shapes at 80 px, so hair mass, weapon
  *    outline and cloth hem are the most detailed things here.
  *
- * 3. **Colour blocking is a hard requirement, not decoration.** ANIME_PIPELINE
- *    §5: every character must read as three or four *flat* colour zones and be
- *    identifiable "by colour alone" at battle distance. The first cast failed
- *    this outright — five of the six wore a dark desaturated coat and the party
- *    read as one navy mass. The `palette` block below is therefore organised
- *    around four named zones rather than around a costume description:
+ * 3. **Colour blocking is a hard requirement, and the discipline is the
+ *    plate's, not the colour wheel's.** Every character must read as three or
+ *    four *flat* zones and be identifiable at battle distance. What changed is
+ *    how that separation is bought.
  *
- *      `identity`  the dominant garment. Saturated, mid-value, and the six are
- *                  spread around the hue wheel — scarlet 6°, brass 33°, jade
- *                  149°, cobalt 223°, violet 264°, dawn-rose 341° — and every
- *                  one of them above S 0.6, because a *dominant* zone below
- *                  that lands in the beige-grey-tan band once the fog lerp has
- *                  had it, which is the review's colour finding. Beige, bone
- *                  and grey are trim and accent only, never a dominant.
+ *    The previous cast bought it with saturation: six dominants spread round
+ *    the hue wheel, every one of them above S 0.6, on the theory that a
+ *    desaturated dominant lands in a beige-grey-tan band once the fog lerp has
+ *    had it. The result is in `shots/mp0-cast/cast-stage.png` next to
+ *    `docs/reference/bravely01.jpg`, and the comparison settles it: our party
+ *    wore hot pink, candy violet, saturated orange and saturated green in front
+ *    of a lavender meadow, so **the costumes competed with the flowers and lost
+ *    the figures**. Sample the plate instead. Its four leads wear steel-navy
+ *    plate, a black bodice under a white collar, a wine coat and a black
+ *    fur-trimmed gown; measured off the image, every large costume area sits
+ *    under **S 0.35**, and the only pixels above S 0.7 in the whole party are a
+ *    throat ribbon, a hat pompom, a line of rose embroidery and the flowers
+ *    behind them. Saturation is what the *environment* is allowed to spend.
+ *
+ *    So the rule is now:
+ *
+ *      **every base costume zone: S ≤ 0.35, V within 0.25–0.75.**
+ *      **exactly one `spark` per character: S ≥ 0.7, on one small piece.**
+ *
+ *    Separation is carried by hue *and value* instead — dark navy, bone, mid
+ *    canvas, dark wine, mid mauve, mid forest — which is how the plate's party
+ *    separates and is more robust to the fog lerp than chroma was, because the
+ *    lerp attacks chroma and leaves value alone.
+ *
+ *      `identity`  the dominant garment. Navy, bone, canvas, wine, mauve,
+ *                  forest. Its *value* is what distinguishes the character in a
+ *                  lineup; no two of the six are within 0.06 V of each other
+ *                  unless they are also 60° apart in hue.
  *      `secondary` the second-largest zone: trousers, underlayer, skirt. Chosen
  *                  to break the trunk into two values rather than to harmonise.
- *      `trim`      a small, *high-contrast* zone — cuffs, collar, cape lining,
- *                  boot tops. This is the one that survives to 80 px as a spark
- *                  of colour on an otherwise flat mass.
+ *      `trim`      collar, cuffs, piping, cape lining, boot tops. Still the
+ *                  high-*contrast* zone, but the contrast is now in value.
  *      `accent`    metal or leather. Smallest area, highest value (§5).
+ *      `spark`     **the one saturated colour on the character.** Consumed only
+ *                  by garment specs that name it, and only by small pieces —
+ *                  a ribbon, a pompom, a buckle, a sash piping, the blossom
+ *                  colour inside an embroidery motif. Mirrors `bravely01`'s
+ *                  green-on-black archer and wine-coat-with-red-roses mage.
+ *                  Nothing that reads as an *area* may use it.
  *
  *    Everything else in the palette exists for one named consumer, and the
- *    comment says which.
+ *    comment says which. `glow` and `eye` are exempt from the saturation rule:
+ *    the first is emissive VFX and the second is a few dozen pixels of iris
+ *    that ANIME_PIPELINE §1 explicitly wants saturated.
  *
  * 4. **Costume is layered, and the layers are data.** Each character carries a
  *    `garments` array read by `characters/Garments.js` — an ordered list of
@@ -192,15 +218,20 @@ export const ROSTER = Object.freeze([
     // reads as and the exact inverse of Emrys's bell.
     silhouette: silhouette({ chest: 0.11, waist: -0.05, hip: -0.02 }),
 
-    // **Cobalt over indigo.** The party's only blue, and it is a *bright* one.
+    // **Steel over storm-navy** — the plate's knight, near enough exactly.
     //
-    // The trousers used to be bone canvas #D6C9A6, which gave the value break
-    // at the belt but did it with a large desaturated beige mass — and the
-    // review's colour finding is precisely that beige-grey-tan masses "blend
-    // into each other and into the fog". Beige is now trim-sized only, on every
-    // character. A deep indigo under a bright cobalt keeps the break (0.06
-    // against 0.29 linear) inside one hue family, which reads as tailoring
-    // rather than as two garments that do not know each other.
+    // `bravely01`'s first figure is the clearest single piece of colour
+    // evidence in the set: blue-grey plate over a black-navy underlayer, a
+    // steel belt plate, and *no* saturated colour anywhere on him. Ours was
+    // cobalt #3565E0 (S 0.76) faced with gold #F0B93C (S 0.75) — two accent-
+    // level colours occupying most of a figure, which is why he read as a toy
+    // knight rather than as armour.
+    //
+    // Navy at S 0.33 / V 0.34 against steel at S 0.14 / V 0.60 keeps the value
+    // break the coat-over-plate stack needs (0.34 against 0.60 is a clean stop
+    // and a half) inside one hue family, which reads as tailoring rather than
+    // as two garments that do not know each other. The gold survives at spark
+    // size: the order device on the breastplate, the buckles, and nothing else.
     palette: Object.freeze({
       skin: 0xd9a882, skinShade: 0x9c6f56,
       hair: 0x4a3d33, hairShade: 0x241f1c,
@@ -208,16 +239,18 @@ export const ROSTER = Object.freeze([
       // the largest single colour in frame (ANIME_PIPELINE §1).
       eye: 0xefc24a, eyeCore: 0xfff0c4, sclera: 0xf2ede2, lash: 0x14181f,
 
-      identity: 0x3565e0,   // cobalt storm-coat
-      secondary: 0x232f52,  // deep indigo trousers
-      trim: 0xf0b93c,       // gold facing, cuffs and cape lining
-      accent: 0xc6ced8,     // steel
+      identity: 0x3a4457,   // storm-navy arming coat        S 0.33  V 0.34
+      secondary: 0x303342,  // charcoal-indigo trousers      S 0.27  V 0.26
+      trim: 0xa6b2bd,       // pale steel facings            S 0.12  V 0.74
+      accent: 0x848e99,     // plate steel                   S 0.14  V 0.60
+      spark: 0xd1a221,      // Skysworn gold: device, buckles  S 0.84  V 0.82
 
-      leather: 0x3a2e26,    // belt, boot body
-      metal: 0xc6ced8,
-      cape: 0x3565e0, capeLining: 0xf0b93c,
-      weaponA: 0xd6e4ee,    // pale moonglass
-      weaponB: 0x8f9ba8,
+      leather: 0x45382f,    // belt, baldric, boot body
+      metal: 0x848e99,
+      cape: 0x3a4457, capeLining: 0x614045,
+      weaponA: 0xb0b9bf,    // pale moonglass — held to V 0.75 like every other
+      weaponB: 0x707880,    // large surface, so the blade cannot out-value the
+                            // brightest costume in the party (Seren's bone).
       glow: 0xfff0b8,
     }),
 
@@ -284,27 +317,45 @@ export const ROSTER = Object.freeze([
      * eighty pixels, and the plate's knight carries exactly that imbalance.
      */
     garments: Object.freeze([
+      // The arming coat under the plate, and the only cloth on him. Its hem
+      // hangs a hand's width below the fauld so the figure ends in *cloth with
+      // folds* rather than in a plate edge — the plate's knight does the same
+      // thing, and it is what stops an armoured silhouette reading as a shell.
+      // Eight folds because the panel is short: fold count has to rise as a
+      // garment shortens or the creases stretch into lean.
+      {
+        kind: 'underskirt', color: 'identity', lining: 'secondary', turnColor: 'secondary',
+        pipingColor: 'accent', top: 0.10, length: 0.24, flare: 1.55,
+        folds: 8, foldDepth: 0.080, foldOnset: 0.06,
+      },
       { kind: 'gorget', color: 'accent', rim: 'trim', lining: 'secondary', width: 1.5 },
       {
-        kind: 'breastplate', color: 'identity', rim: 'trim', lining: 'secondary',
+        kind: 'breastplate', color: 'accent', rim: 'trim', lining: 'secondary',
         // The Skysworn keep-and-wings device, embossed. Hexes track the palette
-        // above: a slightly darkened cobalt ground under the gold trim.
+        // above: a darkened navy ground under the order's gold, which is the
+        // one place on this character the spark is allowed an area at all.
         pattern: {
-          id: 'heraldic', base: 0x2b4fa8, accent: 0xf0b93c, ink: 0x141b2e,
+          id: 'heraldic', base: 0x333c4d, accent: 0xd1a221, ink: 0x1b1e29,
           wrap: 'clamp', size: 256,
         },
       },
       { kind: 'pauldron', side: 'L', lames: 3, color: 'accent', rim: 'trim', lining: 'secondary', spread: 2.05 },
       { kind: 'pauldron', side: 'R', lames: 2, color: 'accent', rim: 'trim', lining: 'secondary', spread: 1.78 },
-      { kind: 'strap', side: 'L', color: 'leather', buckle: 'trim', width: 0.030, loops: 3 },
-      { kind: 'belt', color: 'leather', buckle: 'trim', width: 0.038 },
-      { kind: 'pouch', side: 'R', at: 'hip', color: 'leather', flap: 'secondary', buckle: 'trim', size: 0.044 },
-      { kind: 'fauld', color: 'identity', rim: 'accent', lining: 'secondary', drop: 0.26 },
+      // Baldric over the breastplate: 0.055 H wide (≈7 cm) so the band has two
+      // shadowed edges and a lit face at capture scale, with a gold box buckle
+      // on the chest and three keeper loops down the run.
+      {
+        kind: 'strap', side: 'L', color: 'leather', buckle: 'spark',
+        width: 0.055, loops: 3, over: 0.62, buckleAt: 0.40,
+      },
+      { kind: 'belt', color: 'leather', buckle: 'spark', width: 0.044, over: 0.52 },
+      { kind: 'pouch', side: 'R', at: 'hip', color: 'leather', flap: 'secondary', buckle: 'spark', size: 0.044 },
+      { kind: 'fauld', color: 'accent', rim: 'trim', lining: 'secondary', drop: 0.24 },
       { kind: 'cuisse', color: 'accent', rim: 'trim', lining: 'secondary' },
-      { kind: 'vambrace', color: 'accent', rim: 'trim', lining: 'secondary', studs: 3, studColor: 'trim' },
+      { kind: 'vambrace', color: 'accent', rim: 'trim', lining: 'secondary', studs: 3, studColor: 'spark' },
       { kind: 'greave', color: 'accent', rim: 'trim', kneeColor: 'leather' },
       {
-        kind: 'boot', color: 'leather', cuff: 'trim', cuffLining: 'secondary',
+        kind: 'boot', color: 'leather', cuff: 'identity', cuffLining: 'secondary',
         sole: 'secondary', toeCap: true, toeCapColor: 'accent',
         eyelets: 4, lace: 'trim', shaft: 0.095,
       },
@@ -342,33 +393,38 @@ export const ROSTER = Object.freeze([
     // hemline is where her outline actually changes.
     silhouette: silhouette({ chest: -0.07, waist: -0.01, hip: 0.13, limbTaper: 0.75 }),
 
-    // **Dawn rose.** Ivory was the wrong dominant and the review said so: at
-    // battle distance an off-white robe is a beige mass, it sits within a few
-    // percent of Bramm's brass and Yshara's bone, and the fog lerp takes what
-    // little chroma it had. ANIME_PIPELINE §5 wants the *dominant* zone
-    // saturated; value separation is what `trim` is for.
+    // **Bone over ink** — `bravely01`'s second figure, whose construction this
+    // costume already copied and whose colour it did not.
     //
-    // So the robe carries the colour of her limit break (`Aubade`, a dawn song)
-    // and the ivory drops to the trim, where it is still the brightest note on
-    // the stage that is not a spell — the healer read survives, on a quarter of
-    // the area. The teal underlayer stays: it is her element, and it is the one
-    // place the party is allowed into the mist's own hue band because it sits
-    // against a warm dominant rather than against white.
+    // That figure is a *white* character: white beret, white sailor collar,
+    // black bodice, a dark printed skirt, black tights, and one small scarlet
+    // ribbon at the throat. Ours was hot rose #CF5077 (S 0.61) over saturated
+    // teal #2FA89E (S 0.72), which is two accent colours filling the whole
+    // silhouette; in `shots/mp0-cast` she is the single loudest thing in frame
+    // and she is standing in front of a flower bed.
+    //
+    // The dominant is therefore bone and the *skirt* carries the dark mass, the
+    // way the plate does it — a bright torso over a dark hem is what makes a
+    // small figure read as a robe rather than as a cone. The rose survives as
+    // `spark`, on the throat ribbon, the beret pompom and the blossoms inside
+    // the skirt's embroidery: three small pieces, exactly the plate's budget.
+    // Her element keeps a place in the underskirt's weave, at slate strength.
     palette: Object.freeze({
       skin: 0xe8d3c4, skinShade: 0xab8b83,
       hair: 0xece6da, hairShade: 0x9aa6a8,
       eye: 0x4fc8be, eyeCore: 0xd8fbf6, sclera: 0xf6f2ea, lash: 0x263038,
 
-      identity: 0xcf5077,   // dawn-rose robe
-      secondary: 0x2fa89e,  // teal underlayer and skirt
-      trim: 0xf6efe0,       // ivory collar, hem and cape lining
-      accent: 0xffc24d,     // gold thread
+      identity: 0xbfbaac,   // bone robe, collar and beret   S 0.10  V 0.75
+      secondary: 0x323747,  // ink-navy skirt and bodice     S 0.30  V 0.28
+      trim: 0x697880,       // dove-slate piping and hem     S 0.18  V 0.50
+      accent: 0xa3977f,     // old gold thread               S 0.22  V 0.64
+      spark: 0xb82538,      // crimson ribbon and pompom     S 0.80  V 0.72
 
-      leather: 0xc0a87c,
-      metal: 0xffc24d,
-      cape: 0xcf5077, capeLining: 0xf6efe0,
-      weaponA: 0xd9cfc0,
-      weaponB: 0xffc24d,
+      leather: 0x665849,
+      metal: 0xa3977f,
+      cape: 0xbfbaac, capeLining: 0x323747,
+      weaponA: 0xb8b1a5,
+      weaponB: 0x8c7f68,
       glow: 0x5fb8b0,
     }),
 
@@ -434,8 +490,11 @@ export const ROSTER = Object.freeze([
      */
     garments: Object.freeze([
       {
-        kind: 'underskirt', color: 'secondary', lining: 'secondary', pipingColor: 'trim',
-        length: 0.48, flare: 1.72, gores: 6, goreDepth: 0.03,
+        kind: 'underskirt', color: 'identity', lining: 'trim', turnColor: 'trim',
+        pipingColor: 'trim',
+        // Six folds on the petticoat against eight on the skirt over it: the
+        // two layers must not share a rhythm or their hems lock into one edge.
+        length: 0.48, flare: 1.72, folds: 6, foldDepth: 0.055,
         // Aurora silk: the archer's iridescent weave, run through her own hues
         // so the shift reads as dawn rather than as the plate's green.
         //
@@ -449,42 +508,47 @@ export const ROSTER = Object.freeze([
         // to ivory, so the grating alternated saturated magenta with near-white
         // — the exact colour pair of an engine's missing-texture placeholder.
         //
-        // Two tiles, and a five-stop ramp that walks teal → ivory → rose
-        // through a dawn-pink mid so no two neighbouring stops are the two
-        // extremes. The shift still reads; it no longer reads as a bug.
+        // Two tiles, and a five-stop ramp. The ramp was teal → ivory → rose at
+        // accent saturation; it now walks ink-navy → slate → bone → dusty rose
+        // and back, all inside the base band, so the shift still reads as a
+        // shot silk without putting a saturated colour on a whole petticoat.
         pattern: {
-          id: 'iridescent', base: 0x2fa89e,
-          ramp: [0x2fa89e, 0x8fe0d6, 0xf6efe0, 0xe39ab0, 0xcf5077],
+          id: 'iridescent', base: 0x323747,
+          ramp: [0x323747, 0x5e6c75, 0xb8b3a7, 0x855d62, 0x323747],
           size: 256, repeat: [2, 1],
         },
       },
       {
-        kind: 'skirt', color: 'identity', lining: 'trim', pipingColor: 'trim',
-        length: 0.40, flare: 2.15, gores: 8,
+        kind: 'skirt', color: 'secondary', lining: 'trim', turnColor: 'trim',
+        pipingColor: 'trim',
+        length: 0.40, flare: 2.15, folds: 8, foldDepth: 0.082,
         // Rose-and-vine, banded to the lower 55% exactly as the staff-mage's
         // coat bands its embroidery.
         //
         // `floral` draws three blossom columns per tile, so four tiles is twelve
         // round the skirt and six across the panel the camera sees — which is
-        // the count measured on the plate. It was nine tiles (three here times
-        // three inside `skirt`), i.e. twenty-seven blossoms round a skirt about
-        // a hundred pixels wide.
+        // the count measured on the plate. The blossoms are the `spark`: line
+        // work on a dark ground is precisely where the plate spends saturation.
         pattern: {
-          id: 'floral', base: 0xcf5077, ink: 0x7a2340, accent: 0xf6efe0,
+          id: 'floral', base: 0x323747, ink: 0x1d212b, accent: 0xb82538,
           bandV: 0.55, size: 256, repeat: [4, 1],
         },
       },
-      { kind: 'sash', color: 'secondary', piping: 'accent', width: 0.080, knotSide: 'L' },
-      { kind: 'hood', color: 'identity', lining: 'trim', piping: 'accent', wrap: 0.60 },
-      { kind: 'collar', cut: 'sailor', color: 'trim', lining: 'identity', piping: 'accent', drop: 0.082, width: 1.06 },
-      { kind: 'ribbon', color: 'secondary', tail: 0.060 },
-      { kind: 'cuff', color: 'trim', lining: 'identity', rolls: 1, flare: 0.30 },
+      { kind: 'sash', color: 'secondary', piping: 'spark', width: 0.080, knotSide: 'L' },
+      { kind: 'hood', color: 'identity', lining: 'secondary', piping: 'trim', wrap: 0.60 },
+      { kind: 'collar', cut: 'sailor', color: 'identity', lining: 'secondary', piping: 'trim', drop: 0.082, width: 1.06 },
+      // The one saturated object on her, and the plate puts it in exactly this
+      // place: a small scarlet tie at the throat of a white collar.
+      { kind: 'ribbon', color: 'spark', tail: 0.060 },
+      { kind: 'cuff', color: 'identity', lining: 'secondary', rolls: 1, flare: 0.30 },
       {
-        kind: 'hatSoft', color: 'trim', band: 'accent', lining: 'secondary',
+        kind: 'hatSoft', color: 'identity', band: 'trim', lining: 'secondary',
         // 2.05 head widths — the beret measured off the plate is 2.1.
-        width: 2.05, rise: 0.55, pompomColor: 'identity',
+        width: 2.05, rise: 0.55, pompomColor: 'spark',
       },
-      { kind: 'strap', side: 'R', color: 'accent', buckle: 'accent', width: 0.020, loops: 4, over: 0.55 },
+      // Book satchel across the bodice. Narrower than a fighter's baldric but
+      // still a band rather than a thread, so the white torso is broken.
+      { kind: 'strap', side: 'R', color: 'secondary', buckle: 'accent', width: 0.038, loops: 3, over: 0.58 },
     ]),
 
     stats: Object.freeze({
@@ -518,37 +582,37 @@ export const ROSTER = Object.freeze([
     // the strongest single silhouette in the party and costs one number.
     silhouette: silhouette({ chest: 0.12, waist: 0.21, hip: 0.15, limbTaper: 1.15 }),
 
-    // **Hot brass over iron.** The warmest large mass in the party and the only
-    // orange, which is what keeps him off Kite's scarlet at distance even
-    // though both are warm.
+    // **Waxed canvas over iron.** The warmest large mass in the party, and the
+    // only *mid-value* dominant — he is the value rung between Auren's dark
+    // navy and Seren's bone, which is how a lineup of six low-saturation
+    // costumes stays legible.
     //
-    // `identity` moved from #C0862E to #B87020 — same hue family, saturation
-    // 0.61 → 0.70. The old value carried enough grey that the fog lerp landed
-    // it in the same tan band as Yshara's mantle and Seren's robe, which is the
-    // three-way collision the review measured. `secondary` deepened for the
-    // same reason: #4E5462 is a neutral blue-grey, and neutral is exactly what
-    // the mist eats.
+    // `identity` was #B87020 (S 0.89): a saturated orange apron on a barrel of
+    // a man, and in `shots/mp0-cast` he is the second loudest figure on stage.
+    // A smith's apron is oiled canvas — warm, dull, and lighter than everything
+    // around it — so it drops to S 0.34 / V 0.52 and the heat moves to `spark`,
+    // where it belongs: the brass scrollwork chased into the hanging tabs, the
+    // buckle tongues and the tool rivets. Forge orange is the right colour for
+    // three square centimetres of a costume and the wrong one for half of it.
     //
-    // The hair went dark. It was #A9A49A — iron grey — and Seren and Emrys are
-    // staged either side of him carrying near-white, so three consecutive slots
-    // read as one pale hairpiece recoloured. Dark iron keeps the age read and
-    // gives the trio a value ladder (dark / bright / mid-warm) instead of a
-    // plateau.
+    // The hair stays dark iron: Seren and Emrys are staged either side of him
+    // and the trio needs a value ladder rather than three pale hairpieces.
     palette: Object.freeze({
       skin: 0xc08a63, skinShade: 0x855239,
       hair: 0x4f4a45, hairShade: 0x241f1c,
       eye: 0x86b23c, eyeCore: 0xdff0a8, sclera: 0xeee7dc, lash: 0x1b1f24,
 
-      identity: 0xb87020,   // brass apron
-      secondary: 0x2f3a4e,  // iron work clothes
-      trim: 0x8a3427,       // oxblood straps and cuffs
-      accent: 0xd9a03c,     // polished brass
+      identity: 0x857258,   // waxed canvas apron            S 0.34  V 0.52
+      secondary: 0x333b45,  // iron work clothes             S 0.26  V 0.27
+      trim: 0x573b3a,       // oxblood straps and cuffs      S 0.33  V 0.34
+      accent: 0x948562,     // dull brass and the prosthetic S 0.34  V 0.58
+      spark: 0xdb611a,      // forge ember: chasing, rivets  S 0.88  V 0.86
 
-      leather: 0x53372c,
-      metal: 0xd9a03c,
-      cape: 0xb87020, capeLining: 0x8a3427,
-      weaponA: 0xd9a03c,
-      weaponB: 0x4e5462,
+      leather: 0x4a3d34,
+      metal: 0x948562,
+      cape: 0x857258, capeLining: 0x573b3a,
+      weaponA: 0x8c8062,
+      weaponB: 0x4e5661,
       glow: 0xff6b2b,
     }),
 
@@ -613,9 +677,13 @@ export const ROSTER = Object.freeze([
       {
         kind: 'apron', color: 'identity', lining: 'leather', binding: 'trim',
         bib: 0.30, skirt: 0.66, drop: 0.24, top: 0.72, strapColor: 'leather',
+        // Four deep folds, and they start below the belt: the bib is pulled
+        // flat by the neck strap and only the skirt of an apron gathers.
+        folds: 4, foldDepth: 0.075, foldOnset: 0.44,
+        turnColor: 'leather',
         // A forge sett: warm bands crossed over iron, coarse enough to read.
         pattern: {
-          id: 'tartan', base: 0xb87020, ink: 0x53372c, accent: 0xd9a03c,
+          id: 'tartan', base: 0x857258, ink: 0x332922, accent: 0x948562,
           size: 256, repeat: [2, 3],
         },
       },
@@ -623,15 +691,22 @@ export const ROSTER = Object.freeze([
         kind: 'fauld', tabs: 5, color: 'trim', rim: 'accent', lining: 'leather',
         drop: 0.20, wrap: 0.80, material: 'leather',
         // Brass scrollwork chased into the oxblood tabs — the ninja's gold
-        // filigree harness, at a smith's scale.
-        pattern: { id: 'arabesque', base: 0x8a3427, accent: 0xd9a03c, size: 256, repeat: [1, 2] },
+        // filigree harness, at a smith's scale. Line work, so it takes the
+        // spark: this is the one place his ember colour has any area at all.
+        pattern: { id: 'arabesque', base: 0x573b3a, accent: 0xdb611a, size: 256, repeat: [1, 2] },
       },
-      { kind: 'belt', color: 'trim', buckle: 'accent', width: 0.046, buckleWidth: 0.098, buckleHeight: 0.062 },
+      { kind: 'belt', color: 'leather', buckle: 'spark', width: 0.050, buckleWidth: 0.098, buckleHeight: 0.062, over: 0.55 },
       { kind: 'pouch', side: 'L', at: 'hip', size: 0.052, color: 'leather', flap: 'trim', buckle: 'accent' },
       { kind: 'pouch', side: 'R', at: 'hip', size: 0.038, angle: 0.66, drop: 0.070, color: 'leather', flap: 'trim', buckle: 'accent' },
-      { kind: 'strap', side: 'R', color: 'leather', buckle: 'accent', width: 0.034, loops: 2 },
+      // Tool bandolier over the bib, in oxblood against the pale canvas: the
+      // strongest value break available on this character, so it is the piece
+      // doing the work of saying "assembled" that his colour used to do.
+      {
+        kind: 'strap', side: 'R', color: 'trim', buckle: 'spark',
+        width: 0.058, loops: 3, over: 0.66, buckleAt: 0.38,
+      },
       { kind: 'pauldron', side: 'R', lames: 2, color: 'accent', rim: 'trim', lining: 'leather', spread: 1.95 },
-      { kind: 'vambrace', side: 'L', material: 'leather', color: 'leather', rim: 'accent', lining: 'secondary', studs: 4, studColor: 'accent' },
+      { kind: 'vambrace', side: 'L', material: 'leather', color: 'leather', rim: 'accent', lining: 'secondary', studs: 4, studColor: 'spark' },
       { kind: 'greave', color: 'secondary', rim: 'accent', kneeColor: 'trim' },
       {
         kind: 'boot', color: 'leather', cuff: 'trim', cuffLining: 'secondary', sole: 'secondary',
@@ -666,25 +741,35 @@ export const ROSTER = Object.freeze([
     // separate on the one contour they share.
     silhouette: silhouette({ chest: 0.01, waist: -0.14, hip: 0.08, limbTaper: 1.1 }),
 
-    // **Scarlet.** The sister's sash was the only red in the party and it was
-    // four pixels wide; promoting it to the whole coat gives the fastest
-    // character the loudest colour, which is how the eye finds her when she
-    // crosses the stage. Sea-blue trousers keep her element in the block.
+    // **Wine over slate**, with the sister's red kept as a signal.
+    //
+    // The coat was #D93A28 — a fire-engine red covering most of a figure — on
+    // the argument that the fastest character should carry the loudest colour.
+    // The plate's third figure is the counter-example and it is the closest
+    // analogue in the set: a full-length coat in a deep, dull wine, whose only
+    // saturated pixels are the rose embroidery on its lower panels. Dulled to
+    // S 0.34 / V 0.37 the coat is still unmistakably *the red character* in a
+    // party of navy, bone, canvas, mauve and forest — the hue does that work,
+    // and hue survives the fog lerp better on a dark ground than chroma does.
+    //
+    // The sister's scarlet is now the `spark`: the sash piping, the boot laces
+    // and the buckles. Four pixels wide, which is what it was to begin with.
     palette: Object.freeze({
       skin: 0x8a5a44, skinShade: 0x53321f,
       hair: 0x1f2830, hairShade: 0x0e151b,
       eye: 0x3fa9f5, eyeCore: 0xa8e4ff, sclera: 0xf0ece2, lash: 0x0d1116,
 
-      identity: 0xd93a28,   // her sister's red, worn as a stormcoat
-      secondary: 0x1c5c92,  // sea-blue trousers
-      trim: 0xe3d3a8,       // bleached rope
-      accent: 0xb8bfc7,     // steel
+      identity: 0x5e3e43,   // wine stormcoat                S 0.34  V 0.37
+      secondary: 0x37434f,  // sea-slate trousers            S 0.30  V 0.31
+      trim: 0xb3aa9a,       // bleached rope                 S 0.14  V 0.70
+      accent: 0x828c94,     // steel                         S 0.12  V 0.58
+      spark: 0xc73a24,      // the sister's red              S 0.82  V 0.78
 
-      leather: 0x2a2a30,
-      metal: 0xb8bfc7,
-      cape: 0xd93a28, capeLining: 0xe3d3a8,
-      weaponA: 0x9fd8cf,    // keel-glass chakram
-      weaponB: 0xe3d3a8,
+      leather: 0x373640,    // near-black tarred hide and the fur ruff
+      metal: 0x828c94,
+      cape: 0x5e3e43, capeLining: 0xb3aa9a,
+      weaponA: 0x87a8a8,    // keel-glass chakram
+      weaponB: 0x999284,
       glow: 0x7de3ff,
     }),
 
@@ -746,27 +831,45 @@ export const ROSTER = Object.freeze([
       {
         kind: 'longcoat', color: 'identity', lining: 'trim', piping: 'trim',
         top: 0.55, hem: 0.30, flare: 2.0, gap: 0.24, buttons: 5,
-        // Wave damask in a darker scarlet with bleached-rope highlights.
-        // `repeat` replaces the `patternRepeatU: 3` that used to sit up here:
-        // tiling is one control now, on the pattern, and the value is the same.
-        pattern: { id: 'damask', base: 0xd93a28, ink: 0x7d1c12, accent: 0xe3d3a8, size: 256, repeat: [3, 1] },
+        // A short coat over a fitted hip: eight shallow folds rather than the
+        // seven a full-length panel takes, because the drape has less length to
+        // develop in and the creases have to be closer together to read.
+        folds: 8, foldDepth: 0.058, foldOnset: 0.26, turnColor: 'trim',
+        // Wave damask in a darker wine with bleached-rope highlights.
+        pattern: { id: 'damask', base: 0x5e3e43, ink: 0x342326, accent: 0xb3aa9a, size: 256, repeat: [3, 1] },
       },
       { kind: 'lapel', color: 'trim', lining: 'identity', width: 0.40, fold: 0.20 },
-      { kind: 'collar', cut: 'popped', color: 'identity', lining: 'trim', piping: 'trim', height: 1.5 },
+      { kind: 'collar', cut: 'popped', color: 'identity', lining: 'trim', piping: 'trim', height: 1.3 },
+      // **The fur ruff**, and the reason she is the character who gets one: she
+      // is staged in near-profile and a broken outline at the shoulder is the
+      // only thing that reads as costume from that angle. Twenty-six clumps in
+      // two interleaved rows, tarred-hide black shading to rope — the archer's
+      // black ruff in `bravely01` and the ninja's collar in `bravely05`.
       {
-        kind: 'sash', color: 'secondary', piping: 'trim', width: 0.070, knotSide: 'R',
-        // Key-fret woven into the wrap, bone on sea-blue. Three tiles, not six:
+        kind: 'furCollar', color: 'leather', shade: 'secondary',
+        tufts: 26, rows: 2, length: 0.068, clump: 0.032,
+        radius: 1.62, liftBack: 0.60, liftFront: -0.22,
+      },
+      {
+        kind: 'sash', color: 'secondary', piping: 'spark', width: 0.070, knotSide: 'R',
+        // Key-fret woven into the wrap, bone on sea-slate. Three tiles, not six:
         // `sash` used to multiply by a further four, so this was twenty-four
         // tiles of a five-cell fret — a hundred and twenty cells round a band
         // 0.07 H tall, which resolves to noise at any capture distance.
-        pattern: { id: 'lattice', base: 0x1c5c92, ink: 0xe3d3a8, size: 256, repeat: [3, 1] },
+        pattern: { id: 'lattice', base: 0x37434f, ink: 0xb3aa9a, size: 256, repeat: [3, 1] },
       },
-      { kind: 'belt', at: 'hip', color: 'leather', buckle: 'accent', width: 0.034, tailSide: 'R' },
-      { kind: 'strap', side: 'L', color: 'leather', buckle: 'accent', width: 0.032, loops: 4 },
+      { kind: 'belt', at: 'hip', color: 'leather', buckle: 'spark', width: 0.042, tailSide: 'R', over: 0.52 },
+      {
+        kind: 'strap', side: 'L', color: 'leather', buckle: 'spark',
+        width: 0.050, loops: 3, over: 0.62, buckleAt: 0.44,
+      },
       { kind: 'pouch', side: 'L', at: 'hip', size: 0.042, color: 'leather', flap: 'trim', buckle: 'accent' },
       {
+        // Four cells rather than five: the net is the most triangle-hungry
+        // piece per pixel in the wardrobe and the fold and fur geometry added
+        // to this character has to be paid for somewhere.
         kind: 'fishnet', color: 'trim', top: 0.02, length: 0.30, flare: 1.9,
-        wrap: 0.42, turn: -1.15, cells: 5, scallops: 3, scallopDepth: 0.26,
+        wrap: 0.42, turn: -1.15, cells: 4, scallops: 3, scallopDepth: 0.26,
       },
       { kind: 'cuff', side: 'R', color: 'trim', lining: 'identity', rolls: 2, flare: 0.30 },
       { kind: 'vambrace', side: 'L', color: 'accent', rim: 'trim', lining: 'leather' },
@@ -776,7 +879,7 @@ export const ROSTER = Object.freeze([
       },
       {
         kind: 'boot', color: 'leather', cuff: 'trim', cuffLining: 'secondary', sole: 'secondary',
-        eyelets: 5, lace: 'trim', shaft: 0.120, cuffFlare: 0.30,
+        eyelets: 5, lace: 'spark', shaft: 0.120, cuffFlare: 0.30,
       },
     ]),
 
@@ -817,36 +920,41 @@ export const ROSTER = Object.freeze([
     // outline decision as much as a costume one.
     silhouette: silhouette({ chest: -0.11, waist: 0.05, hip: 0.19, limbTaper: 0.9 }),
 
-    // **Violet with an ember lining.** The coat is an adult's and swamps him,
-    // so it is nearly his whole silhouette — which makes it the one costume in
-    // the party that has to carry identity on its own. Charcoal was the wrong
-    // answer twice over: it hid the child inside it and it matched four other
-    // party members. The ember trim is his element and the only warm note.
-    // The coat's saturation went 0.39 → 0.58 and its value up with it. At
-    // #6B4AA8 under the dusk key it landed, in the review's words, as "dark
-    // navy read against a flat lavender plane" — a violet that dark and that
-    // grey is indistinguishable from blue once the fog has had it, and it was
-    // sitting next to Auren's actual blue in the lineup. #7440CC is
-    // unambiguously violet at battle distance and still reads as a hand-me-down
-    // rather than as a wizard's robe, because the fit does that, not the hue.
+    // **Faded mauve with an ember thread.** The coat is an adult's and swamps
+    // him, so it is nearly his whole silhouette — which makes it the one
+    // costume in the party that has to carry identity on its own.
     //
-    // The hair went auburn for the same reason Bramm's went dark: he, Seren and
-    // Bramm are staged consecutively and all three shipped near-white hair.
+    // #7440CC (S 0.69) did that by shouting, and the ember trim at #FF6B2B
+    // (S 0.83) lined the cuffs, collar, lapels and scarf, so a fourteen-year-old
+    // in a hand-me-down was wearing the two most saturated colours on stage.
+    // A hand-me-down is *faded*: S 0.30 / V 0.48 keeps it unambiguously violet
+    // — it is 65° off Auren's navy and a full value stop lighter — while
+    // reading as cloth that has been through three owners, which is the
+    // character note the hue was never carrying anyway.
+    //
+    // The ember goes where the plate's wine-coat mage puts his red: into the
+    // rose-and-vine embroidery banded across the bottom third of the panels,
+    // as line work. The lining and cuffs take a dusty ember instead, which is
+    // the same colour after the same three owners.
+    //
+    // The hair stays auburn but drops to S 0.55 — a natural chestnut rather
+    // than a dyed one — because at S 0.70 it was competing with the coat.
     palette: Object.freeze({
       skin: 0xe0b394, skinShade: 0xa06f56,
-      hair: 0x8f4a2a, hairShade: 0x4a2314,
+      hair: 0x805139, hairShade: 0x3d2519,
       eye: 0xff6b2b, eyeCore: 0xffd08a, sclera: 0xf4efe4, lash: 0x191418,
 
-      identity: 0x7440cc,   // inherited violet scholar's coat
-      secondary: 0x322a44,  // deep plum under-tunic
-      trim: 0xff6b2b,       // ember lining, cuffs and collar
-      accent: 0xc08a3a,     // worn brass buckles
+      identity: 0x71567a,   // inherited mauve scholar's coat S 0.30  V 0.48
+      secondary: 0x413345,  // deep plum under-tunic          S 0.26  V 0.27
+      trim: 0x8f7661,       // dusty-ember lining and cuffs   S 0.32  V 0.56
+      accent: 0x85765a,     // worn brass buckles             S 0.32  V 0.52
+      spark: 0xe6581c,      // live ember: embroidery, laces  S 0.88  V 0.90
 
-      leather: 0x2f2822,
-      metal: 0xc08a3a,
-      cape: 0x7440cc, capeLining: 0xff6b2b,
-      weaponA: 0x6b5a45,
-      weaponB: 0xd9cba6,
+      leather: 0x423a31,
+      metal: 0x85765a,
+      cape: 0x71567a, capeLining: 0x8f7661,
+      weaponA: 0x706453,
+      weaponB: 0xa89f8a,
       glow: 0xff6b2b,
     }),
 
@@ -911,26 +1019,44 @@ export const ROSTER = Object.freeze([
         kind: 'longcoat', color: 'identity', lining: 'trim', piping: 'trim',
         top: 0.60, hem: 0.055, flare: 2.5, gap: 0.19, buttons: 6, hang: 1.05,
         buttonSpan: 0.40,
-        // Two tiles — the `patternRepeatU: 2` that used to live above, moved to
-        // the one place tiling is now allowed to be authored.
+        // The deepest drape in the party, and it should be: this is the longest
+        // panel on the smallest frame, so it has the most length to gather in.
+        // Seven folds is the count measured across the staff-mage's coat in
+        // `bravely01`, and the field starts high — under the arm, where a coat
+        // that does not fit its wearer actually breaks.
+        folds: 7, foldDepth: 0.078, foldOnset: 0.16, turnColor: 'secondary',
         pattern: {
-          id: 'floral', base: 0x7440cc, ink: 0x3a1f63, accent: 0xff6b2b,
+          id: 'floral', base: 0x71567a, ink: 0x302333, accent: 0xe6581c,
           bandV: 0.34, size: 256, repeat: [2, 1],
         },
       },
       { kind: 'lapel', color: 'trim', lining: 'identity', width: 0.46, fold: 0.22, top: 0.95, bottom: -0.70 },
       { kind: 'collar', cut: 'oversized', color: 'identity', lining: 'trim', piping: 'trim' },
+      // Fur trim round the collar of the too-big coat, exactly as `bravely05`
+      // trims the ninja's cape: one row of eighteen short clumps, dusty ember
+      // shading into the leather, so the neckline of a garment three sizes too
+      // large has a broken edge instead of a clean one.
+      {
+        kind: 'furCollar', color: 'trim', shade: 'leather',
+        tufts: 18, rows: 1, length: 0.050, clump: 0.026,
+        radius: 1.48, liftBack: 0.48, liftFront: -0.20,
+      },
       // Rolled three times, each turn a fifth of the forearm apart. The roster
       // used to ask for six rolls of nothing; three that each have a lip and a
       // flare read as more than six that do not.
       { kind: 'cuff', color: 'trim', lining: 'identity', rolls: 3, flare: 0.34, at: 0.80, pitch: 0.18 },
-      { kind: 'belt', color: 'leather', buckle: 'accent', width: 0.034, raise: 0.010 },
+      { kind: 'belt', color: 'leather', buckle: 'accent', width: 0.040, raise: 0.010, over: 0.50 },
       { kind: 'pouch', side: 'L', at: 'hip', size: 0.055, color: 'leather', flap: 'secondary', buckle: 'accent' },
-      { kind: 'strap', side: 'R', color: 'leather', buckle: 'accent', width: 0.028, loops: 2 },
+      // Grimoire strap. Narrow for a strap because he is the smallest frame in
+      // the party, but still a band — 0.042 H is about 4.9 cm on him.
+      {
+        kind: 'strap', side: 'R', color: 'leather', buckle: 'accent',
+        width: 0.042, loops: 2, over: 0.60, buckleAt: 0.46,
+      },
       { kind: 'scarf', color: 'trim', tail: 0.20, side: 'L' },
       {
         kind: 'boot', color: 'leather', cuff: 'trim', cuffLining: 'secondary', sole: 'secondary',
-        eyelets: 4, lace: 'trim', shaft: 0.085, cuffFlare: 0.28,
+        eyelets: 4, lace: 'spark', shaft: 0.085, cuffFlare: 0.28,
       },
     ]),
 
@@ -962,30 +1088,34 @@ export const ROSTER = Object.freeze([
     // are bare below a short mantle and are most of her outline.
     silhouette: silhouette({ chest: -0.05, waist: -0.03, hip: -0.05, limbTaper: 1.2 }),
 
-    // **Jade and bone.** The party's only green and the only cool costume that
-    // is not blue, sitting a clean 70° off Auren on the wheel. Bone trim on a
-    // saturated mid-green is the highest-contrast trim pairing in the roster,
-    // which is what a mostly-bare-legged silhouette needs to stay readable.
+    // **Forest and bone.** The party's only green and the only cool costume
+    // that is not blue, sitting a clean 70° off Auren on the wheel. Bone plate
+    // on a dark forest wrap is the highest-*value*-contrast pairing in the
+    // roster, which is what a mostly-bare-legged silhouette needs.
     //
-    // Saturation went 0.47 → 0.67. Below about 0.5 a mid-value green is a
-    // *tan* once the fog lerp has pulled a third of the way to a warm grey
-    // sky, which is how she came back grouped with Bramm's brass and Seren's
-    // ivory as "desaturated beige-grey-tan masses". Trim keeps the bone.
+    // The previous note argued saturation up to 0.67 on the grounds that a
+    // desaturated mid-green fogs to tan. It does — but the answer is value, not
+    // chroma: at S 0.34 / V 0.40 the mantle is *darker* than the meadow behind
+    // it rather than greener than it, and dark-against-light survives a fog
+    // lerp that eats chroma for a living. A saturated green party member
+    // standing in a green meadow was the worst version of this problem, and
+    // that is what `shots/mp0-cast/cast-stage.png` shows.
     palette: Object.freeze({
       skin: 0x9c6a55, skinShade: 0x5d3a2f,
       hair: 0x3a2f3f, hairShade: 0x1d1823,
       eye: 0x8fe6a0, eyeCore: 0xe6ffee, sclera: 0xefe9e0, lash: 0x14121a,
 
-      identity: 0x1f9e5c,   // jade feather-mantle and wrap
-      secondary: 0x14402f,  // deep moss underwrap
-      trim: 0xe3dcc8,       // bone
-      accent: 0xc9403a,     // ember-fleck bindings
+      identity: 0x436655,   // forest feather-mantle and wrap S 0.34  V 0.40
+      secondary: 0x2e423a,  // deep moss underwrap            S 0.30  V 0.26
+      trim: 0xb8b2a2,       // bone plate                     S 0.12  V 0.72
+      accent: 0x704f4a,     // dulled ember-fleck bindings    S 0.34  V 0.44
+      spark: 0xbd291e,      // live ember: binding ties       S 0.84  V 0.74
 
-      leather: 0x4a3d3a,
-      metal: 0xe3dcc8,
-      cape: 0x1f9e5c, capeLining: 0xe3dcc8,
-      weaponA: 0xd9d2c4,    // rib-bone lance
-      weaponB: 0x8a8073,
+      leather: 0x4a3e38,
+      metal: 0xb8b2a2,
+      cape: 0x436655, capeLining: 0xb8b2a2,
+      weaponA: 0xb3ada1,    // rib-bone lance
+      weaponB: 0x7a7569,
       glow: 0x8fe6a0,       // tattoo lines that light when an Esper answers
     }),
 
@@ -1068,7 +1198,7 @@ export const ROSTER = Object.freeze([
     garments: Object.freeze([
       {
         kind: 'furCollar', mode: 'feather', color: 'trim', shade: 'identity',
-        tufts: 16, length: 0.070, radius: 1.70, arc: 0.86, liftBack: 0.45, liftFront: -0.25,
+        tufts: 16, rows: 1, length: 0.070, radius: 1.70, arc: 0.86, liftBack: 0.45, liftFront: -0.25,
       },
       {
         kind: 'breastplate', color: 'trim', rim: 'identity', lining: 'secondary',
@@ -1076,17 +1206,31 @@ export const ROSTER = Object.freeze([
         // A rib-plate scored with quill rows — her lance is rib-bone and so is
         // this, and the motif is what tells you so at closeup.
         pattern: {
-          id: 'feather', base: 0xe3dcc8, ink: 0x8a8073, accent: 0x1f9e5c,
+          id: 'feather', base: 0xb8b2a2, ink: 0x706c5e, accent: 0x436655,
           wrap: 'clamp', size: 256,
         },
       },
       { kind: 'pauldron', side: 'L', lames: 2, color: 'trim', rim: 'identity', lining: 'secondary', spread: 1.75 },
-      { kind: 'skirt', color: 'identity', lining: 'secondary', pipingColor: 'trim', length: 0.26, flare: 1.90, gores: 6, top: 0.10 },
-      { kind: 'underskirt', color: 'secondary', pipingColor: 'trim', length: 0.32, flare: 1.55, top: 0.06, gores: 5 },
-      { kind: 'belt', at: 'hip', color: 'secondary', buckle: 'trim', width: 0.032, tailSide: 'L' },
-      { kind: 'strap', side: 'R', color: 'leather', buckle: 'trim', width: 0.026, loops: 3 },
-      { kind: 'vambrace', material: 'leather', color: 'trim', rim: 'accent', lining: 'secondary', studs: 3, studColor: 'accent' },
-      { kind: 'legwrap', color: 'secondary', tie: 'accent', turns: 5, from: 0.18, to: 0.88 },
+      // A short wrap over a longer underwrap: the two hems are close together,
+      // so they are given different fold counts and depths or they read as one
+      // thick edge. Nine folds on a 0.26 H skirt is tight, which is what a wrap
+      // gathered at the hip actually does.
+      {
+        kind: 'skirt', color: 'identity', lining: 'secondary', turnColor: 'secondary',
+        pipingColor: 'trim', length: 0.26, flare: 1.90, top: 0.10,
+        folds: 9, foldDepth: 0.078, foldOnset: 0.06,
+      },
+      {
+        kind: 'underskirt', color: 'secondary', turnColor: 'leather', pipingColor: 'trim',
+        length: 0.32, flare: 1.55, top: 0.06, folds: 6, foldDepth: 0.050,
+      },
+      { kind: 'belt', at: 'hip', color: 'leather', buckle: 'trim', width: 0.038, tailSide: 'L', over: 0.52 },
+      {
+        kind: 'strap', side: 'R', color: 'leather', buckle: 'spark',
+        width: 0.044, loops: 3, over: 0.60, buckleAt: 0.40,
+      },
+      { kind: 'vambrace', material: 'leather', color: 'trim', rim: 'accent', lining: 'secondary', studs: 3, studColor: 'spark' },
+      { kind: 'legwrap', color: 'secondary', tie: 'spark', turns: 5, from: 0.18, to: 0.88 },
       {
         kind: 'boot', color: 'leather', cuff: 'trim', cuffLining: 'secondary', sole: 'secondary',
         eyelets: 3, lace: 'accent', shaft: 0.055, cuffFlare: 0.18,

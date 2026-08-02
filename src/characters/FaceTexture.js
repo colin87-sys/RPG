@@ -6,54 +6,67 @@
  * side and vanishes on the shadow side and no amount of tuning recovers what a
  * *drawn* line has for free.
  *
- * ## This file was rebuilt against the reference plates, not against the prose
+ * ## Measured off the plates as *luminance*, not as outlines
  *
  * `docs/BRAVELY_REFERENCE.md`, `docs/ANIME_PIPELINE.md` and
  * `docs/REFERENCE_TARGET.md` were transcribed by eye before the client's
- * screenshots were in the repository, and the face numbers in them are wrong in
- * ways that produced exactly the rejection the client wrote ("enormous eyes and
- * no nose"). Everything below is measured off `docs/reference/bravely01.jpg`
- * (Gloria and Elvis, native resolution) and `docs/reference/bravely04.jpg`
- * (Adelle, the only near-frontal face in the set), in image pixels:
+ * screenshots were in the repository, and their face numbers are wrong. An
+ * earlier pass on this file corrected the *sizes* against the plates and still
+ * shipped faces an art director scored as "effectively blank". The reason the
+ * size correction was not enough is visible only in a numeric readout, so this
+ * pass took one — a luma dump of Gloria's near eye in `bravely01.jpg`,
+ * x 656–686, y 385–405, against skin at luma 181–190:
  *
- * | quantity                    | plate                                   | ratio |
+ * ```
+ *      … 178 181 179 173 177 179 153 118  62   8  11   9  21  26  24  20  23  16  40  81 131 119 …
+ *      … 179 186 182 178 186 171 100  23   8  36 126 101  44  29  31  37  56 103  92  59 139 207 …
+ *      … 178 186 186 181 187 181 132  73 125 132 176 120  47  29  42  46  61  44  40  52 118 178 …
+ * ```
+ *
+ * The eye is **one dark mass**. Ink runs x 662→680 and y 389→401 — 19 × 13 px,
+ * aspect **1.46** — and inside it the iris/pupil block covers 13 × 11 px at luma
+ * **8–50 against skin at 185**, i.e. a four-to-one value drop over two thirds of
+ * the eye's width and *the whole* of its height. The only bright pixels in the
+ * eye are the sclera wedge at the outer canthus (luma 190–215, brighter than the
+ * skin) and one glint. Adelle reads identically at x 1400–1425, y 435–455.
+ *
+ * That is the measurement the previous pass missed. It had the eye's *outline*
+ * right and drew a pale saturated iris at 0.56 of the aperture width floating in
+ * a field of white sclera, which at the battle camera's ~90 px head averages to
+ * skin. What the plate has, and what this file now draws, is:
+ *
+ * | quantity                  | plate (Gloria / Adelle)     | here |
  * |---|---|---|
- * | eye ink width               | 24 / 25 / 30 / 26 px                    | ~0.34 of the visible face width |
- * | eye ink height              | 16 / 13 / 18 / 10 px                    | **W:H 1.5 (child) … 2.6 (adult male)** |
- * | gap between inner corners   | 23 px against a 25 px eye               | ~0.9 eye widths |
- * | iris                        | 14/24, 15/25, 12/26                     | a **circle**, 0.46–0.60 of eye ink width |
- * | catch-light                 | 3 px on a 15 px iris                    | 0.20 of iris *diameter*, one only |
- * | lash bar                    | 2.5–3 px on a 13–16 px eye              | 0.17–0.20 of eye ink height |
- * | brow                        | 29 px vs a 24 px eye; 36 vs 26          | 1.2–1.4 eye widths, overhanging **inboard** |
- * | brow spine above eye centre | 9 / 11 / 11.5 px                        | ~0.7–1.1 eye ink heights |
- * | eye line                    | 0.56–0.59 of crown→chin                 | `eyeY` 0.56 confirmed |
- * | nose base                   | 19 / 24 / 20 px below the eye line      | **0.60 of the eye→mouth span** |
- * | nose shadow width           | 10 / 11 px                              | 0.40–0.45 eye widths |
- * | mouth width                 | 11 / 17 / 20 px                         | 0.5–0.8 eye widths |
+ * | eye ink                   | 19 × 13 px, aspect 1.46     | `eyeW` 0.29 × `eyeH` 0.235, family aspect 1.14–1.34 |
+ * | iris block                | 13 × 11 px = 0.96 of the aperture height | `irisFill` 0.92–1.00 of the **aperture height** |
+ * | iris luma vs skin         | 8–50 vs 185 (0.04–0.27)     | every ramp stop forced under `IRIS_MAX_LUMA` |
+ * | sclera                    | 190–215, *above* skin       | cool near-white, unmixed |
+ * | catch-light               | one, hard, upper-outboard-lit | one, hard, screen-left on both eyes |
+ * | lash bar                  | 3 px on a 13 px eye         | 0.26–0.32 of the ink height |
+ * | brow                      | 3 px, 1–3 px of clear skin  | `browClear` 0.16 of the ink height |
+ * | eye line                  | 0.56 of crown→chin          | `eyeY` 0.56 confirmed |
+ * | nose base                 | 0.60 of the eye→mouth span  | `noseY` 0.705 confirmed |
  *
- * The corrections that follow from that, and the prose value each replaces:
+ * The corrections that follow, and the value each replaces:
  *
- *  1. **`eyeH` 0.30 → 0.17.** No eye anywhere in the plates is taller than it is
- *     wide. At 0.30 against a 0.26 envelope the `round` family drew an aperture
- *     with a 0.82 aspect — a circle. That single number is most of "enormous
- *     eyes"; every shape family is now solved to an authored *ink aspect* in the
- *     measured 1.5–2.45 band.
- *  2. **`eyeX` 0.30 → 0.255.** The published gap of 0.14 against a 0.26 eye is
- *     0.54 eye widths; the plate is 0.9. Eyes set that close read as a doll.
- *  3. **The iris is a circle at 0.56 of the aperture width**, not an ellipse
- *     solved against the eye height. It fills the aperture vertically (so the
- *     lids clip it) and leaves a white wedge at both canthi.
- *  4. **`mouthW` 0.08 → 0.155**, ~0.6 eye widths, and drawn as a tapered lens
- *     with a lit lower lip rather than a constant-width stroke.
- *  5. **The nose is real and on every face.** The old 0.02-wide dot was 1/5 of
- *     the measured width and was suppressed entirely for `eye ≥ 1.05`, i.e. for
- *     a third of the cast. Every face in every plate has a nose.
- *  6. **No hard terminator and no outline.** The old band ran a 3%-wide cel edge
- *     across the cheek. Nothing in the plates has one: the faces carry a long,
- *     low-amplitude warm gradient and nothing else. See `FORM`.
- *  7. **`browW` 0.9 → 1.30, biased inboard.** The plate's brow starts well
- *     inside the eye's inner corner and dies at the outer one; a brow centred on
- *     the eye and shorter than it reads as a pencil mark.
+ *  1. **The eye is solved from its height, not its width.** `eyeH` is the drawn
+ *     ink height and the family aspect *widens* it. Solving the other way round
+ *     — which is what produced a 2.45-aspect `narrow` family — lets a small-eyed
+ *     character fall to an 8 px slit at battle range whatever the width says.
+ *     No family may exceed 1.34 now, against the plate's measured 1.46.
+ *  2. **The iris is a disc as tall as the aperture**, not 0.56 of its width, and
+ *     every stop of its ramp is clamped under a fraction of the skin's own
+ *     luminance. A saturated hue at parity with skin has no read at 90 px; the
+ *     plate's iris is essentially black with a hue in it.
+ *  3. **The catch-light does not mirror.** It was authored in the eye's mirrored
+ *     frame, so the two eyes lit from opposite sides — which is what a viewer
+ *     reads as "no highlight" rather than as two. One light, one side.
+ *  4. **Brow, mouth and nose are pushed to ink weight.** All three were tuned
+ *     against a 1024² canvas viewed flat and are being read at ~90 px through a
+ *     lit toon surface that lifts midtones; the plate's marks are near-black.
+ *  5. **No hard terminator and no outline.** Unchanged and still correct: the
+ *     plate faces carry a long, low-amplitude warm gradient and nothing else.
+ *     See `FORM`.
  *
  * ## Structure
  *
@@ -98,13 +111,15 @@ export const FACE_TEXTURE_SIZE = 1024;
  * floor keeps them as real, opaque, full-contrast marks at the size the battle
  * camera actually samples.
  *
- * The floors matter more since the eye shrank to its measured height: at the
- * 128² mip the whole eye is only 20 texels tall, so the lash bar is under four
- * of them and the mouth line under two.
+ * The floors are the last line of defence for the marks the review found
+ * missing. At the 128² mip a 0.235 eye is 30 texels tall, so the lash bar is
+ * seven of them and the catch-light three — but the *screen* is coarser than the
+ * mip the sampler picks, so every floor here is set to what survives a further
+ * halving rather than to what is merely non-zero.
  */
 const MIN_PX = Object.freeze({
-  ring: 1.0, highlight: 1.8, lash: 2.4, pupil: 1.8,
-  brow: 2.0, mouth: 1.6, lid: 1.0, crease: 1.0, nose: 2.0,
+  ring: 1.0, highlight: 2.6, lash: 3.2, pupil: 2.2,
+  brow: 2.8, mouth: 2.4, lid: 1.2, crease: 1.0, nose: 2.2,
 });
 
 const atLeast = (v, floor) => (v < floor ? floor : v);
@@ -124,30 +139,48 @@ export const FACE_LAYOUT = Object.freeze({
   /**
    * Inner-left eye centre; the other sits at `1 - eyeX`.
    *
-   * 0.255 puts 0.23 of the texture between the inner corners of a default eye —
-   * 0.88 eye widths, against the 0.9 measured on `bravely04`'s frontal face.
-   * The published 0.30 left 0.54 eye widths, which is a doll's spacing.
+   * This number is not free: it is bounded above by taste and below by geometry.
    *
-   * The outer corner of the widest eye in the roster (Emrys: `eye` 1.16,
-   * `eyeSpacing` 1.05, `round`) lands at 0.101 of the texture, i.e. 0.82 of the
-   * face plate's half-width — inside `Rig`'s stated 0.84 bound for painted
-   * features, and well inside `buryFrom` at 0.92, so no widening of the eye pair
-   * can reach the plate's buried rim.
+   * `Rig` gives the plate `halfX = head.rx * 0.95` on a square of
+   * `head.rx * 2.28`, so the mesh only ever samples `u ∈ [0.083, 0.917]` — a
+   * painted feature past 0.417 of the texture from the centreline is *never
+   * drawn on the head at all* — and the plate's rim starts diving inside the
+   * skull at `buryFrom` 0.92 of that, i.e. 0.383.
+   *
+   * The eye pair's outboard reach is `halfSpan + inkW/2 + flick`, and this pass
+   * spends a third of the budget on a wider eye (0.29 against 0.26). 0.268 is
+   * what is left: the widest reach in the roster is Emrys (`eye` 1.16,
+   * `eyeSpacing` 1.05, `round`) — 0.383 to the outer corner of the ink, which
+   * clears `buryFrom` exactly, and 0.39 to the tip of the lash flick, which is
+   * the only mark allowed into the dive because it tapers to nothing there. The
+   * previous 0.255 put Emrys' *iris* at 0.42, off the sampled plate entirely,
+   * which is one of the reasons his outer eye had no read.
    */
-  eyeX: 0.255,
-  /** Eye envelope width. Multiplied by the shape family's `widen`. */
-  eyeW: 0.26,
+  eyeX: 0.270,
   /**
-   * Eye envelope **height** — the correction that matters most in this file.
+   * Nominal eye ink **width**.
    *
-   * The prose specs carried 0.30 against a 0.26 width, which draws an aperture
-   * taller than it is wide. Measured on the plates the ink is 1.5:1 (Gloria,
-   * 24 × 16), 1.9:1 (Adelle frontal, 25 × 13), 1.7:1 (Adelle in the hero plate,
-   * 30 × 18) and 2.6:1 (Elvis, 26 × 10) — never once taller than wide. 0.17 is
-   * the value that puts the roundest family in the party at 1.55:1 and the
-   * narrowest at 2.45:1, which spans the measured range exactly.
+   * Consumed here only as documentation of what the families average to — the
+   * painter solves the width from the height and the family aspect (see
+   * `eyeFrame`) — but `Rig` reads it directly to size the hair guard band, so it
+   * has to state the real drawn width. The roster spans 0.279 (Yshara, almond)
+   * to 0.299 (Kirella, sharp).
    */
-  eyeH: 0.17,
+  eyeW: 0.29,
+  /**
+   * Eye ink **height**, and the dimension the whole eye is now solved from.
+   *
+   * Gloria's ink is 13 px on an 89 px crown→chin, and `Rig` builds the plate at
+   * 2.28 `rx` against a head 0.80 as wide as it is tall, so her eye is 0.16 of
+   * the square. This is 0.235 — deliberately half again the plate's ratio.
+   *
+   * The plate is a 1080p render of a face lit for the shot; ours is read at ~90
+   * px through a toon surface with a rim term that lifts the whole face, and the
+   * eye has to survive both the mip chain and a three-quarter yaw that
+   * foreshortens it horizontally. Matching the plate's *ratio* is what produced
+   * the 8 px slit the review measured. Matching its *read* costs this much.
+   */
+  eyeH: 0.235,
   /**
    * Envelope-relative brow clearance. **Unused by the painter** — `browClear`
    * below does that job — and kept only because `Rig.computeMetrics` derives its
@@ -162,7 +195,7 @@ export const FACE_LAYOUT = Object.freeze({
    * dying at its outer one. Elvis reads 36 against 26, but he is nearly in
    * profile and his brow is wrapping the brow ridge, so the frontal faces win.
    */
-  browW: 1.10,
+  browW: 1.16,
   /** How far the brow's centre sits inboard of the eye's, × eye ink width. */
   browShift: 0.07,
   /**
@@ -171,12 +204,17 @@ export const FACE_LAYOUT = Object.freeze({
    *
    * Measured to the *ink*, not to the envelope, because every shape family opens
    * to a different fraction of the envelope and a fraction of the cell therefore
-   * means something different on each face. The plates read 1–3 px of clear skin
-   * on a 10–16 px eye — startlingly tight — which puts the brow spine 0.69–1.1
-   * eye-heights above the eye centre. 0.10 lands in the middle of that band once
-   * each family's own arch and drop are added on top.
+   * means something different on each face.
+   *
+   * The plates read 1–3 px of clear skin on a 13 px eye. At 0.10 of a 13 px ink
+   * height that is 1.3 px — inside the plate's band on paper, but the brow and
+   * the lash are the two heaviest marks on the face and at the battle camera's
+   * ~90 px head a single texel of skin between them filters away, leaving one
+   * four-pixel black bar per eye. That bar is a large part of what the review
+   * read as "closed-eye squint lines". 0.16 buys a little over three screen
+   * pixels of clear skin, which is the smallest gap that stays a gap.
    */
-  browClear: 0.10,
+  browClear: 0.16,
   /**
    * Nose base. 0.60 of the way from the eye line to the mouth line — the single
    * most consistent measurement in the set (Elvis 0.59, Gloria 0.62, Adelle
@@ -190,7 +228,7 @@ export const FACE_LAYOUT = Object.freeze({
    * pursed and three-quarter), 0.68 (Adelle) and 0.77 (Elvis). The published
    * 0.08 was 0.31 eye widths and is the "token mouth" the client rejected.
    */
-  mouthW: 0.155,
+  mouthW: 0.175,
 });
 
 /**
@@ -203,12 +241,24 @@ export const FACE_LAYOUT = Object.freeze({
  * convention (positive = gentle, inner end raised). `mouthCurve` is a fraction
  * of the texture and positive bows the mouth's centre *downward* on screen,
  * which is what a smile does once the corners are pinned.
+ *
+ * ## Nothing but `hurt` closes the eye any more
+ *
+ * `open` scales the upper half of the aperture and `lidRaise` the lower, so the
+ * two of them together are the only way the drawn eye can lose height. The
+ * previous table spent 12% of it on `determined` and 30% of the lower lid on
+ * `joy` — reasonable on a 1024² canvas, and at a 90 px head it is the difference
+ * between an eye and a line, because the aperture is what carries the iris and
+ * the iris is the only coloured mark on the face. Performance is carried by the
+ * brow, the mouth and the pupil instead, all three of which keep their weight at
+ * any size. `hurt` is the one expression allowed to squint, and it is a state a
+ * capture never sits in.
  */
 const EXPRESSIONS = Object.freeze({
   neutral:    Object.freeze({ open: 1.00, lidRaise: 0.00, browLift: 0.000, browTilt:  0.00, browThick: 1.00, mouthCurve: 0.004, mouthWidth: 1.00, mouthOpen: 0.00, pupil: 1.00 }),
-  determined: Object.freeze({ open: 0.88, lidRaise: 0.10, browLift: -0.018, browTilt: -0.34, browThick: 1.12, mouthCurve: -0.004, mouthWidth: 1.10, mouthOpen: 0.00, pupil: 0.90 }),
-  hurt:       Object.freeze({ open: 0.60, lidRaise: 0.26, browLift: 0.014, browTilt:  0.40, browThick: 0.92, mouthCurve: -0.014, mouthWidth: 0.86, mouthOpen: 0.18, pupil: 1.14 }),
-  joy:        Object.freeze({ open: 0.96, lidRaise: 0.30, browLift: 0.020, browTilt:  0.14, browThick: 1.00, mouthCurve: 0.026, mouthWidth: 1.32, mouthOpen: 0.30, pupil: 1.06 }),
+  determined: Object.freeze({ open: 1.00, lidRaise: 0.04, browLift: -0.022, browTilt: -0.40, browThick: 1.18, mouthCurve: -0.004, mouthWidth: 1.10, mouthOpen: 0.00, pupil: 0.88 }),
+  hurt:       Object.freeze({ open: 0.74, lidRaise: 0.20, browLift: 0.014, browTilt:  0.44, browThick: 0.96, mouthCurve: -0.014, mouthWidth: 0.86, mouthOpen: 0.18, pupil: 1.16 }),
+  joy:        Object.freeze({ open: 1.00, lidRaise: 0.16, browLift: 0.022, browTilt:  0.16, browThick: 1.02, mouthCurve: 0.026, mouthWidth: 1.32, mouthOpen: 0.30, pupil: 1.08 }),
 });
 
 /** Canonical expression names, in review order. */
@@ -223,21 +273,31 @@ export const EXPRESSION_NAMES = Object.freeze(Object.keys(EXPRESSIONS));
  * one axis, which is why six characters used to come out as six points on a
  * line.
  *
- *   `aspect`     the drawn **ink** width : height, which is what the eye is
- *                solved from now. The band is the measured one: Elvis 2.6,
- *                Adelle 1.9, Gloria 1.5.
- *   `widen`      ink width multiplier on the 0.26 envelope
+ *   `aspect`     the drawn **ink** width : height. Gloria measures 1.46 and she
+ *                is the roundest face in the plate, so 1.34 is the ceiling here
+ *                and the families differ by a fifth rather than by the 1.55–2.45
+ *                spread the previous pass authored. A 2.45 aspect on a 0.17 eye
+ *                is a 6 px slit at the battle camera whatever its width says,
+ *                and four of the six characters were inside a texel of that.
+ *   `widen`      ink width trim once the aspect has widened the height. It only
+ *                exists to keep the widest eye off the plate's buried rim (see
+ *                `FACE_LAYOUT.eyeX`); identity lives in `aspect`.
  *   `lidSplit`   share of the aperture height that sits above the lid line
- *   `irisFill`   iris diameter as a fraction of the aperture width. The plates
- *                give 0.60 for the young round eyes and 0.46 for Elvis's.
+ *   `irisFill`   iris diameter as a fraction of the **aperture height**, not of
+ *                its width. Gloria's iris block is 11 px in a 11.5 px aperture.
+ *                Every family is therefore near 1: what distinguishes them is
+ *                the aperture the iris is being clipped by, which is the whole
+ *                point of having families.
  *   `flick`      lash overhang past the outer corner, × the eye half-width. The
- *                plates barely flick at all — Gloria's is 2 px on a 24 px eye.
+ *                plates barely flick at all — Gloria's is 2 px on a 19 px eye —
+ *                and the flick is the outermost ink on the face, so it is also
+ *                what the plate's dive zone eats first.
  */
 const EYE_SHAPES = Object.freeze({
-  narrow: Object.freeze({ round: 0.05, aspect: 2.45, widen: 1.10, lidSplit: 0.46, cornerDrop: 0.20, lowerDepth: 0.44, lash: 0.24, flick: 0.18, tilt: 0.14, irisFill: 0.82, crease: 0.85 }),
-  sharp:  Object.freeze({ round: 0.32, aspect: 2.00, widen: 1.05, lidSplit: 0.50, cornerDrop: 0.16, lowerDepth: 0.62, lash: 0.22, flick: 0.15, tilt: 0.10, irisFill: 0.89, crease: 0.55 }),
-  almond: Object.freeze({ round: 0.62, aspect: 1.75, widen: 1.00, lidSplit: 0.54, cornerDrop: 0.11, lowerDepth: 0.78, lash: 0.20, flick: 0.10, tilt: 0.05, irisFill: 0.95, crease: 0.25 }),
-  round:  Object.freeze({ round: 1.00, aspect: 1.55, widen: 0.95, lidSplit: 0.56, cornerDrop: 0.05, lowerDepth: 0.94, lash: 0.19, flick: 0.07, tilt: 0.01, irisFill: 1.00, crease: 0.00 }),
+  narrow: Object.freeze({ round: 0.05, aspect: 1.34, widen: 0.96, lidSplit: 0.46, cornerDrop: 0.18, lowerDepth: 0.62, lash: 0.32, flick: 0.12, tilt: 0.13, irisFill: 0.92, crease: 0.85 }),
+  sharp:  Object.freeze({ round: 0.32, aspect: 1.26, widen: 1.01, lidSplit: 0.50, cornerDrop: 0.14, lowerDepth: 0.74, lash: 0.30, flick: 0.10, tilt: 0.09, irisFill: 0.95, crease: 0.55 }),
+  almond: Object.freeze({ round: 0.62, aspect: 1.20, widen: 1.00, lidSplit: 0.54, cornerDrop: 0.10, lowerDepth: 0.86, lash: 0.28, flick: 0.07, tilt: 0.05, irisFill: 0.98, crease: 0.25 }),
+  round:  Object.freeze({ round: 1.00, aspect: 1.14, widen: 0.98, lidSplit: 0.56, cornerDrop: 0.04, lowerDepth: 0.96, lash: 0.26, flick: 0.05, tilt: 0.01, irisFill: 1.00, crease: 0.00 }),
 });
 
 /**
@@ -257,11 +317,16 @@ const EYE_SHAPES = Object.freeze({
  * every brow in the set at 2.5–3.5 px whatever the eye under it is doing.
  *
  * `drop` is added *toward* the eye, so a hard brow sits low and crowds the lid.
+ *
+ * The thicknesses are up by a third on the previous pass. The plate's brows are
+ * 3 px on an 89 px head — 0.034 of the square — and ours were authored at 0.023
+ * for the gentle family, which is 2 px before the mip chain gets to it and one
+ * after. A brow is a *mark*, and a mark that is one pixel wide is a smudge.
  */
 const BROW_STYLES = Object.freeze({
-  hard:   Object.freeze({ thick: 0.031, arch: 0.12, tilt: -0.07, drop: 0.008, gain: 1.35, mouth: -0.005, mouthW: 1.12 }),
-  level:  Object.freeze({ thick: 0.027, arch: 0.28, tilt: 0.00, drop: 0.000, gain: 1.30, mouth: 0.000, mouthW: 1.00 }),
-  gentle: Object.freeze({ thick: 0.023, arch: 0.50, tilt: 0.05, drop: -0.006, gain: 1.30, mouth: 0.007, mouthW: 0.92 }),
+  hard:   Object.freeze({ thick: 0.042, arch: 0.12, tilt: -0.07, drop: 0.008, gain: 1.35, mouth: -0.005, mouthW: 1.12 }),
+  level:  Object.freeze({ thick: 0.037, arch: 0.28, tilt: 0.00, drop: 0.000, gain: 1.30, mouth: 0.000, mouthW: 1.00 }),
+  gentle: Object.freeze({ thick: 0.033, arch: 0.50, tilt: 0.05, drop: -0.006, gain: 1.30, mouth: 0.007, mouthW: 0.92 }),
 });
 
 /**
@@ -345,6 +410,22 @@ function seedFor(id) {
   return (h >>> 0) || 1;
 }
 
+/**
+ * How far from the centreline a painted eye's ink may reach, in texture
+ * fractions.
+ *
+ * `Rig.computeMetrics` maps the plate onto `halfX = head.rx * 0.95` of a square
+ * `head.rx * 2.28` across, so the mesh only ever samples `u` within 0.417 of the
+ * centre — paint outside that is on no triangle — and the plate's rim starts
+ * diving inside the skull at `buryFrom` 0.92 of that, i.e. 0.383. 0.405 puts the
+ * eye's outer corner inside the sampled region with only the lash flick's
+ * tapering tip in the dive, which is the one mark thin enough not to smear.
+ *
+ * It cannot be imported: `Rig` imports `FACE_LAYOUT` from this file and the
+ * dependency must not become a cycle. Same contract as `FORM` below.
+ */
+const PLATE_REACH = 0.405;
+
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const clamp01 = (v) => clamp(v, 0, 1);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -384,7 +465,11 @@ function lumOf(hex) {
 function ensureDarkerThan(hex, against, ratio) {
   const target = lumOf(against) * ratio;
   let out = hex;
-  for (let i = 0; i < 8 && lumOf(out) > target; i++) out = darken(out, 0.22);
+  // Sixteen steps rather than eight. The ratios this pass asks for are three to
+  // four times deeper than the last one's, and eight steps of 22% bottom out at
+  // 0.14 of the input — not enough to take Seren's near-white hair down to the
+  // 0.14-of-skin the brow now demands, which silently left her browless.
+  for (let i = 0; i < 16 && lumOf(out) > target; i++) out = darken(out, 0.22);
   return out;
 }
 
@@ -519,6 +604,34 @@ export function faceTraits(def) {
   );
 
   const iris = pal.eye ?? 0x5fb8b0;
+  /**
+   * The three stops of the iris ramp, each forced under a fraction of the
+   * character's own skin luminance.
+   *
+   * This is the single change that turns the eye back into a mark. Gloria's iris
+   * block reads luma 8–50 against skin at 185 — 0.04 to 0.27 — and ours were
+   * being drawn at `saturate(iris, 1.3)`, which for Emrys' orange and Seren's
+   * cyan lands *above* their skin. A shape at parity with its background has no
+   * silhouette at any resolution, and no amount of lash weight around it helps.
+   *
+   * Clamping against the character's own skin rather than against a constant is
+   * what keeps the rule true for Kirella's dark skin as well as Seren's pale
+   * one: the ratio is a contrast requirement, not a colour.
+   *
+   * The hue survives because `saturate` runs before the clamp and `darken`
+   * multiplies in linear light, so what comes out is a black with an unambiguous
+   * cast rather than a grey — exactly what the plate's brown and blue irises are.
+   */
+  const irisTop = ensureDarkerThan(mixHex(saturate(iris, 1.20), lash, 0.55), skin, 0.05);
+  const irisMid = ensureDarkerThan(saturate(iris, 1.45), skin, 0.19);
+  // The foot takes its hue from the roster's `eyeCore` where one is authored —
+  // that field exists to say what the lit bottom of this character's iris is
+  // made of — and only its *value* is overridden.
+  // 0.42 rather than a deeper clamp: the foot is the only part of the iris with
+  // room for chroma, and driving all three stops to near-black turns a blue eye
+  // and an orange eye into the same dark hole. Below half the skin's luminance
+  // the disc still reads as a mark; above it, it does not.
+  const irisFoot = ensureDarkerThan(saturate(mixHex(iris, pal.eyeCore ?? iris, 0.5), 1.25), skin, 0.42);
   // A 40% pull toward the spec rose guarantees the shading reads warm without
   // bleaching the darker-skinned half of the cast, then the value is pinned into
   // the form window relative to *their own* base rather than a universal one.
@@ -541,22 +654,28 @@ export function faceTraits(def) {
     scleraTop: mixHex(0xf4f7fa, pal.sclera ?? 0xf2ede2, 0.12),
     scleraBottom: mixHex(0xe4eaf2, pal.sclera ?? 0xf2ede2, 0.12),
     iris,
-    irisCore: pal.eyeCore ?? mixHex(iris, 0xffffff, 0.6),
-    // A saturated 40% darkening of the iris hue with a trace of lash. The plates
-    // show no black rim at all — the iris is a downward gradient with a soft dark
-    // top from the lash's cast shadow — so this rim is thin and is drawn only
-    // across the lower arc, where the plate does show the iris edge settling.
-    irisRing: mixHex(darken(saturate(iris, 1.25), 0.40), lash, 0.14),
+    irisTop,
+    irisMid,
+    irisFoot,
+    // The rim across the iris's lower arc, one step under its foot so the disc
+    // has an edge where it meets the lower lid. The plates show no ring around
+    // the whole iris; they show this.
+    irisRing: ensureDarkerThan(mixHex(irisFoot, lash, 0.35), skin, 0.14),
     // Near-black. A pupil mixed back toward the iris hue reads as a warm brown
     // smudge that barely separates.
     pupil: mixHex(0x07090d, iris, 0.03),
     lash,
-    brow: ensureDarkerThan(darken(hairBase, 0.25), skin, 0.32),
+    // 0.14 rather than 0.32. The brow and the mouth are the two marks a viewer
+    // reads a face's *expression* from at battle range, and both were sitting at
+    // a third of the skin's luminance — visible on a flat canvas, and lifted
+    // most of the way back to skin by the toon surface's diffuse wrap and rim
+    // term once it is on a head. They are ink; ink is near-black.
+    brow: ensureDarkerThan(darken(hairBase, 0.30), skin, 0.14),
     // The mouth is an ink stroke from the same hair-darkened family as the brow,
     // held one step darker because at battle range it is the only mark below the
     // eyes. It is *not* mixed out of `skinShade`: a mouth that is not the darkest
     // thing on the lower face is a blemish, not a mouth.
-    mouth: ensureDarkerThan(darken(hairBase, 0.25), skin, 0.26),
+    mouth: ensureDarkerThan(darken(hairBase, 0.30), skin, 0.11),
     // The lit lower lip. The plates all show it — a warm, slightly desaturated
     // band directly under the lip line — and it is what stops the mouth reading
     // as a scratch.
@@ -574,9 +693,11 @@ export function faceTraits(def) {
     eyeTilt: shape.tilt + rng.jitter(0.015),   // outer corner up
     cornerDrop: shape.cornerDrop,              // outer corner sits below the inner
     lowerDepth: shape.lowerDepth,              // how deep the lower lid bows
-    // 0.19–0.24 of the aperture height, which lands at the measured 0.17–0.20 of
-    // the *ink* height once the bar's own thickness is counted in.
-    lashWeight: shape.lash + rng.jitter(0.008),
+    // 0.26–0.32 of the ink height. Gloria's bar is 3 px on a 13 px eye (0.23)
+    // and hers is the lightest in the plate; ours has to clear a texel floor at
+    // the mip the battle camera samples *and* survive the toon surface lifting
+    // it, so the band starts where the plate's ends.
+    lashWeight: shape.lash + rng.jitter(0.010),
     lashFlick: shape.flick,
     browThick: browStyle.thick,                // fraction of eye ink height
     browArch: browStyle.arch + rng.jitter(0.03),
@@ -591,8 +712,13 @@ export function faceTraits(def) {
      * third of the cast. What actually varies with age is *contrast*: Elvis has
      * a bridge and a defined base, Adelle has a soft shadow and a lit ridge and
      * nothing else, so the small-eyed adults get more of it.
+     *
+     * The band is 0.34–0.80 rather than 0.16–0.62: the nose is a *shadow*, and a
+     * shadow drawn at a sixth strength on a face that the toon surface then lifts
+     * is not a shadow at all. Even the softest face in the party now has a base
+     * mark a viewer can find at 90 px.
      */
-    noseStrength: clamp(1.34 - eyeScale, 0.16, 0.62),
+    noseStrength: clamp(1.62 - eyeScale * 0.8, 0.34, 0.80),
     facial,
     facialColour: facial
       ? ensureDarkerThan(mixHex(hairBase, pal.hairShade ?? darken(hairBase, 0.4), 0.55), skin, 0.42)
@@ -760,17 +886,50 @@ function lashProfile(s, flick) {
  * brows read this one object and the mirroring downstream is a pure reflection
  * of it. Nothing per-side is derived anywhere else.
  *
- * The envelope is `eyeW × eyeH`; the drawn ink is solved from the family's
- * measured `aspect`, and the aperture is what is left after the lash bar takes
- * its share of the top.
+ * The ink height is `eyeH` scaled by the roster; the ink width follows from the
+ * family's `aspect` and is then trimmed to the plate; and the aperture is what
+ * is left after the lash bar takes its share of the top.
  */
 function eyeFrame(t, x, S) {
-  // Ink width comes straight off the envelope. Ink height is *solved* from the
-  // family aspect rather than authored, which is what guarantees no face in the
-  // party can come out with an eye taller than it is wide however the roster is
-  // retuned.
-  const inkW = FACE_LAYOUT.eyeW * t.eyeScale * t.widen * S;
-  const inkH = inkW / t.aspect;
+  /**
+   * The solve runs **height first**.
+   *
+   * The previous pass took the width off the envelope and divided by the family
+   * aspect, which makes the eye's height the residue of two other numbers. The
+   * roster's `eye` multiplier spans 0.84–1.16 and the aspects spanned 1.55–2.45,
+   * so Bramm's height came out at 0.089 of the square against Emrys' 0.194 — the
+   * *same drawing* varying by a factor of 2.2 in the one dimension the review
+   * measured as "too narrow to read".
+   *
+   * Solving height first makes the floor a property of the construction: every
+   * character's ink height is `eyeH × sizeK` and nothing else touches it.
+   *
+   * `sizeK` compresses the roster's 0.84–1.16 to 0.928–1.072. The full range is
+   * a legitimate identity signal on a 1024² canvas and is simply too wide a band
+   * to sit above a legibility floor at 90 px; the halved range still separates
+   * Emrys from Bramm by 15%, and the families carry the rest.
+   */
+  const sizeK = 1 + (t.eyeScale - 1) * 0.45;
+  const inkH = FACE_LAYOUT.eyeH * sizeK * S;
+
+  /**
+   * The width is then **trimmed to fit the plate**, and the height never is.
+   *
+   * `eyeX`'s note works the reach out for the roster as it stands, but that is
+   * an audit, not a guarantee: `eye` is clamped to 1.4 and `eyeSpacing` to 1.2,
+   * and a future entry near those bounds reaches 0.43 of the texture — past
+   * `Rig`'s 0.417 sampling limit, where the iris is simply not on the head. That
+   * failure is invisible in a face sheet and obvious in a battle frame, which is
+   * the worst combination a defect can have, so it is made unreachable here.
+   *
+   * Width is what gives, because height is what legibility is made of: a trimmed
+   * eye is a slightly narrower almond, a shortened one is the slit this pass
+   * exists to remove.
+   */
+  const inkW = Math.min(
+    inkH * t.aspect * t.widen,
+    2 * Math.max(PLATE_REACH * S - (0.5 - FACE_LAYOUT.eyeX) * t.spacing * S, inkH * 0.5),
+  );
   const hw = inkW / 2;
 
   // The lash bar eats into the top of the ink, so the aperture is shorter than
@@ -783,20 +942,24 @@ function eyeFrame(t, x, S) {
   const hl = hl0 * (1 - x.lidRaise);
 
   /**
-   * The iris is a **circle**, sized off the aperture width.
+   * The iris is a **circle as tall as the aperture**.
    *
-   * Measured: 14 px on Gloria's 24 px eye, 15 on Adelle's 25, 12 on Elvis's 26 —
-   * 0.46 to 0.60, and round in all three. The previous build solved two radii
-   * against the eye *height* and produced an iris taller than wide that ran
-   * corner to corner, which is the "reptilian" read. A circle at 0.56 of the
-   * aperture width leaves a visible white wedge at both canthi — the thing that
-   * most separates an anime eye from an animal's — while still overrunning the
-   * lids vertically, so the lids clip it and it never becomes a floating disc.
+   * Measured off the luma dump at the top of this file: Gloria's iris block is
+   * 13 × 11 px in an 11.5 px aperture, so the disc spans 0.96 of the aperture's
+   * height and 0.68 of the ink's width. The previous build sized it at 0.56 of
+   * the *width* — 0.44 of the aperture height on the narrow family — which is a
+   * small coloured bead in a field of sclera, and a field of sclera is what
+   * averages to skin.
    *
-   * Both radii come off the *full-open* aperture, so a squint occludes the iris
+   * Sizing off the height and letting the aperture's own aspect decide the width
+   * coverage is also what keeps the white canthal wedges without authoring them:
+   * the lids meet at both corners, so a disc that exactly fills the middle
+   * leaves a triangle of sclera at each end whatever the family is doing.
+   *
+   * The radius comes off the *full-open* aperture, so a squint occludes the iris
    * instead of shrinking it.
    */
-  const irisR = 0.28 * (hw * 2) * t.irisFill;
+  const irisR = 0.5 * (hu0 + hl0) * t.irisFill;
 
   /**
    * Iris centre, solved in the *unrotated* frame so that after the eye's tilt it
@@ -842,8 +1005,12 @@ function eyeInkTop(t, x, S, f = eyeFrame(t, x, S)) {
 /**
  * One eye, drawn back to front. Called with the context already translated to
  * the eye centre and mirrored so that +x points at the outer corner.
+ *
+ * `side` is that mirror's sign (+1 for the character's screen-right eye), and it
+ * exists for exactly one mark: the catch-light, which must land on the same
+ * *screen* side of both irises because there is one key light. See step 8.
  */
-function drawEye(ctx, t, x, f) {
+function drawEye(ctx, t, x, f, side) {
   // The whole eye rotates: outer corner up. Tilt is one of the strongest
   // identity channels an anime face has.
   ctx.save();
@@ -871,15 +1038,21 @@ function drawEye(ctx, t, x, f) {
   ctx.fillStyle = sc;
   ctx.fillRect(-hw * 1.6, -hw * 1.8, hw * 3.2, hw * 3.6);
 
-  // 2 — iris. A circle that overruns the lids top and bottom, so the clip cuts
-  // it, and stops well short of both canthi, so the sclera stays visible there.
+  // 2 — the iris: a disc that fills the aperture top to bottom, so the lids clip
+  // it, and stops short of both canthi, so the sclera stays visible there.
+  //
+  // Three stops, all forced under a fraction of this character's skin luminance
+  // in `faceTraits` (see `irisTop`). The ramp runs dark → mid → light *downward*,
+  // which is the plate's read: the lash casts a shadow across the top third of
+  // the iris and the bottom catches the bounce. The stop positions are pulled
+  // toward the top — 0.34 and 0.72 rather than an even split — because on the
+  // plate the dark band is short and the lit foot is broad, and an even ramp
+  // reads as a gradient rather than as a shadow.
   const ig = ctx.createLinearGradient(0, iy - irisR, 0, iy + irisR);
-  // The dark top band is the lash's cast shadow — the strongest feature of the
-  // iris in every plate. Kept short: run it deep and the eye reads heavy-lidded.
-  ig.addColorStop(0, cssHex(darken(mixHex(t.iris, t.lash, 0.42), 0.04)));
-  ig.addColorStop(0.30, cssHex(saturate(t.iris, 1.12)));
-  ig.addColorStop(0.62, cssHex(saturate(t.iris, 1.30)));
-  ig.addColorStop(1, cssHex(mixHex(t.iris, t.irisCore, 0.62)));
+  ig.addColorStop(0, cssHex(t.irisTop));
+  ig.addColorStop(0.34, cssHex(t.irisMid));
+  ig.addColorStop(0.72, cssHex(t.irisFoot));
+  ig.addColorStop(1, cssHex(t.irisFoot));
   ctx.fillStyle = ig;
   ctx.beginPath();
   ctx.arc(ix, iy, irisR, 0, Math.PI * 2);
@@ -887,9 +1060,9 @@ function drawEye(ctx, t, x, f) {
 
   // 3 — the iris rim, across the **lower arc only**. The plates show no dark
   // ring around the whole iris; what they show is the lower edge settling as the
-  // bright bottom of the iris meets the lid. A full ring at the published 12% of
-  // the radius merges with the lash bar under any downsample and turns the eye
-  // into a flat disc with a black outline — the ink weight the client rejected.
+  // bright bottom of the iris meets the lid. A full ring merges with the lash
+  // bar under any downsample and turns the eye into a flat disc with a black
+  // outline — the ink weight the client rejected.
   const ringW = atLeast(irisR * 0.09, MIN_PX.ring);
   ctx.strokeStyle = cssRgba(t.irisRing, 0.85);
   ctx.lineWidth = ringW;
@@ -897,9 +1070,14 @@ function drawEye(ctx, t, x, f) {
   ctx.arc(ix, iy, irisR - ringW * 0.5, 0.18 * Math.PI, 0.82 * Math.PI);
   ctx.stroke();
 
-  // 4 — pupil: a third of the iris width, slightly tall, near-black.
-  const pupilRX = atLeast(irisR * 0.34 * x.pupil, MIN_PX.pupil);
-  const pupilRY = Math.min(pupilRX * 1.22, irisR * 0.82);
+  // 4 — pupil: near-black, and *large*. At 0.34 of the iris radius against an
+  // iris that was itself 0.44 of the aperture, the pupil used to be a mark four
+  // texels across at the mip the battle camera samples, which is under the
+  // filter's own footprint. It is now 0.42 of an iris twice the size, and since
+  // the iris around it is near-black too the pair reads as one deep pupil with a
+  // coloured corona — which is what the plate reads as.
+  const pupilRX = atLeast(irisR * 0.42 * x.pupil, MIN_PX.pupil);
+  const pupilRY = Math.min(pupilRX * 1.16, irisR * 0.88);
   ctx.fillStyle = cssHex(t.pupil);
   ctx.beginPath();
   ctx.ellipse(ix, iy, pupilRX, pupilRY, 0, 0, Math.PI * 2);
@@ -921,9 +1099,14 @@ function drawEye(ctx, t, x, f) {
   // before the inner corner. It is what makes an adult eye read as an adult eye,
   // and the round-eyed children correctly have none (`crease` 0).
   if (t.creaseStrength > 0.02) {
+    // Offset by a little over the bar's own upper half-thickness, and no more.
+    // The multiplier used to be 0.95–1.60 of the whole bar, which was a couple
+    // of texels while the bar was thin; against the heavier bar this pass draws
+    // it lifted the crease clear of the socket and printed a second, fainter
+    // brow above the real one on every adult face.
     const creaseSpine = samplePolyline((s, o) => {
       lidPoint(g, s, flickLen, o);
-      o.y -= f.lashTh * (0.95 + 0.65 * t.creaseStrength);
+      o.y -= f.lashTh * (0.62 + 0.30 * t.creaseStrength);
       return o;
     }, 0.28, 0.98, 12);
     ctx.fillStyle = cssRgba(t.crease, 0.55 * t.creaseStrength + 0.25);
@@ -945,23 +1128,38 @@ function drawEye(ctx, t, x, f) {
   smoothPath(ctx, samplePolyline((s, o) => lowerPoint(g, s, o), 0.04, 0.48, 10));
   ctx.stroke();
 
-  // 8 — the catch-light. **One**, measured at 0.20 of the iris diameter on
-  // Adelle's frontal eye, sitting 0.4 of a radius outboard and 0.2 above centre,
-  // and a very slightly cool white rather than a pure one.
-  //
-  // It is placed against the **visible aperture**, not against the iris: the
-  // iris deliberately overruns the lids, so a mark parked at a fixed fraction of
-  // the iris radius sits *under the lash bar* on every narrow-eyed character.
-  // Solving for the first row of sclera the lash does not cover, then clamping
-  // the disc inside the iris, lands it in the same quadrant on every face.
+  /**
+   * 8 — the catch-light. **One**, hard-edged, pure, upper-left on screen.
+   *
+   * Two things were wrong with it and one was invisible on a flat canvas. It was
+   * authored in the eye's *mirrored* frame — `+x` is outboard on both sides — so
+   * the two eyes carried highlights on opposite sides of their irises, which no
+   * single light source can produce and which a viewer reads not as two
+   * highlights but as none. `side` undoes the mirror for this one mark, so both
+   * glints sit on the screen-left of their iris, matching a key from that side.
+   *
+   * It is also bigger: 0.26 of the iris *diameter* against the 0.20 measured on
+   * the plate, because the plate's is measured on a 1080p render of a face
+   * filling a tenth of the frame and ours has to survive a mip fetch at 90 px.
+   *
+   * It is placed against the **visible aperture**, not against the iris: the
+   * iris fills the aperture, so a mark parked at a fixed fraction of the iris
+   * radius sits *under the lash bar*. Solving for the first row the lash does
+   * not cover, then clamping the disc inside the iris, lands it in the same
+   * quadrant on every face however narrow the family is.
+   */
   const visTop = -hu + f.lashTh * 0.55;
-  const bigR = atLeast(irisR * 0.20, MIN_PX.highlight);
-  const bigX = clamp(ix + irisR * (0.38 + t.highlightJitter), ix - irisR + bigR * 1.15, ix + irisR - bigR * 1.15);
-  const bigY = Math.max(iy - irisR * 0.26, visTop + bigR * 1.10);
+  const bigR = atLeast(irisR * 0.26, MIN_PX.highlight);
+  const bigX = clamp(ix - side * irisR * (0.34 + t.highlightJitter),
+    ix - irisR + bigR * 1.12, ix + irisR - bigR * 1.12);
+  const bigY = Math.max(iy - irisR * 0.30, visTop + bigR * 1.05);
 
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
-  ctx.fillStyle = '#f2f6ff';
+  // Pure, not tinted. The glint is the only pixel on the face allowed to be
+  // brighter than the sclera, and the sclera is already a cool near-white; a
+  // "slightly cool white" highlight on top of it is the same colour twice.
+  ctx.fillStyle = '#ffffff';
   ctx.beginPath();
   ctx.arc(bigX, bigY, bigR, 0, Math.PI * 2);
   ctx.fill();
@@ -1109,7 +1307,7 @@ function drawNose(ctx, t, S, f) {
   // form, not a mark, and at battle range it only has to keep the base shadow
   // from reading as a smudge floating on the cheek.
   const ridge = ctx.createRadialGradient(cx, y - ridgeH * 0.45, 0, cx, y - ridgeH * 0.45, ridgeH * 0.6);
-  ridge.addColorStop(0, cssRgba(0xffffff, 0.022 + 0.030 * k));
+  ridge.addColorStop(0, cssRgba(0xffffff, 0.045 + 0.075 * k));
   ridge.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = ridge;
   ctx.beginPath();
@@ -1118,9 +1316,15 @@ function drawNose(ctx, t, S, f) {
 
   // 2 — the base shadow: the mark that actually says "nose". Wider than tall,
   // warm, soft on every edge.
+  //
+  // `skinShade` is clamped to 0.80–0.88 of the skin's luminance by `FORM`, so
+  // even at full alpha this mark is a 15% value drop — which is the right ceiling
+  // for a nose and the reason its alpha can be pushed to opacity without the
+  // face acquiring a snout. At the old 0.52 it was a 6% drop, i.e. under one
+  // 8-bit step per channel by the time the mip chain had halved it twice.
   const base = ctx.createRadialGradient(cx, y, 0, cx, y, w * 0.5);
-  base.addColorStop(0, cssRgba(t.skinShade, 0.52 + 0.42 * k));
-  base.addColorStop(0.55, cssRgba(t.skinShade, 0.34 + 0.30 * k));
+  base.addColorStop(0, cssRgba(t.skinShade, Math.min(1, 0.80 + 0.20 * k)));
+  base.addColorStop(0.55, cssRgba(t.skinShade, 0.54 + 0.34 * k));
   base.addColorStop(1, cssRgba(t.skinShade, 0));
   ctx.fillStyle = base;
   ctx.beginPath();
@@ -1129,12 +1333,12 @@ function drawNose(ctx, t, S, f) {
 
   // 3 — nostrils. The only part of the nose with real value contrast, and even
   // here it is a soft mark: a hard pair of dots reads as a pig snout.
-  const nr = Math.max(w * 0.15, MIN_PX.nose * 0.5);
-  const nostril = darken(t.skinShade, 0.40);
+  const nr = Math.max(w * 0.16, MIN_PX.nose * 0.5);
+  const nostril = darken(t.skinShade, 0.52);
   for (const side of [-1, 1]) {
     const nx = cx + side * w * 0.28;
     const ng = ctx.createRadialGradient(nx, y, 0, nx, y, nr);
-    ng.addColorStop(0, cssRgba(nostril, 0.34 + 0.36 * k));
+    ng.addColorStop(0, cssRgba(nostril, 0.55 + 0.40 * k));
     ng.addColorStop(1, cssRgba(nostril, 0));
     ctx.fillStyle = ng;
     ctx.beginPath();
@@ -1164,7 +1368,13 @@ function drawMouth(ctx, t, x, S, f) {
   const y = FACE_LAYOUT.mouthY * S;
   const c = (x.mouthCurve + t.mouthCurveBias) * S;
   const cx = S * 0.5;
-  const th = atLeast(S * 0.019, MIN_PX.mouth);
+  // 0.022 of the square rather than 0.019, and the taper below is sharper to pay
+  // for it. Gloria's lip line is 2 px of luma 120 on an 89 px head against skin
+  // at 185; the weight the review found missing is in the *value* (see
+  // `traits.mouth`, now clamped to 0.11 of the skin's luminance) rather than in
+  // the thickness — a blunt stroke a third thicker than this reads as a lozenge
+  // stuck on the chin, which is exactly what a first pass at it produced.
+  const th = atLeast(S * 0.022, MIN_PX.mouth);
 
   const spine = [];
   const n = 16;
@@ -1182,7 +1392,7 @@ function drawMouth(ctx, t, x, S, f) {
   // little over the stroke's own thickness and slightly narrower, which is the
   // relationship the plates show.
   const lip = spine.map((p) => ({ x: cx + (p.x - cx) * 0.82, y: p.y + th * 1.15 }));
-  ctx.fillStyle = cssRgba(t.lip, 0.42);
+  ctx.fillStyle = cssRgba(t.lip, 0.62);
   ribbon(ctx, lip, th * 1.25, (u) => Math.sin(clamp01(u) * Math.PI) ** 0.7);
   ctx.fill();
 
@@ -1190,7 +1400,7 @@ function drawMouth(ctx, t, x, S, f) {
   // and a touch heavier below the spine than above, because the upper lip's edge
   // is the sharper of the two.
   ctx.fillStyle = cssHex(t.mouth);
-  ribbon(ctx, spine, th, (u) => 0.22 + 0.78 * Math.sin(clamp01(u) * Math.PI) ** 0.55, 0.42);
+  ribbon(ctx, spine, th, (u) => 0.06 + 0.94 * Math.sin(clamp01(u) * Math.PI) ** 1.05, 0.42);
   ctx.fill();
 
   // An open mouth is a darker lens under the line, never an outlined hole.
@@ -1241,8 +1451,23 @@ function drawFacialHair(ctx, t, S, f) {
     // silhouette for the chin, and every attempt at one came out as a crescent
     // hung across the face.
     ctx.save();
+    /**
+     * The jaw mass, used as a clip — a **tall** lens seated low, not the wide
+     * flat one this used to be.
+     *
+     * At `cy` 0.825 with a 0.135 half-height the clip was a horizontal lens
+     * whose own upper arc, intersected with a growth boundary that climbs toward
+     * the sideburns, produced a crescent: a smooth brown arc running ear to ear
+     * across the middle of the lower face. On Bramm it was the largest mark on
+     * the head and it read unmistakably as a grin — and since it sat directly
+     * over the lip line it took his actual mouth with it.
+     *
+     * Seated at 0.86 with a 0.20 half-height the lens's widest row is the jaw
+     * rather than the lip, so the mass hangs *below* the mouth where a beard is
+     * and the boundary above it is the only edge a viewer sees.
+     */
     ctx.beginPath();
-    ctx.ellipse(cx, S * 0.825, halfW, S * 0.135, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, S * 0.86, halfW, S * 0.20, 0, 0, Math.PI * 2);
     ctx.clip();
     // …intersected with the painted island. The beard is the only mark on the
     // face wide *and* low enough to reach the plate's buried rim at the corners
@@ -1269,7 +1494,11 @@ function drawFacialHair(ctx, t, S, f) {
       // Zone weight: the chin term owns the middle, the jaw term the sides, so a
       // goatee (jaw ≈ 0) closes to a chin patch without a second code path.
       const zone = lerp(fh.chin, fh.jaw, away * away);
-      const climb = gap * lerp(-0.28, 0.34, Math.pow(away, 1.5));
+      // Nearly flat. Elvis's boundary in the plate runs six pixels below his lip
+      // line straight across the jaw; every degree of climb here is a degree of
+      // smile, and the previous 0.62-of-a-gap swing from centre to sideburn was
+      // most of the crescent.
+      const climb = gap * lerp(-0.06, 0.16, Math.pow(away, 1.5));
       // The raggedness is an absolute offset, not a multiplier on the climb:
       // scaling a term that is near zero in the middle of the face gives a
       // boundary irregular only at its ends, which reads as a wobble in the
@@ -1300,13 +1529,14 @@ function drawFacialHair(ctx, t, S, f) {
       if (p.y < lo) lo = p.y;
       if (p.y > hi) hi = p.y;
     }
-    // The alpha only has to reach zero by the *canvas*; the island clip above is
-    // what keeps the field off the plate's rim, and it does so geometrically
-    // rather than by hoping a gradient has run out. Ending the ramp at 0.905
-    // instead — which is where the island closes on the centreline — spent the
-    // whole of the beard's 0.1-of-a-face vertical budget on the ramp and left a
-    // crescent with no mass on the chin.
-    const foot = S * 0.965;
+    // The ramp ends where the island clip closes on the centreline, so the field
+    // fades out *into* its own boundary instead of being sliced by it. Running
+    // it to the canvas edge instead — which is what the previous pass did to
+    // avoid spending the beard's vertical budget on the ramp — left the fill at
+    // 85% alpha where the ellipse cut it, printing a hard smiling arc across the
+    // jaw. The flatter growth boundary this pass draws frees enough room to
+    // afford the ramp and still have mass on the chin.
+    const foot = S * 0.920;
     const head = lo - gap * 0.2;
     const fade = ctx.createLinearGradient(0, head, 0, foot);
     const solidAt = clamp01((hi + gap * 0.45 - head) / (foot - head));
@@ -1330,16 +1560,30 @@ function drawFacialHair(ctx, t, S, f) {
   // It reaches down to the lip so the two fields read as one growth rather than
   // as two stripes with a bandage of skin between them.
   if (fh.moustache > 0.01) {
-    const mw = FACE_LAYOUT.mouthW * S * 1.7;
-    const my = lerp(noseY, mouthY, 0.70);
-    const a = fh.alpha * fh.moustache * 0.72;
+    /**
+     * Wide, soft and pulled clear of the lip.
+     *
+     * At 1.7 mouth-widths, 0.30 of the nose→mouth gap tall and 0.72 of the
+     * field's alpha it was a small hard dark ellipse sitting directly on the lip
+     * line — which at any distance is not a moustache, it is an open mouth, and
+     * it left the real mouth stroke drawn along its lower edge with nothing to
+     * separate the two. Bramm's face read as a hole.
+     *
+     * 2.3 mouth-widths at 0.55 alpha is the plate's proportion: Elvis's
+     * moustache is nearly as wide as his jaw and lets skin through everywhere.
+     * Seating it at 0.56 of the gap rather than 0.70 leaves a strip of clear
+     * skin above the lip, which is what keeps the mouth a separate mark.
+     */
+    const mw = FACE_LAYOUT.mouthW * S * 2.3;
+    const my = lerp(noseY, mouthY, 0.56);
+    const a = fh.alpha * fh.moustache * 0.55;
     const mg = ctx.createRadialGradient(cx, my, 0, cx, my, mw * 0.5);
     mg.addColorStop(0, cssRgba(t.facialColour, a));
-    mg.addColorStop(0.55, cssRgba(t.facialColour, a * 0.8));
+    mg.addColorStop(0.45, cssRgba(t.facialColour, a * 0.72));
     mg.addColorStop(1, cssRgba(t.facialColour, 0));
     ctx.fillStyle = mg;
     ctx.beginPath();
-    ctx.ellipse(cx, my, mw * 0.5, gap * 0.30, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, my, mw * 0.5, gap * 0.26, 0, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -1434,19 +1678,24 @@ export function drawFace(ctx, def, size = FACE_TEXTURE_SIZE, opts = {}) {
     ctx.restore();
   }
 
-  // Cheek warmth: a broad, very light mark on the cheekbone. It sits *below* the
-  // eye's envelope on purpose — overlapping it reads as an under-eye shadow,
-  // which is the grubby look the brief forbids — and it is deliberately weaker
-  // and wider than a blush, because none of the plate faces has a blush; what
-  // they have is a slight warm bloom where the cheek turns.
-  const bloom = mixHex(t.skinShade, 0xff6a5e, 0.32);
-  const bloomR = S * 0.085;
+  // Cheek warmth: a broad mark on the cheekbone. It sits *below* the eye's
+  // envelope on purpose — overlapping it reads as an under-eye shadow, which is
+  // the grubby look the brief forbids — and it stays a bloom rather than a
+  // blush, because none of the plate faces has a blush; what they have is a warm
+  // settling where the cheek turns.
+  //
+  // Its peak is 0.30 rather than 0.11 and it is a third wider. At 90 px a 0.11
+  // alpha over a hue only a third of the way from `skinShade` to red is well
+  // under an 8-bit step, so the previous mark was arithmetically absent from the
+  // texture; the review's "cheek does not read at 90 px" was literal.
+  const bloom = mixHex(t.skinShade, 0xff6a5e, 0.42);
+  const bloomR = S * 0.115;
   for (const side of [-1, 1]) {
     const bx = S * (0.5 + side * 0.245);
     const by = S * 0.685;
     const bg = ctx.createRadialGradient(bx, by, 0, bx, by, bloomR);
-    bg.addColorStop(0, cssRgba(bloom, 0.11));
-    bg.addColorStop(0.6, cssRgba(bloom, 0.05));
+    bg.addColorStop(0, cssRgba(bloom, 0.24));
+    bg.addColorStop(0.6, cssRgba(bloom, 0.12));
     bg.addColorStop(1, cssRgba(bloom, 0));
     ctx.fillStyle = bg;
     ctx.beginPath();
@@ -1493,7 +1742,7 @@ export function drawFace(ctx, def, size = FACE_TEXTURE_SIZE, opts = {}) {
     ctx.save();
     ctx.translate(cx, eyeCy);
     ctx.scale(side, 1);
-    drawEye(ctx, t, x, f);
+    drawEye(ctx, t, x, f, side);
     ctx.restore();
 
     ctx.save();

@@ -58,16 +58,21 @@
  *    hull is a `SkinnedMesh` sharing the source's `skeleton`, `bindMatrix` and
  *    `bindMode`, and it is pushed along a normal that three's own
  *    `skinnormal_vertex` chunk has deformed — not along a re-derived one.
- * 3. **The push follows *welded* normals, within a cone.** `CharacterFactory`
- *    runs `toCreasedNormals`, so vertices are split at every hard edge and their
- *    normals diverge. Pushing along those tears the shell open at each crease —
- *    a gap in the line exactly at a hair clump's point or a boot's corner, which
- *    is where the silhouette is doing the most work. `buildOutlineGeometry`
- *    computes a position-welded average into an `aOutlineNormal` attribute, and
- *    limits it to a cone so that two *unrelated* surfaces sharing a position —
- *    a clump bedded on a skull, a sleeve sunk into a torso — are not averaged
- *    into a direction that points into the body. The same attribute carries the
- *    miter scale that keeps the line one weight across a crease.
+ * 3. **The push follows an area-weighted smooth normal, within a cone.** Two
+ *    faults live here and they need one fix. `CharacterFactory` splits vertices
+ *    at every hard edge, so pushing each copy along its own normal tears the
+ *    shell open at each crease — a gap in the line exactly at a hair clump's
+ *    point or a boot's corner. And the normals themselves are *facet* normals,
+ *    so a push along them is piecewise constant and the line's outer edge comes
+ *    out as a chain of straight segments meeting at visible corners: the
+ *    stair-stepping the review measured. `buildOutlineGeometry` therefore
+ *    recomputes the direction from the triangles — each face's geometric normal,
+ *    weighted by its area, gathered per welded position — into an
+ *    `aOutlineNormal` attribute, and limits contributors to a cone so that two
+ *    *unrelated* surfaces sharing a position (a clump bedded on a skull, a
+ *    sleeve sunk into a torso) are not averaged into a direction that points
+ *    into the body. The same attribute carries the miter scale that keeps the
+ *    line one weight across a crease.
  * 4. **The push is lateral — view-space XY, never Z.** Back-face culling alone
  *    does not guarantee the hull loses to the surface it wraps. Pushed along the
  *    full 3D normal, the shell moves toward the camera wherever the surface
@@ -138,24 +143,31 @@ import {
  * way are in the module header.
  *
  * `width` is in **device pixels**, which is what "constant screen-space weight"
- * means. 1.8 px, inside §4's stated 1.5–2.5 range and at the lower end of it: a
- * chibi character occupies a small part of the battle frame, so the same weight
- * that reads as a contour on a hero closeup reads as a black jacket on a figure
- * at the back of the stage. It is also close to `ToonMaterial`'s terminator
- * width, so the drawn contour and the drawn terminator are the same kind of mark.
+ * means. **1.5 px**, the bottom of §4's stated 1.5–2.5 range: a chibi character
+ * occupies a small part of the battle frame, so the same weight that reads as a
+ * contour on a hero closeup reads as a black jacket on a figure at the back of
+ * the stage. At 1.8 the line was closing small features — the gap between a
+ * finger and its neighbour, the notch between two hair clumps — by drawing over
+ * them from both sides at once.
  *
  * `darkness` and `saturation` are §4's colour rule: "not black — a heavily
  * darkened, saturated version of the underlying albedo, so hair gets a dark-warm
  * line and cloth a dark-cool one". Pushing saturation up on the way down is what
  * stops the darkening from also draining the hue and landing on a neutral
- * near-black. 1.25 rather than the 1.55 an earlier revision shipped, because the
- * saturation identity clamps: on any garment darker than mid — most of this cast
- * — 1.55 drove two of the three channels to exactly zero, so a navy coat, a teal
- * sash and a violet cape all resolved to the same single-channel line, and the
- * very term meant to protect the per-surface hue threw it away. `floor` keeps a
- * very dark albedo — a deep navy, which crushes to black inside a code value at
- * this level — off zero, so no pure black lands on the subject
- * (ART_BIBLE §2.3).
+ * near-black.
+ *
+ * **`darkness` is 0.35**, up from 0.18, and the plates are why. Measured across
+ * eleven silhouette crossings on `bravely01.jpg` and `bravely05.jpg`, where a
+ * contour darkening exists at all it sits at roughly a third of the surface's
+ * own value and keeps that surface's hue — the ninja's black coat against sky,
+ * Seth's pauldron against lavender, Gloria's hat against foliage. At 0.18 the
+ * line was 18% of the albedo, which on this cast's darker garments crushes
+ * inside a code value of black however carefully the hue is preserved, and a
+ * uniform black contour around every figure is the "sticker" read the review
+ * scored. 0.35 keeps the line unambiguously darker than anything it borders
+ * while leaving it legibly *coloured*: a navy coat takes a deep navy line and a
+ * wine coat a deep wine one. `floor` still keeps the very darkest albedos off
+ * zero, so no pure black lands on the subject (ART_BIBLE §2.3).
  *
  * `depthGuard` is a tie-breaker, in multiples of the lateral push. The shell is
  * offset in view-space *XY only* (see `shaders/outlineHull.js`), so it can never
@@ -175,8 +187,8 @@ import {
  */
 export const OUTLINE_DEFAULTS = Object.freeze({
   enabled: true,
-  width: 1.8,
-  darkness: 0.18,
+  width: 1.5,
+  darkness: 0.35,
   saturation: 1.25,
   floor: 0.008,
   fog: false,
@@ -256,6 +268,20 @@ const WELD_TOLERANCE = 1e-4;
 const WELD_CONE = -0.17;
 
 /**
+ * Above this many triangles, `weldedNormals` accepts a *coarser* weld.
+ *
+ * The gather is O(triangles × entries-per-bucket) and the entry lists are short
+ * on real geometry, so the pass is cheap — but the capture harness renders on
+ * CPU SwiftShader and has already failed once on a screenshot timeout, and hull
+ * construction happens on the same thread as the first frame. A merged shading
+ * class on this cast runs 4–30k triangles; past 60k the mesh is a set piece
+ * rather than a character and a millimetre weld is a distinction its silhouette
+ * cannot show anyway.
+ */
+const WELD_COARSE_ABOVE = 60000;
+const WELD_COARSE_TOLERANCE = 1e-3;
+
+/**
  * The averaged direction must keep at least this much of the vertex's own
  * normal, or the vertex keeps its own instead.
  *
@@ -304,7 +330,7 @@ function toColor(v) {
  *
  * @param {THREE.ColorRepresentation} albedo the surface colour underneath.
  * @param {Object} [opts]
- * @param {number} [opts.darkness=0.18] value multiplier.
+ * @param {number} [opts.darkness=0.35] value multiplier.
  * @param {number} [opts.saturation=1.25] HSV saturation multiplier.
  * @param {number} [opts.floor=0.008] minimum peak channel, so no line is black.
  * @returns {THREE.Color}
@@ -400,19 +426,38 @@ function windingIsInverted(position, index) {
  * Returns a `vec4` attribute: `xyz` is the direction to push along, `w` is how
  * far to push relative to the requested line weight.
  *
- * **xyz — closing the creases.** `CharacterFactory` runs `toCreasedNormals`, so
- * a vertex on a hard edge exists two or three times with divergent normals.
- * Pushing each copy along its own normal opens a gap in the shell exactly at a
- * hair clump's point or a boot's corner, which is where the silhouette does most
- * of its work. Averaging the *distinct* normals within `WELD_CONE` of the
- * vertex's own recovers the direction that carries every copy to the same place.
+ * **xyz — an area-weighted smooth normal, derived from the triangles.**
  *
- * Distinct is deliberate: a plain sum weights each smoothing group by how many
- * triangles happen to touch the corner, which on a non-indexed box gives
- * `(1,1,2)` instead of `(1,1,1)` purely because one face's triangulation fans
- * through it twice. That is the tessellation's opinion, not the surface's.
+ * This is what the line's smoothness is actually made of, and it is the part
+ * this revision rebuilt. The previous version averaged the *shading* normals
+ * that happened to sit at a welded position. That closes the splits
+ * `toCreasedNormals` makes — which was its job — but it inherits everything else
+ * about them, and on the geometry this project ships those normals are **facet**
+ * normals: one constant direction per triangle. A hull pushed along a piecewise
+ * constant direction has a piecewise constant offset, so the line's outer edge
+ * is a chain of straight segments meeting at visible corners. That is the
+ * stair-stepping the review measured on every silhouette, and no amount of
+ * averaging split copies of a facet normal removes it, because every copy is the
+ * same facet.
  *
- * The cone is the correction this function was rewritten for; see `WELD_CONE`.
+ * So the direction is recomputed from the surface instead: each triangle
+ * contributes its geometric normal weighted by its own area, gathered into the
+ * *position-welded* bucket at each of its corners. Area weighting is what makes
+ * the result a genuine smooth normal rather than a mean of whatever smoothing
+ * groups a modeller left behind — a long thin sliver and a large quad half no
+ * longer count the same — and it is independent of the tessellation's opinion in
+ * a way a plain sum of shading normals is not. The line therefore comes out
+ * curved across a faceted mesh, and stays correct if the geometry is later
+ * reauthored with smooth normals: there is nothing left for that change to
+ * break.
+ *
+ * The vertex's own shading normal is still what each contributor is tested
+ * against, and that is the guard the cone exists for; see `WELD_CONE`. A
+ * character is a hundred parts merged into one mesh, and every clump bedded on a
+ * skull, every sleeve sunk into a torso and every strap crossing a coat puts two
+ * unrelated — often opposed — surfaces inside one 0.1 mm bucket. Averaging those
+ * pushes a vertex *into* the body while its neighbours travel out, which tears
+ * the shell open: the review's "broken line, dropping to dotted fragments".
  *
  * **w — keeping the line one weight.** A vertex on a 90° crease is pushed along
  * the 45° bisector, so the two faces meeting there only move `cos 45° = 0.71`
@@ -420,17 +465,20 @@ function windingIsInverted(position, index) {
  * corner. This is the same problem a stroked polyline has at a joint and it has
  * the same answer: divide by the cosine between the push direction and the
  * face's own normal. `MITER_LIMIT` caps the correction so a near-degenerate
- * vertex cannot throw a spike.
+ * vertex cannot throw a spike. On a faceted mesh this term is doing rather more
+ * work than it used to — the smooth push direction is genuinely off the facet
+ * normal — and it is what keeps the line one weight as it crosses a facet
+ * boundary rather than pinching at each one.
  */
 function weldedNormals(geometry, tolerance) {
   const position = geometry.getAttribute('position');
   let normal = geometry.getAttribute('normal');
 
   if (!normal) {
-    // No shading normals to average. Deriving them on a throwaway geometry that
-    // *shares* this one's buffers is the cheapest correct route and leaves the
-    // source untouched — it is never rendered, so it allocates nothing on the
-    // GPU and needs no disposal.
+    // No shading normals to test contributors against. Deriving them on a
+    // throwaway geometry that *shares* this one's buffers is the cheapest
+    // correct route and leaves the source untouched — it is never rendered, so
+    // it allocates nothing on the GPU and needs no disposal.
     const tmp = new THREE.BufferGeometry();
     tmp.setAttribute('position', position);
     if (geometry.index) tmp.setIndex(geometry.index);
@@ -438,18 +486,25 @@ function weldedNormals(geometry, tolerance) {
     normal = tmp.getAttribute('normal');
   }
 
-  // One sign for the whole geometry, applied to the *shading* normals before
-  // anything is averaged, so the cone test and the miter both operate on
-  // outward-facing directions whichever way the source was wound.
-  const flip = windingIsInverted(position, geometry.index) ? -1 : 1;
+  const index = geometry.index;
+  // One sign for the whole geometry, applied to both the shading normals and the
+  // triangle normals, so the cone test and the miter operate on outward-facing
+  // directions whichever way the source was wound.
+  const flip = windingIsInverted(position, index) ? -1 : 1;
 
   const count = position.count;
+  const triangleCount = Math.floor((index ? index.count : count) / 3);
+  const weld = triangleCount > WELD_COARSE_ABOVE
+    ? Math.max(tolerance, WELD_COARSE_TOLERANCE)
+    : tolerance;
   const out = new Float32Array(count * 4);
   const own = new Float32Array(count * 3);
   const bucketOf = new Int32Array(count);
-  const distinct = [];
+
+  /** @type {Array<number[]>} per bucket, a flat `[nx, ny, nz, area, …]` list. */
+  const faces = [];
   const buckets = new Map();
-  const q = 1 / tolerance;
+  const q = 1 / weld;
 
   for (let i = 0; i < count; i++) {
     const key = `${Math.round(position.getX(i) * q)},`
@@ -457,45 +512,82 @@ function weldedNormals(geometry, tolerance) {
       + `${Math.round(position.getZ(i) * q)}`;
     let b = buckets.get(key);
     if (b === undefined) {
-      b = distinct.length;
+      b = faces.length;
       buckets.set(key, b);
-      distinct.push([]);
+      faces.push([]);
     }
     bucketOf[i] = b;
 
     const len = Math.hypot(normal.getX(i), normal.getY(i), normal.getZ(i)) || 1;
-    const nx = (normal.getX(i) / len) * flip;
-    const ny = (normal.getY(i) / len) * flip;
-    const nz = (normal.getZ(i) / len) * flip;
-    own[i * 3] = nx; own[i * 3 + 1] = ny; own[i * 3 + 2] = nz;
+    own[i * 3] = (normal.getX(i) / len) * flip;
+    own[i * 3 + 1] = (normal.getY(i) / len) * flip;
+    own[i * 3 + 2] = (normal.getZ(i) / len) * flip;
+  }
 
-    const seen = distinct[b];
-    let duplicate = false;
-    for (let k = 0; k < seen.length; k += 3) {
-      if (nx * seen[k] + ny * seen[k + 1] + nz * seen[k + 2] > 0.9999) { duplicate = true; break; }
+  const at = (k) => (index ? index.getX(k) : k);
+
+  /**
+   * Add one face's direction and area to a corner's bucket.
+   *
+   * Coincident directions are merged rather than repeated. On the faceted
+   * geometry this project ships, every triangle of one facet has exactly the
+   * same normal, so this collapses a fan of a dozen entries to one — it keeps
+   * the per-vertex gather short, and it makes the weight the *facet's* area
+   * rather than a count of how its triangulation happened to fan.
+   */
+  const gather = (corner, nx, ny, nz, area) => {
+    const list = faces[bucketOf[corner]];
+    for (let k = 0; k < list.length; k += 4) {
+      if (nx * list[k] + ny * list[k + 1] + nz * list[k + 2] > 0.9999) {
+        list[k + 3] += area;
+        return;
+      }
     }
-    if (!duplicate) seen.push(nx, ny, nz);
+    list.push(nx, ny, nz, area);
+  };
+
+  for (let t = 0; t < triangleCount; t++) {
+    const a = at(t * 3), b = at(t * 3 + 1), c = at(t * 3 + 2);
+    const ax = position.getX(a), ay = position.getY(a), az = position.getZ(a);
+    const ux = position.getX(b) - ax, uy = position.getY(b) - ay, uz = position.getZ(b) - az;
+    const vx = position.getX(c) - ax, vy = position.getY(c) - ay, vz = position.getZ(c) - az;
+
+    // `|u × v|` is twice the triangle's area and its direction is the face
+    // normal, so one cross product supplies both the weight and the direction.
+    const cx = uy * vz - uz * vy;
+    const cy = uz * vx - ux * vz;
+    const cz = ux * vy - uy * vx;
+    const len = Math.hypot(cx, cy, cz);
+    if (len < 1e-12) continue; // degenerate sliver: no direction to contribute.
+
+    const nx = (cx / len) * flip, ny = (cy / len) * flip, nz = (cz / len) * flip;
+    const area = len * 0.5;
+
+    gather(a, nx, ny, nz, area);
+    gather(b, nx, ny, nz, area);
+    gather(c, nx, ny, nz, area);
   }
 
   for (let i = 0; i < count; i++) {
     const nx = own[i * 3], ny = own[i * 3 + 1], nz = own[i * 3 + 2];
-    const seen = distinct[bucketOf[i]];
+    const list = faces[bucketOf[i]];
 
-    // Averaged per vertex rather than per bucket, because the cone is measured
+    // Gathered per vertex rather than per bucket, because the cone is measured
     // against *this* vertex's normal: two faces of one crease each pull in the
     // other, while a third surface that merely passes through the same point is
     // excluded from both. A single bucket-wide average cannot express that.
     let x = 0, y = 0, z = 0;
-    for (let k = 0; k < seen.length; k += 3) {
-      if (nx * seen[k] + ny * seen[k + 1] + nz * seen[k + 2] < WELD_CONE) continue;
-      x += seen[k]; y += seen[k + 1]; z += seen[k + 2];
+    for (let k = 0; k < list.length; k += 4) {
+      if (nx * list[k] + ny * list[k + 1] + nz * list[k + 2] < WELD_CONE) continue;
+      const w = list[k + 3];
+      x += list[k] * w; y += list[k + 1] * w; z += list[k + 2] * w;
     }
 
     let len = Math.hypot(x, y, z);
-    // Two rejections, both to the vertex's own normal: a degenerate average
-    // (only reachable on denormal input, since the cone always admits the
-    // vertex itself), and one that has drifted too far to still be an outward
-    // push. See `WELD_MIN_AGREEMENT`.
+    // Two rejections, both to the vertex's own shading normal: a degenerate
+    // gather (a vertex no triangle references, or one whose contributors cancel)
+    // and one that has drifted too far to still be an outward push. See
+    // `WELD_MIN_AGREEMENT`.
     if (len > 1e-6) { x /= len; y /= len; z /= len; }
     if (len < 1e-6 || x * nx + y * ny + z * nz < WELD_MIN_AGREEMENT) { x = nx; y = ny; z = nz; }
 
@@ -1044,7 +1136,7 @@ export function updateOutlineScale(mesh, camera, viewportHeight) {
  * `updateOutlineScale`.
  *
  * @param {THREE.Object3D|THREE.Material|null} target
- * @param {number} pixels 1.8 is the shipped weight and ANIME_PIPELINE §4's range
+ * @param {number} pixels 1.5 is the shipped weight and ANIME_PIPELINE §4's range
  *   is 1.5–2.5; past ~2.5 the mark reads as a border rather than as a contour,
  *   and a boss given a heavier line should be given a *larger* one instead.
  */

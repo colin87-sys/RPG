@@ -295,6 +295,32 @@ class Surface {
   }
 }
 
+/**
+ * Shading classes that are allowed to keep hard edges, and nothing else.
+ *
+ * `toCreasedNormals` splits the normal wherever two faces meet at more than its
+ * threshold, which is the correct finish for a bevelled pauldron and the wrong
+ * one for everything a body is made of. On skin, cloth and hair it converts the
+ * tessellation itself into visible information: a 20-column sweep meeting the
+ * threshold at its silhouette prints the polygon boundary as a value step, so
+ * the surface reads as folded card rather than as a form — which is exactly the
+ * "faceted paper-toy" the plates are being compared against. The plate's cloth
+ * and hair have hard edges too, but they are *modelled* ones — a lapel, a collar
+ * roll, a hair clump's parting — with smooth shading either side of them, and
+ * that is what a modelled crease looks like.
+ *
+ * So the policy is a whitelist rather than a per-part opinion, and it lives at
+ * the assembly point where it can be checked in one place: **metal and glow may
+ * crease; skin, cloth, hair and face never do.** Parts still declare their
+ * `crease` and it is still honoured — inside those two classes.
+ */
+const CREASE_CLASSES = new Set(['metal', 'glow']);
+
+/** The crease angle a part actually gets — see {@link CREASE_CLASSES}. */
+function creaseFor(part) {
+  return CREASE_CLASSES.has(part.cls) ? (part.crease ?? 0) : 0;
+}
+
 /** Unit cross-sections for swept solids. All return `[x, y]` pairs on a unit circle-ish. */
 const SECTIONS = {
   circle(n) {
@@ -975,7 +1001,7 @@ function buildTorso(s, m, pal, sil) {
     // scale function for every column, and `gradeAlbedo` allocates.
     inks.push(gradeAlbedo(pal[name], 'cloth'));
   }
-  sweep(s, path, SECTIONS.square(22, 0.86), (i) => {
+  sweep(s, path, SECTIONS.square(28, 0.90), (i) => {
     s.ink(inks[i]);
     return scales[i];
   }, { capStart: true, capEnd: true });
@@ -989,7 +1015,7 @@ function buildNeck(s, m) {
   sweep(
     s,
     [new THREE.Vector3(0, y0, 0), new THREE.Vector3(0, (y0 + y1) * 0.5, 0.002), new THREE.Vector3(0, y1, 0.004)],
-    SECTIONS.circle(14),
+    SECTIONS.circle(20),
     (i) => { const r = [g.neck * 1.05, g.neck, g.neck * 1.15][i]; return [r, r * 0.92]; },
     { capStart: false, capEnd: false },
   );
@@ -1022,22 +1048,67 @@ function buildHead(s, m) {
     blob(s, {
       cx: side * ear.cx, cy: ear.cy, cz: ear.cz,
       rx: ear.rx, ry: ear.ry, rz: ear.rz,
-      eU: 0.9, eV: 0.9, segU: 10, segV: 8,
+      eU: 0.9, eV: 0.9, segU: 12, segV: 9,
     });
   }
 }
 
+/** Unit-height Gaussian bump, for the anatomy profiles below. */
+const bell = (t, centre, width) => {
+  const k = (t - centre) / width;
+  return Math.exp(-k * k);
+};
+
 /**
- * A tapered limb swept along its joint chain, with a real elbow or knee in it.
+ * The anatomy of a limb, as a radius multiplier and a back-offset along `t`.
  *
- * Three things changed together here, and none of them works alone.
+ * This is the table the review's "limbs are tapered tubes with no elbow/knee/
+ * calf mass" is answered from, and it is worth being explicit about why a table
+ * rather than a smarter taper: a limb's outline is not monotonic. It swells at
+ * the belly of each muscle group and pinches at each joint, and every one of
+ * those features sits at a *fixed fraction of the limb* on every human being.
+ * A single root→mid→tip lerp cannot produce a non-monotonic outline at all, so
+ * no amount of retuning the three radii was ever going to get there.
+ *
+ * `scale` multiplies the tapered radius; `back` displaces the ring away from the
+ * limb's front, in units of the local radius, which is what puts the calf mass
+ * behind the shin instead of ringing it. Both are read off the plate's figures,
+ * whose sleeves and hose are close enough to the body to show the outline:
+ *
+ *  - **arm.** Deltoid/biceps belly at 22% with a 15% swell; the sleeve narrows
+ *    into the elbow; the brachioradialis mass sits just past it at 60% (+11%),
+ *    then a hard run down to the wrist. The forearm's fullest point being
+ *    *below* the elbow rather than at it is the single detail that stops an arm
+ *    reading as two cones stuck together.
+ *  - **leg.** Thigh mass high and heavy (+13% at 15%), knee, then the
+ *    gastrocnemius at 64% — the biggest single feature on a limb at +21%, and
+ *    displaced 0.5 r rearward so the shin keeps a straight front line and the
+ *    calf hangs off the back of it. The plate's characters are all in hose or
+ *    tight boots and every one of them shows this.
+ */
+const LIMB_ANATOMY = Object.freeze({
+  arm: {
+    scale: (t) => 1 + 0.15 * bell(t, 0.22, 0.16) + 0.11 * bell(t, 0.60, 0.13),
+    back: (t) => 0.10 * bell(t, 0.60, 0.15),
+    /** A sleeved arm is marginally deeper than it is wide. */
+    aspect: 1.03,
+  },
+  leg: {
+    scale: (t) => 1 + 0.13 * bell(t, 0.15, 0.18) + 0.21 * bell(t, 0.64, 0.13),
+    back: (t) => 0.50 * bell(t, 0.66, 0.15) - 0.14 * bell(t, 0.44, 0.10),
+    /** A shin is flat across the front and deep front-to-back. */
+    aspect: 1.06,
+  },
+});
+
+/**
+ * A limb swept along its joint chain, with muscle mass on it.
  *
  * **The joint parameter is measured, not assumed.** `smoothPath` returns
  * *arc-length-uniform* points, so the mid joint only lands at `t = 0.5` when the
  * two segments happen to be the same length. They are not — the femur is 55% of
- * the leg and the humerus 52% of the arm — so the old `t < 0.5` split put the
- * radius break up to five per cent of the limb away from the joint it was
- * meant to describe, and the knee swelled on the shin.
+ * the leg and the humerus 52% of the arm — so a `t < 0.5` split puts the radius
+ * break up to five per cent of the limb away from the joint it describes.
  *
  * **The joint carries volume.** `jointSwell` is a narrow Gaussian centred on the
  * real joint. This is the direct counter to the one unavoidable artefact of
@@ -1047,30 +1118,60 @@ function buildHead(s, m) {
  * which is what makes a limb read as jointed — while the silhouette through the
  * fold stays convex instead of nipping in like a bent drinking straw.
  *
- * **The path is sampled finely enough to fold.** Nine rings over a whole limb
- * left roughly one ring inside the blend zone, so a bent elbow was a crease
- * between two flat facets. Nineteen puts four or five rings across the fold.
+ * **The muscle mass comes from `LIMB_ANATOMY`,** which is where the outline
+ * stops being monotonic and the limb stops being a cone.
  *
+ * **Density.** 21 rings of 20 columns. The columns are what the brief is about:
+ * at 12 a limb's silhouette is a 12-gon, whose facet-to-facet normal step is 30°
+ * — far past any toon ramp's band width, so every arm printed a hard vertical
+ * stripe down its lit side whatever the shader did. At 20 the step is 18° and
+ * the ramp resolves it as one gradient. It costs about 370 extra triangles per
+ * limb — 800 against the old 432 — so 1 500 per character and 9 000 across the
+ * cast, against a meadow of 1.7 M. That is not a number worth protecting.
+ *
+ * @param {'arm'|'leg'} kind which anatomy table to apply
  * @param {number} [jointSwell] fractional radius gain at the mid joint
  */
-function buildLimb(s, a, b, c, r0, r1, r2, seg = 12, jointSwell = 0.14) {
-  const path = smoothPath([a, b, c], 19);
+function buildLimb(s, a, b, c, r0, r1, r2, kind = 'arm', seg = 20, jointSwell = 0.14) {
+  const anat = LIMB_ANATOMY[kind] ?? LIMB_ANATOMY.arm;
+  const path = smoothPath([a, b, c], 21);
   // Where the mid joint actually falls along an arc-length parameterisation.
   const l0 = a.distanceTo(b);
   const tj = THREE.MathUtils.clamp(l0 / (l0 + b.distanceTo(c)), 0.15, 0.85);
+  // Tangents are taken from the *undisplaced* path in a first pass: displacing a
+  // ring changes its neighbours' finite-difference tangent, and letting that
+  // feed back would make the offset direction depend on iteration order.
+  const tangent = [];
+  for (let i = 0; i < path.length; i++) {
+    tangent.push(new THREE.Vector3().subVectors(
+      path[Math.min(i + 1, path.length - 1)], path[Math.max(i - 1, 0)],
+    ).normalize());
+  }
+
   const radii = [];
+  const backDir = new THREE.Vector3();
   for (let i = 0; i < path.length; i++) {
     const t = i / (path.length - 1);
     const r = t < tj
       ? THREE.MathUtils.lerp(r0, r1, t / tj)
       : THREE.MathUtils.lerp(r1, r2, (t - tj) / (1 - tj));
-    // A small cosine bulge at the belly of each segment — a perfectly conical
-    // limb reads as plastic tubing — plus the joint itself.
-    const belly = 1 + Math.sin(t * Math.PI * 2) * 0.05;
     const k = (t - tj) / 0.14;
-    radii.push(r * belly * (1 + jointSwell * Math.exp(-k * k)));
+    const rr = r * anat.scale(t) * (1 + jointSwell * Math.exp(-k * k));
+    radii.push(rr);
+
+    // Displace the ring rearward. The offset is taken along world −Z with the
+    // limb's own tangent projected out, so it stays perpendicular to the limb
+    // however the pre-bend has angled it and never shortens the segment.
+    const off = anat.back(t);
+    if (off !== 0) {
+      const tg = tangent[i];
+      backDir.set(0, 0, -1).addScaledVector(tg, tg.z);
+      const len = backDir.length();
+      if (len > 1e-5) path[i].addScaledVector(backDir, (off * rr) / len);
+    }
   }
-  sweep(s, path, SECTIONS.circle(seg), (i) => [radii[i], radii[i]], { capStart: true, capEnd: true });
+  sweep(s, path, SECTIONS.circle(seg),
+    (i) => [radii[i], radii[i] * anat.aspect], { capStart: true, capEnd: true });
 }
 
 /**
@@ -1166,7 +1267,7 @@ function digit(s, f, { x, y0, z0, length, radius, close, segments = 3 }) {
   }
   const path = [];
   for (const p of pts) path.push(p.clone().applyMatrix4(f.basis));
-  sweep(s, path, SECTIONS.circle(8), (i) => [radii[i], radii[i]], { capStart: true, capEnd: true });
+  sweep(s, path, SECTIONS.circle(10), (i) => [radii[i], radii[i]], { capStart: true, capEnd: true });
 }
 
 /**
@@ -1204,7 +1305,7 @@ function buildHand(s, m, side, wristR, close = 1) {
     [h.palm * 1.06, h.width * 0.40, h.thickness * 0.38],
   ];
   const path = stations.map(([d]) => new THREE.Vector3(0, d, 0).applyMatrix4(f.basis));
-  sweep(s, path, SECTIONS.square(16, 0.80),
+  sweep(s, path, SECTIONS.square(20, 0.80),
     (i) => [stations[i][1], stations[i][2]],
     { capStart: true, capEnd: true });
 
@@ -1233,7 +1334,7 @@ function buildHand(s, m, side, wristR, close = 1) {
   blob(s, {
     cx: 0, cy: h.palm * 0.98, cz: 0,
     rx: h.width * 0.48, ry: h.thickness * 0.34, rz: h.thickness * 0.46,
-    eU: 0.7, eV: 0.8, segU: 12, segV: 8,
+    eU: 0.7, eV: 0.8, segU: 16, segV: 12,
     matrix: f.basis,
   });
 
@@ -1247,7 +1348,7 @@ function buildHand(s, m, side, wristR, close = 1) {
   blob(s, {
     cx: tx, cy: h.palm * 0.30, cz: h.thickness * 0.16,
     rx: h.thumbR * 1.15, ry: h.thumbR * 1.30, rz: h.thumbR * 1.10,
-    eU: 0.85, eV: 0.85, segU: 10, segV: 8,
+    eU: 0.85, eV: 0.85, segU: 16, segV: 12,
     matrix: f.basis,
   });
   const tPath = [];
@@ -1267,7 +1368,7 @@ function buildHand(s, m, side, wristR, close = 1) {
     ).applyMatrix4(f.basis));
     tRad.push(h.thumbR * THREE.MathUtils.lerp(1.0, 0.66, t));
   }
-  sweep(s, tPath, SECTIONS.circle(8), (i) => [tRad[i], tRad[i]], { capStart: true, capEnd: true });
+  sweep(s, tPath, SECTIONS.circle(10), (i) => [tRad[i], tRad[i]], { capStart: true, capEnd: true });
 }
 
 /**
@@ -1300,7 +1401,7 @@ function buildCuff(s, m, side, armR) {
   // shell. Sealing the ring against the sleeve is the fix, and the first ring
   // is pulled *inside* the tapered forearm so the cap can never be seen either.
   const seal = Math.min(armR.mid, armR.tip * 1.35) * 0.90;
-  sweep(s, [p0, p0.clone().lerp(p1, 0.55), p1], SECTIONS.circle(14),
+  sweep(s, [p0, p0.clone().lerp(p1, 0.55), p1], SECTIONS.circle(20),
     (i) => { const r = [seal, g.wrist * 1.34, g.wrist * 1.46][i]; return [r, r * 0.95]; },
     { capStart: true, capEnd: true });
 }
@@ -1335,7 +1436,7 @@ function buildBoot(s, m, side, cuffHeight = 0.0, zones = null) {
   blob(s, {
     cx: ankle.x, cy: f.height * 0.50, cz,
     rx: halfW, ry: f.height * 0.55, rz: halfL,
-    eU: 0.45, eV: 0.55, segU: 18, segV: 12,
+    eU: 0.45, eV: 0.55, segU: 22, segV: 14,
     profile: (v) => 1 - Math.pow(THREE.MathUtils.clamp((v - 0.55) / 0.45, 0, 1), 1.4) * 0.26,
   });
   // Toe box: pushed forward and flattened, so the foot has direction. Without
@@ -1343,14 +1444,14 @@ function buildBoot(s, m, side, cuffHeight = 0.0, zones = null) {
   blob(s, {
     cx: ankle.x, cy: f.height * 0.32, cz: cz + halfL * 0.62,
     rx: halfW * 0.90, ry: f.height * 0.34, rz: halfL * 0.30,
-    eU: 0.50, eV: 0.55, segU: 14, segV: 8,
+    eU: 0.50, eV: 0.55, segU: 16, segV: 10,
   });
   // Heel block: a hard corner behind the ankle. Two hundred triangles, and it
   // is the difference between a boot and a slipper in silhouette.
   blob(s, {
     cx: ankle.x, cy: f.height * 0.26, cz: cz - halfL * 0.74,
     rx: halfW * 0.80, ry: f.height * 0.30, rz: halfL * 0.22,
-    eU: 0.35, eV: 0.40, segU: 12, segV: 7,
+    eU: 0.35, eV: 0.40, segU: 14, segV: 9,
   });
   // Ankle shaft: rises past the leg's own end cap and swallows it. Always
   // built, cuffed or not — a bare foot still needs its ankle closed.
@@ -1361,7 +1462,7 @@ function buildBoot(s, m, side, cuffHeight = 0.0, zones = null) {
     [new THREE.Vector3(ankle.x, f.height * 0.55, ankle.z),
       new THREE.Vector3(ankle.x, f.height + shaft * 0.55, ankle.z),
       new THREE.Vector3(ankle.x, f.height + shaft, ankle.z)],
-    SECTIONS.circle(16),
+    SECTIONS.circle(22),
     (i) => {
       const r = [halfW * 0.92, g.ankle * 1.24, g.ankle * (cuffHeight > 0 ? 1.34 : 1.10)][i];
       return [r, r * 1.06];
@@ -2191,7 +2292,7 @@ function buildHair(parts, m, def, pal) {
     const spine = bandSpine(smoothPath(pts, o.seg ?? 13), o.band?.[0] ?? 2, o.band?.[1] ?? 2);
     clumpSweep(
       target, h, spine.path, comb(o.theta + (o.runTheta ?? 0) * 0.5),
-      (i) => w * prof(spine.t[i]), (i) => th * prof(spine.t[i]), SECTIONS.clump(10),
+      (i) => w * prof(spine.t[i]), (i) => th * prof(spine.t[i]), SECTIONS.clump(14),
       (i) => target.ink(spine.lit[i] ? hairLit : hairBase),
     );
   };
@@ -2755,21 +2856,29 @@ function buildHair(parts, m, def, pal) {
   clearFace(facial, m);
   clearFace(mass, m);
 
+  // None of these ask for a crease, and the clumps in particular used to.
+  //
+  // The argument for `crease: 0.7` on a clump was that its ten-sided superellipse
+  // section has squared sides which *should* stay hard, so the hair reads as
+  // carved rather than as rope. The argument is right about the shape and wrong
+  // about the mechanism: `toCreasedNormals` cannot tell a modelled corner from a
+  // tessellation seam, so at 0.7 rad it hardened both, and a ten-column sweep's
+  // ordinary column boundaries were all past the threshold. The result on a
+  // black hair mass at battle distance is a fan of flat polygonal panels, which
+  // is the "faceted paper toy" read in full. The section carries the carving on
+  // its own — a squared superellipse has a genuinely small radius at its
+  // corners, and smooth normals across a small radius still print a tight
+  // highlight break. `CREASE_CLASSES` now enforces this for the whole class.
   if (!cap.empty) parts.push({ surface: cap, cls: 'hair', bind: ['neck', 'head'], painted: true });
-  // `crease: 0.7` rather than a smooth normal pass: the clump section is a
-  // ten-sided superellipse whose squared sides meet at well over that angle, so
-  // the facets survive and the hair reads as carved (§3) instead of as rope.
   if (!clumps.empty) {
     parts.push({
-      surface: clumps, cls: 'hair', bind: ['neck', 'head'], crease: 0.7,
+      surface: clumps, cls: 'hair', bind: ['neck', 'head'],
       painted: true, roots: massRoots,
     });
   }
-  if (!facial.empty) parts.push({ surface: facial, cls: 'hair', bind: ['neck', 'head'], crease: 0.7, painted: true });
-  // The bound column keeps a softer crease: it is one large form and hard facets
-  // across it read as a low-poly artefact rather than as carving.
-  if (!mass.empty) parts.push({ surface: mass, cls: 'hair', bind: ['neck', 'head'], crease: 1.05, painted: true });
-  if (!cord.empty) parts.push({ surface: cord, cls: 'hair', bind: ['head'], crease: 0.9, painted: true });
+  if (!facial.empty) parts.push({ surface: facial, cls: 'hair', bind: ['neck', 'head'], painted: true });
+  if (!mass.empty) parts.push({ surface: mass, cls: 'hair', bind: ['neck', 'head'], painted: true });
+  if (!cord.empty) parts.push({ surface: cord, cls: 'hair', bind: ['head'], painted: true });
 }
 
 /**
@@ -2802,7 +2911,7 @@ function hairChainSurface(m, def, ink) {
   const path = smoothPath(pts, Math.max(10, chain.length * 3));
   const w0 = (hp.braidWidth ?? hp.backWidth ?? 0.9) * m.head.rx * 0.55;
   const segs = hp.braidSegments ?? 0;
-  sweep(s, path, SECTIONS.circle(12), (i) => {
+  sweep(s, path, SECTIONS.circle(16), (i) => {
     const t = i / (path.length - 1);
     const taper = 1 - Math.pow(t, 1.7) * 0.72;
     const plait = segs > 0 ? 1 + Math.sin(t * Math.PI * segs * 2) * 0.16 : 1;
@@ -3187,7 +3296,7 @@ function buildAccessories(parts, m, def, pal) {
         );
         const mid = base.clone().lerp(tip, 0.55);
         mid.y += len * 0.10;
-        sweep(cloth, smoothPath([base, mid, tip], 6), SECTIONS.clump(10, 0.70, 0.48),
+        sweep(cloth, smoothPath([base, mid, tip], 6), SECTIONS.clump(14, 0.70, 0.48),
           (i2) => {
             const t2 = i2 / 5;
             // Widest a third of the way out — a feather's vane, not a spike —
@@ -3208,7 +3317,7 @@ function buildAccessories(parts, m, def, pal) {
       const a = (i / 26) * TAU;
       path.push(new THREE.Vector3(Math.cos(a) * g.hipX * 1.02, y, Math.sin(a) * g.hipZ * 1.02));
     }
-    sweep(leather, path, SECTIONS.square(8, 0.5), () => [H * 0.013, H * 0.020], { capStart: false, capEnd: false });
+    sweep(leather, path, SECTIONS.square(12, 0.5), () => [H * 0.013, H * 0.020], { capStart: false, capEnd: false });
     blob(metalBody, { cx: 0, cy: y, cz: g.hipZ * 1.06, rx: H * 0.030, ry: H * 0.026, rz: H * 0.012, eU: 0.4, eV: 0.4, segU: 10, segV: 6 });
   }
 
@@ -3317,7 +3426,7 @@ function buildAccessories(parts, m, def, pal) {
   // adjacent to the face or the hands, which is where §5 wants the party's
   // highest-contrast colour so the eye has somewhere to land at battle range.
   if (!cloth.empty) parts.push({ surface: cloth, cls: 'cloth', color: pal.trim, bind: 'body' });
-  if (!leather.empty) parts.push({ surface: leather, cls: 'cloth', color: pal.leather, bind: 'body', crease: 0.8 });
+  if (!leather.empty) parts.push({ surface: leather, cls: 'cloth', color: pal.leather, bind: 'body' });
   if (!glow.empty) parts.push({ surface: glow, cls: 'glow', color: pal.glow, bind: 'body' });
   if (!metalBody.empty) parts.push({ surface: metalBody, cls: 'metal', color: pal.accent, bind: 'body', crease: 0.8 });
 }
@@ -3598,7 +3707,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     // the joint, and a cap squashes under a lift where a tube pinches.
     buildLimb(
       arm, J(`arm${sfx}`), J(`forearm${sfx}`), J(`hand${sfx}`),
-      radii.arm.root, radii.arm.mid, radii.arm.tip, 12,
+      radii.arm.root, radii.arm.mid, radii.arm.tip, 'arm',
     );
     parts.push({
       surface: arm,
@@ -3612,12 +3721,36 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     // line read at all, and a tube socketed straight into the trunk has none.
     // Its own surface rather than a swell on the arm, because it has to blend
     // across the shoulder bone and the arm tube must not.
+    //
+    // It is a **teardrop aligned to the humerus**, not a sphere sitting on top of
+    // one. A sphere is what the closeup showed: a distinct pale ball balanced on
+    // the shoulder, reading as a pauldron nobody authored, because a sphere's
+    // silhouette is a circle and a circle abutting a tube always reads as two
+    // objects. A real deltoid caps the joint at its top and runs to a point
+    // where it inserts a third of the way down the arm, so the profile below
+    // holds full width across the cap and closes to 28% at the insertion —
+    // whereupon the taper meets the arm tube's own radius and the two weld into
+    // one silhouette.
     const shoulderCap = new Surface();
-    const capC = J(`shoulder${sfx}`).lerp(J(`arm${sfx}`), 0.55);
+    const armJ = J(`arm${sfx}`);
+    const capUp = armJ.clone().sub(J(`forearm${sfx}`)).normalize();
+    const capX = new THREE.Vector3(0, 0, 1).cross(capUp).normalize();
+    const capZ = new THREE.Vector3().crossVectors(capX, capUp).normalize();
+    const capR = radii.arm.root;
     blob(shoulderCap, {
-      cx: capC.x, cy: capC.y + radii.arm.root * 0.30, cz: capC.z,
-      rx: radii.arm.root * 1.30, ry: radii.arm.root * 1.48, rz: radii.arm.root * 1.24,
-      eU: 0.86, eV: 0.86, segU: 14, segV: 10,
+      cx: 0, cy: 0, cz: 0,
+      // 1.30 rx puts the deltoid's outer edge at 0.137 H, i.e. a shoulder line
+      // 0.274 H across against a 0.218 H skull — 1.26 head-widths, between the
+      // plate's measured 1.01 (hat-mage) and 1.35 (staff-mage in a coat). The
+      // roster's `shoulder` and `limb` multipliers spread the cast across that
+      // whole band from here; see `Rig.F`'s header.
+      rx: capR * 1.30, ry: capR * 1.62, rz: capR * 1.26,
+      eU: 0.88, eV: 0.90, segU: 20, segV: 16,
+      // v = 0 is the insertion point down the arm, v = 1 the crest over the
+      // joint; the shoulder itself is the top half, so the taper is spent
+      // entirely on the lower one.
+      profile: (v) => 0.28 + 0.72 * smoothstep01(v / 0.55),
+      matrix: new THREE.Matrix4().makeBasis(capX, capUp, capZ).setPosition(armJ),
     });
     parts.push({
       surface: shoulderCap,
@@ -3627,7 +3760,15 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     });
 
     const hand = new Surface();
-    buildHand(hand, metrics, side, radii.arm.tip, heldIn === `hand${sfx}` ? 1 : 0.34);
+    // How closed the fist is. A hand on a haft closes fully onto the modelled
+    // grip; a hand with nothing in it does not, or the character reads as
+    // clenching for no reason. But 0.34 was an *open* hand with the fingers
+    // splayed, and at battle distance four splayed fingers alias into a comb
+    // while a loose fist keeps one clean silhouette with grooves in it — which
+    // is also the hand every plate figure's free arm is carrying. 0.55 is that
+    // loose fist, and a character with no held weapon at all (a back-slung
+    // chakram, a forearm piston) gets it on both hands.
+    buildHand(hand, metrics, side, radii.arm.tip, heldIn === `hand${sfx}` ? 1 : 0.55);
     parts.push({
       surface: hand,
       cls: def.accessories?.prosthetic === sfx ? 'metal' : 'skin',
@@ -3642,7 +3783,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
       const cuff = new Surface();
       buildCuff(cuff, metrics, side, radii.arm);
       parts.push({
-        surface: cuff, cls: 'cloth', color: pal.trim, crease: 0.9,
+        surface: cuff, cls: 'cloth', color: pal.trim,
         bind: [`forearm${sfx}`, `hand${sfx}`],
       });
     }
@@ -3650,7 +3791,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     const leg = new Surface();
     buildLimb(
       leg, J(`thigh${sfx}`), J(`shin${sfx}`), J(`foot${sfx}`),
-      radii.leg.root, radii.leg.mid, radii.leg.tip, 12,
+      radii.leg.root, radii.leg.mid, radii.leg.tip, 'leg',
     );
     const bareLeg = Boolean(def.accessories?.barefoot);
     parts.push({
@@ -3665,10 +3806,10 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
       // Bare feet: same wedge, skin toned, no cuff, and smaller — Seren's
       // bare feet are part of her read (WORLD_BIBLE §3.2).
       buildBoot(boot, metrics, side, 0);
-      parts.push({ surface: boot, cls: 'skin', color: pal.skin, bind: [`shin${sfx}`, `foot${sfx}`], crease: 1.0 });
+      parts.push({ surface: boot, cls: 'skin', color: pal.skin, bind: [`shin${sfx}`, `foot${sfx}`] });
     } else {
       buildBoot(boot, metrics, side, H * 0.045, { body: pal.leather, cuff: pal.trim });
-      parts.push({ surface: boot, cls: 'cloth', bind: [`shin${sfx}`, `foot${sfx}`], crease: 0.9, painted: true });
+      parts.push({ surface: boot, cls: 'cloth', bind: [`shin${sfx}`, `foot${sfx}`], painted: true });
     }
   }
 
@@ -3700,7 +3841,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
 
   for (const part of parts) {
     if (part.surface.empty) continue;
-    const geo = part.surface.finish(part.crease ?? 0);
+    const geo = part.surface.finish(creaseFor(part));
 
     // `painted` parts carried their zones out of the builder, per vertex, and
     // must not be flattened back to a single tone here.
@@ -4073,7 +4214,11 @@ function buildCloth(root, rig, metrics, def, pal, materials) {
       stiffness: cape.stiffness ?? 0.45,
       drag: cape.drag ?? 0.03,
       mass: cape.mass ?? 1.0,
-      cols: 8,
+      // A coat tail is wrapped hard around the body (`curve: 0.95` below), so
+      // its columns are a curved cross-section rather than a flat sheet's and
+      // they facet exactly as a skirt's do. 12 across a 0.95 rad wrap is a 4.5°
+      // step, which is smooth at any zoom.
+      cols: 12,
       rows: 11,
     };
 
@@ -4164,8 +4309,15 @@ function buildCloth(root, rig, metrics, def, pal, materials) {
         stiffness: cape.skirt.stiffness ?? 0.24,
         drag: cape.skirt.drag ?? 0.05,
         mass: 0.8,
-        cols: 16,
-        rows: 9,
+        // 24 columns around a closed tube, not 16. The success test for this
+        // whole pass is "no facet edges on the faces of a skirt at 100% zoom",
+        // and a 16-sided tube steps its normal 22.5° per column — well past any
+        // toon ramp's band width, so every one of those sixteen boundaries
+        // printed as a vertical value edge down the skirt. 24 brings the step to
+        // 15°, inside the ramp's softest band, and costs 27 extra cloth
+        // particles on the two characters that wear one.
+        cols: 24,
+        rows: 10,
       });
     }
 
@@ -4501,22 +4653,21 @@ export function auditCharacter(defOrId) {
   }
 
   // ---- proportion ---------------------------------------------------------
-  // The band is **4.0–4.5**, from `docs/BRAVELY_REFERENCE.md` §1, and it is
-  // measured on the *silhouette* head — skull plus hair — because that is what
-  // a critic with a ruler measures.
+  // Measured on the *silhouette* head — skull plus whatever hair and headgear
+  // project past it — because that is the shape a critic with a ruler measures
+  // and the only one the plates and the prose specs can be compared on.
   //
-  // It used to assert REFERENCE_TARGET §1's 3.0–3.5. That figure is wrong and
-  // the repo says so in three places: BRAVELY_REFERENCE §1 corrects it against
-  // the client's actual plates, REFERENCE_TARGET carries a superseded banner
-  // pointing at it, and ARCHITECTURE.md's art-direction section names it
-  // authoritative over every other art document. `Rig.F` has since been rebuilt
-  // to the measured 0.213 H skull, so an audit still asserting 3.0–3.5 fails
-  // the whole cast for being correct. Anything asking for 3.0–3.5 is reading a
-  // superseded document.
+  // The band is **3.2–3.7**, centred on `bravely02`'s standing hat-mage at 3.35.
+  // `Rig.F`'s header carries the full six-figure measurement it comes from,
+  // including why the plates support anything from 2.8 to 4.1 depending on the
+  // figure's headgear and how deep its combat pose is, and why we target their
+  // chibi end. The band is deliberately tight — ±0.25 head — because its job is
+  // to catch a roster `headScale` or `legLength` that has drifted a character
+  // out of the cast's own family, not to re-litigate the target.
   const headMass = crown - m.head.chinY;
   const headsTall = m.height / headMass;
-  if (headsTall < 4.0 || headsTall > 4.5) {
-    issues.push(`heads-tall: ${headsTall.toFixed(2)} outside BRAVELY §1's 4.0–4.5`);
+  if (headsTall < 3.2 || headsTall > 3.7) {
+    issues.push(`heads-tall: ${headsTall.toFixed(2)} outside the plates' 3.2–3.7`);
   }
 
   // ---- joints -------------------------------------------------------------
@@ -4637,7 +4788,8 @@ function measureJoint(rig, m, limb, axis, joint, r, bind) {
   const J = m.joints;
   const P = (n) => new THREE.Vector3(J[n].x, J[n].y, J[n].z);
   const surface = new Surface();
-  buildLimb(surface, P(limb[0]), P(limb[1]), P(limb[2]), r.root, r.mid, r.tip, 12);
+  const kind = joint === 'shinL' ? 'leg' : 'arm';
+  buildLimb(surface, P(limb[0]), P(limb[1]), P(limb[2]), r.root, r.mid, r.tip, kind);
   const geo = surface.finish(0);
   const all = skinSegments(rig);
   solveSkin(geo, all.filter((s) => bind.includes(s.name)));

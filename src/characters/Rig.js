@@ -7,12 +7,11 @@
  * handL/R, thighL/R, shinL/R, footL/R`, plus optional `hair0..n`, `cape0..n`
  * and `weapon`.
  *
- * The *proportions* are measured off `docs/reference/bravely01.jpg` — see the
- * table on `F` below. They are **not** REFERENCE_TARGET §1's, which specifies a
- * 3.1-head super-deformed figure the plates do not contain: the client's cast is
- * 4.7 heads tall with a real torso, a real neck and limbs that bend, and the
- * gap between those two descriptions is most of what "our characters look
- * nothing like them" was pointing at.
+ * The *proportions* are measured off the plates — see the table on `F` below.
+ * They are measured on the **silhouette head**, skull plus hair or headgear,
+ * because that is the shape an eye (or a critic with a ruler) reads as "head",
+ * and it is the only measurement the plates and the prose specs can be compared
+ * on at all.
  *
  * ## Why the metric lives here and not in the factory
  *
@@ -87,57 +86,82 @@ export const BONE_PARENTS = Object.freeze({
 /**
  * Station table — every value a fraction of total height H.
  *
- * ## Every number here was measured off `docs/reference/bravely01.jpg`
+ * ## The head measurement, re-taken on the plates against a labelled grid
  *
- * The plate is 1920×1080 and carries four full figures. Landmarks were read at
- * 8× magnification against a 10-pixel grid; the three usable figures agree to
- * within 2% of body height on every station, which is what makes them a spec
- * rather than three opinions. In source pixels, with the sole of the foot as
- * the origin and the crown of the *skull* (not the hair) as the top:
+ * Every previous pass on this file measured the **bare skull** — hairline to
+ * chin — and every critic measures the **silhouette head**: the black shape a
+ * hair mass or a hat makes over the shoulders. Those two numbers differ by
+ * 15–35% on the same figure, which is why this file has swung between "3.1
+ * heads" and "4.7 heads" while nothing on screen moved. All the numbers below
+ * are the silhouette measure, taken by cropping each figure out of the plate at
+ * 2–3× with a 10-pixel labelled grid over it, top of hair/hat → chin, and
+ * top of hair/hat → sole:
  *
- * | figure            | head h | total h | heads | chin  | shoulder | waist | crotch | knee  |
- * |-------------------|--------|---------|-------|-------|----------|-------|--------|-------|
- * | staff-mage, adult | 100 px | 493 px  | 4.93  | .797  | .740     | .527  | .375   | .213  |
- * | hat-mage, girl    |  84 px | 395 px  | 4.70  | .793  | .733     | .538  |   —    |   —   |
- * | knight (crouched) |  87 px | 355 px  | 4.08* | .755  | .727     | .507  | .310*  | .220* |
+ * | plate      | figure               | head   | standing | heads |
+ * |------------|----------------------|--------|----------|-------|
+ * | bravely01  | knight (crouched)    | 100 px |  375 px  | 3.75  |
+ * | bravely01  | hat-mage girl        | 105 px |  430 px  | 4.10  |
+ * | bravely01  | staff-mage, adult    | 127 px |  522 px  | 4.11  |
+ * | bravely01  | archer, black hat    | 133 px |  530 px  | 3.98  |
+ * | bravely02  | same girl, fur hat   |  85 px |  285 px  | 3.35  |
+ * | bravely05  | ninja (lunging)      | 120 px |  340 px  | 2.83  |
  *
- * *the knight is in a deep battle crouch with both knees bent, which costs him
- * about 8% of standing height and drops the crotch further than the head — his
- * stations are a lower bound, not a disagreement.
+ * So the reference is not one number: a standing figure in an unbulky hat sits
+ * at 4.0, and the same cast in winter headgear or in a low combat pose reads
+ * 2.8–3.4. **We target 3.35** — `bravely02`'s hat-mage, standing, un-cropped,
+ * the most chibi *standing* figure in the set. That is a deliberate pick of the
+ * plates' chibi end rather than their mean, because the one thing every review
+ * of our cast has agreed on is that the figures read as dolls rather than as
+ * drawings, and the head is the single control that moves that read.
  *
- * ## Where this contradicts the prose docs, the plate wins
+ * `headDiameter` is the **skull**, and our own hair shells and styles add 9–11%
+ * of skull height on top of it (measured on the built geometry by
+ * `auditCharacter.crownRise`), so 0.272 H of skull is 0.299 H of silhouette
+ * head — 3.35 heads. `auditCharacter` enforces the band on the silhouette, and
+ * that is the number that has to be 3.2–3.7, not this one.
  *
- * `REFERENCE_TARGET.md` §1 specifies **3.0–3.5 heads** and a head diameter of
- * **0.32 H**. Neither survives contact with the image: the measured figures are
- * **4.7–4.9 heads** with a skull **0.21 H** deep, and the chin lands at 0.79 H
- * on all three. That single number is most of what the client saw. A 0.295 H
- * head against a fixed total height leaves only 0.285 H of torso, so the
- * shoulders sat at 0.63 H against the plate's 0.73 H; the cast read short and
- * simplified because two-thirds of its trunk had been eaten by its skull.
- * Shrinking the head to 0.213 H hands that 0.08 H back to the torso, and the
- * proportion, the shoulder line and the "real anatomy" complaint move together.
+ * ## What the head costs, and where it comes from
  *
- * The hips barely move (0.400 → 0.425 H). The legs were never the problem.
+ * The crown is pinned to `height`, so the head is paid for out of the trunk:
+ * the neck joint drops from 0.749 H to 0.690 H and the torso from 0.324 H to
+ * 0.265 H. That is the whole point. A chibi is not a small adult; it is an
+ * adult's head on an 18-month-old's trunk, and shortening the trunk is what
+ * stops the figure reading as a scale model of a person.
+ *
+ * It also fixes the shoulder ratio for free, which is why `shoulderX` below is
+ * unchanged. `CharacterFactory`'s deltoid cap sits on the arm joint at 0.088 H
+ * with a 0.049 H radius, so the shoulder line measures 0.274 H across; against
+ * a skull 0.170 H wide that was **1.61 head-widths**, a linebacker. Against the
+ * new 0.218 H skull it is **1.26**.
+ *
+ * The plate's own band, measured the same way — widest point of the hair mass
+ * against the garment at the deltoid: the hat-mage is 87 px of head against
+ * 88 px of shoulder, i.e. **1.01**; the staff-mage in his coat is 80 against
+ * 108, i.e. **1.35**. Girls sit at parity and men a third wider, which is the
+ * spread the roster's `shoulder` and `limb` multipliers reproduce around this
+ * default — 1.11 on Seren, 1.45 on Bramm.
+ *
+ * The hips do not move. The legs were never the problem.
  */
 const F = Object.freeze({
-  // 0.213: the mean of 100/493, 84/395 and 87/355 skull-height-over-total,
-  // discarding nothing — 4.70 heads. The *silhouette* mass a critic measures is
-  // this plus the hair shell, which on the plate runs 4.0–4.4 heads; that is the
-  // band `auditCharacter` enforces, and it is not the same number.
-  headDiameter: 0.213,
+  // 0.272 H of skull → 0.299 H of silhouette head → 3.35 heads. See above.
+  headDiameter: 0.272,
   hipY: 0.425,         // pelvis root; the crotch reads at 0.375 H, the socket above it
   neckGap: 0.038,      // chin to neck joint — the plate has a real, visible neck
   spineT: 0.26,        // fraction of the hips→neck span
   chestT: 0.62,
-  shoulderT: 0.86,     // puts the deltoid crest at 0.73 H, the measured shoulder line
+  // 86% of the way up a trunk that now ends at 0.690 H, i.e. the shoulder joint
+  // at 0.653 H and the chin at 0.728 H. Measured on `bravely02`'s hat-mage —
+  // the figure the head proportion is taken from — the chin sits at 0.70 of
+  // standing height, so the two agree to within a pixel and a half at her size.
+  shoulderT: 0.86,
   ankleY: 0.050,
 
-  // Joint separation, *not* silhouette width. The plate's shoulder silhouette is
-  // 0.175 H (girl) to 0.21 H (adult male) across, and the deltoid mass supplies
-  // an arm radius either side of the joint — so 2 × 0.072 + 2 × 0.031 = 0.206 H.
-  // Measured against a head only 0.156 H wide, that is the 1.15–1.35 shoulder-to-
-  // head ratio the plate shows and the old rig could not reach at any width,
-  // because its head was twice as wide as it should have been.
+  // Joint separation, *not* silhouette width — the deltoid cap in
+  // `CharacterFactory` is what actually draws the shoulder line, and it carries
+  // its own radius outboard of this. Held at 0.072 deliberately: see the note
+  // above on why growing the head is what lands the shoulder-to-head ratio on
+  // the plate's 1.2 without touching the shoulder at all.
   shoulderX: 0.072,
   armSplay: 0.175,     // radians off vertical for the A-pose (~10°)
   upperArm: 0.128,
@@ -168,12 +192,22 @@ const F = Object.freeze({
   waistR: 0.064,
   hipRX: 0.076, hipRZ: 0.060,
   armR: 0.031, elbowR: 0.025, wristR: 0.020,
-  // The hand is an articulated form now, not a mitten, so it is specified as a
-  // box rather than as a radius: wrist-to-fingertip, across the knuckles, and
-  // through the palm. 0.086 H is the plate's gloved hand (37 px against a 100 px
-  // head on the staff-mage) — about 80% of a realistic hand, small enough to
-  // read as stylised and far too big to disappear.
-  handLen: 0.086, handWidth: 0.046, handThick: 0.030,
+  // The hand is an articulated form, not a mitten, so it is specified as a box
+  // rather than as a radius: wrist-to-fingertip, across the knuckles, and
+  // through the palm.
+  //
+  // Re-measured on the staff-mage's gloved right hand in `bravely01`, which
+  // spans x 1145→1180 and y 555→600 on a 522-pixel figure: **0.067 H across the
+  // knuckles and 0.086 H long**. The length was already right; the width was
+  // 0.046 and is the reason the fingers did not read. Four fingers have to fit
+  // across it, so a hand a third too narrow makes every finger a third too thin,
+  // and at 0.0054 H a finger is under four pixels wide at battle distance —
+  // below the threshold where an interior gap survives at all.
+  //
+  // 0.056 rather than the measured 0.067 because the plate's glove includes a
+  // gauntlet flare that our `buildCuff` supplies separately; 0.056 is the hand
+  // inside it, and it puts a finger at 5.3 px, which does read.
+  handLen: 0.086, handWidth: 0.056, handThick: 0.036,
   thighR: 0.046, kneeR: 0.035, ankleR: 0.027,
   // The boot has to be visibly *wider than the ankle it caps* or the leg tube's
   // end cap pokes through and the character reads as a flat-cut stump. 0.070
@@ -406,8 +440,14 @@ export function computeMetrics(def = {}) {
   };
   hand.palm = hand.length * 0.52;
   hand.finger = hand.length - hand.palm;
-  hand.fingerR = hand.width * 0.118;
-  hand.thumbR = hand.width * 0.150;
+  // Four fingers across the knuckle line with a gap between each: 4 × 2 r plus
+  // three gaps of 0.42 r has to equal the hand's width, which puts r at 0.101 of
+  // it. 0.128 overlaps the neighbours slightly on purpose — a real hand's
+  // fingers touch at rest, and geometry that touches welds into one silhouette
+  // with grooves in it, which is what survives a downscale. Separate tubes with
+  // daylight between them do not; they alias into a comb.
+  hand.fingerR = hand.width * 0.128;
+  hand.thumbR = hand.width * 0.165;
 
   /**
    * The grip: one definition of where a held haft passes through a fist.

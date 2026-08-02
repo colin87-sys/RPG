@@ -163,33 +163,180 @@ class PoseWriter {
 const CLIPS = {};
 
 /**
- * Idle: the standing battle stance from `docs/reference/bravely01.jpg`, with a
- * breathing weight-shift over it.
+ * The idle stance table — one entry per way of standing in `bravely01.jpg`.
  *
- * ### What the plate's four figures actually do standing still
+ * ### Why the idle is a table and not a clip
  *
- * Read off the hero plate, and consistent across all four:
+ * The plate's four figures do not share a pose. The knight is in a deep crouch
+ * with his sword up across his chest and both elbows at shoulder height; the
+ * hat-mage stands almost straight with her rapier low and behind her and her
+ * free hand raised in front of her sternum; the staff-mage carries a two-handed
+ * haft on a hard diagonal, high hand at the shoulder and low hand across the
+ * opposite hip; the archer is coiled — bow arm out and down, draw hand cocked
+ * back at the hip, shoulders turned a long way off her feet. Those are four
+ * *characters*, and one parametric "combat idle" with a per-character amplitude
+ * multiplier cannot be any of them. A single idle across six characters is why
+ * a lineup reads as a row of the same doll in different colours, and no amount
+ * of costume work fixes it, because silhouette beats colour at battle distance.
  *
- * - **The feet are apart and staggered.** The knight's are about one and a half
- *   shoulder-widths apart, the staff-mage's a little over one, and in both cases
- *   one foot is forward of the other. Nobody stands with their heels together.
- * - **Both knees are bent.** Softly on the mages, deeply on the knight. Not one
- *   of the four has a locked leg, and a locked leg is most of why our cast read
- *   as "simplified": a straight limb has no interior shape at all.
- * - **The shoulders are turned off the hips.** Every figure faces the camera
- *   more than their feet do. That twist is what makes a standing pose read as a
- *   body rather than as a stack of boxes.
- * - **The weapon is carried across the body**, diagonally, with the weapon arm's
- *   elbow closed to around a right angle and the off arm hanging near the hip.
- *   The upper arms stay *close* to the ribs — five to ten degrees out, not the
- *   sixteen the old bind splay plus an outward roll was producing.
+ * So each entry below is a whole stance: the trunk's twist and lean, how deep
+ * the legs sit, how far apart and how staggered the feet are, and a full arm
+ * pose for the weapon arm and the free arm separately. The breathing, the weight
+ * shift and the drift are shared — those are life, not character.
  *
- * All four of those are pose, not proportion, so they belong here rather than in
- * the rig, and all four are held through the breathing rather than added to it.
+ * ### Conventions (see the file header)
  *
- * Three periods run against each other on purpose — 3.6 s breath, 11 s weight
- * shift, 7.3 s drift — so the loop never visibly repeats. A single-period idle
- * is the most recognisable tell of procedural animation there is.
+ * All angles are radians, additive from bind. On a limb bone `+rx` swings
+ * backward, so a forward reach is negative; `rz` is multiplied by `side` at the
+ * call site so a positive `roll` lifts the limb *outward* on either side. Arm
+ * poses are written for the weapon arm (`lead`) and the free arm (`off`) rather
+ * than for left and right, so a left-handed character gets the mirror for free.
+ *
+ * `yaw` is the shoulder-over-hip twist, and its sign is not arbitrary: the stage
+ * squares each character to the threat and then adds a positive `rotation.y` to
+ * open them toward the lens, so **positive yaw here continues that opening**.
+ * The hips take a share of it backwards and the chest the rest forwards, which
+ * is the diagonal every plate figure stands on and — with the stage's 20–46° —
+ * what puts the whole cast at a genuine three-quarter body angle instead of the
+ * near-profile the review measured.
+ *
+ * ### The arm numbers are solved, not dialled
+ *
+ * Seven joint angles per arm reach one hand position and one weapon direction,
+ * and the map between them is not something a human reads off a screenshot —
+ * the shoulder's three rotations and the elbow's one *compose*, so raising a
+ * hand in front of the chest by flexing shoulder and elbow together rotates the
+ * fist through 127° and points the weapon at the floor behind the character.
+ * That is not hypothetical: it is what the previous idle did, and every held
+ * weapon in the cast raked backward and down out of it.
+ *
+ * So the pose was stated as a *goal* — where the weapon hand sits, in fractions
+ * of body height, and which way the blade points — and the seven angles were
+ * solved for it offline by simulated annealing over the real bind rig and the
+ * real `'YXZ'` composition, under joint limits (shoulder ±1.7/±0.6/−0.4…1.35,
+ * elbow flexion only and never under 0.45 rad, wrist ±0.6) with penalties on
+ * extreme wrist and shoulder values. The residuals are all under 0.02 H of hand
+ * position. The goals, taken off the plate:
+ *
+ * | stance    | weapon hand (x, y, z)/H | blade direction        |
+ * |-----------|-------------------------|------------------------|
+ * | `guard`   | ( 0.00, 0.60, 0.13)     | up 25°, back over the shoulder |
+ * | `carry`   | (−0.04, 0.55, 0.14)     | up 38°, back — the plate's staff diagonal |
+ * | `present` | ( 0.13, 0.42, −0.02)    | near vertical, trailing |
+ * | `channel` | ( 0.10, 0.51, 0.13)     | vertical                |
+ *
+ * Retuning a stance means changing the goal and re-solving, not nudging the
+ * angles: nudge one and the weapon swings somewhere nobody asked for.
+ */
+const STANCES = {
+  /**
+   * The knight. Deep crouch, feet wide, sword carried up and back over the
+   * weapon shoulder — the most closed and lowest of the four, and the one that
+   * has to read as *braced*.
+   */
+  guard: {
+    yaw: 0.50, lean: 0.10, crouch: 0.30, open: 0.235, stagger: 0.17, breath: 0.9,
+    lead: { pitch: -0.41, yaw: 0.31, roll: -0.40, elbow: -1.56, wrist: [0.60, -0.03, 0.55] },
+    off: { pitch: -0.95, yaw: 0.11, roll: -0.11, elbow: -0.47, wrist: [-0.08, 0, 0.12] },
+  },
+  /**
+   * The staff-mage. Upright, weight back, a two-handed haft on a long diagonal:
+   * weapon hand high at the near shoulder, free hand lower and across.
+   */
+  carry: {
+    yaw: 0.44, lean: 0.05, crouch: 0.13, open: 0.175, stagger: 0.13, breath: 1.0,
+    lead: { pitch: -0.11, yaw: 0.04, roll: -0.40, elbow: -1.61, wrist: [0.60, -0.08, 0.55] },
+    off: { pitch: -0.68, yaw: 0.36, roll: -0.40, elbow: -0.42, wrist: [-0.06, 0, 0.08] },
+  },
+  /**
+   * The hat-mage. Nearly straight-legged, feet close, weapon low and trailing
+   * with the blade near vertical, free hand raised in front of the sternum. The
+   * lightest stance in the set; its contrast against `guard` is what makes a
+   * lineup read as a party.
+   */
+  present: {
+    yaw: 0.42, lean: 0.02, crouch: 0.07, open: 0.125, stagger: 0.10, breath: 1.15,
+    lead: { pitch: 0.37, yaw: 0.31, roll: 0.04, elbow: -0.79, wrist: [0.05, 0, -0.11] },
+    off: { pitch: -0.63, yaw: -0.04, roll: 0.04, elbow: -1.65, wrist: [-0.22, 0, 0.16] },
+  },
+  /**
+   * The archer. The most twisted of the four: bow arm out and down toward the
+   * threat, draw hand cocked back at the hip, so the shoulder line sits a long
+   * way off the pelvis and the whole figure reads as loaded.
+   */
+  ready: {
+    yaw: 0.58, lean: 0.07, crouch: 0.22, open: 0.200, stagger: 0.19, breath: 1.0,
+    lead: { pitch: -0.59, yaw: -0.15, roll: 0.21, elbow: -0.44, wrist: [-0.12, 0, 0.10] },
+    off: { pitch: 0.43, yaw: 0.01, roll: -0.02, elbow: -0.45, wrist: [0.08, 0, -0.10] },
+  },
+  /**
+   * No plate figure — the forge-hand archetype, for a character whose weapon is
+   * strapped to a forearm and whose hands are therefore both free. Both fists up
+   * and in, weight forward over a wide base: the only stance in the set that
+   * leans *into* the threat rather than sitting back off it.
+   */
+  brawl: {
+    yaw: 0.40, lean: 0.15, crouch: 0.26, open: 0.255, stagger: 0.14, breath: 0.85,
+    lead: { pitch: -0.71, yaw: 0.07, roll: -0.07, elbow: -1.42, wrist: [-0.14, 0, 0.10] },
+    off: { pitch: -0.60, yaw: 0.26, roll: -0.27, elbow: -1.06, wrist: [-0.12, 0, 0.10] },
+  },
+  /**
+   * The caster. The hat-mage's raised hand pushed all the way: book or focus
+   * held out in front in the weapon hand, free hand lifted high and open beside
+   * the head. Reads at a hundred pixels, which is the test.
+   */
+  channel: {
+    yaw: 0.46, lean: -0.03, crouch: 0.09, open: 0.145, stagger: 0.09, breath: 1.2,
+    lead: { pitch: -0.38, yaw: 0.60, roll: 0.15, elbow: -0.42, wrist: [0.60, -0.40, -0.55] },
+    off: { pitch: -1.13, yaw: -0.49, roll: 0.32, elbow: -1.83, wrist: [-0.30, 0, 0.20] },
+  },
+};
+
+/**
+ * Which stance a character stands in.
+ *
+ * Keyed on the weapon first, because a stance is mostly a consequence of what is
+ * in the hands, and on the role only as the fallback for a weapon this table has
+ * not met — so a new roster entry still gets a considered pose rather than the
+ * generic one.
+ */
+const STANCE_BY_WEAPON = {
+  sword: 'guard', axe: 'guard', greatsword: 'guard',
+  lance: 'carry', spear: 'carry', halberd: 'carry', staff: 'carry',
+  chimestaff: 'present', rapier: 'present', wand: 'present',
+  grimoire: 'channel', tome: 'channel', focus: 'channel',
+  bow: 'ready', chakram: 'ready', dagger: 'ready',
+  piston: 'brawl', gauntlet: 'brawl',
+};
+const STANCE_BY_ROLE = {
+  tank: 'brawl', vanguard: 'guard', striker: 'ready',
+  dragoon: 'carry', healer: 'present', mage: 'channel',
+};
+
+function stanceFor(def) {
+  const byWeapon = STANCES[STANCE_BY_WEAPON[def?.weapon?.kind]];
+  if (byWeapon) return byWeapon;
+  return STANCES[STANCE_BY_ROLE[def?.role]] ?? STANCES.guard;
+}
+
+/**
+ * Idle: the character's own combat stance from {@link STANCES}, breathing.
+ *
+ * What is shared across every stance, because it is true of all four plate
+ * figures and is life rather than character:
+ *
+ * - **Both knees are bent, always.** Not one of the four has a locked leg, and a
+ *   locked leg is most of why our cast read as "simplified": a straight limb has
+ *   no interior shape at all. `crouch` only says *how* bent.
+ * - **The weight sits on the back foot** — the weapon-side one, which `stagger`
+ *   has already placed behind — and stays there. It used to alternate fully
+ *   from side to side over eleven seconds, which is a rocking motion nobody in a
+ *   fight makes; the shift now only modulates a standing bias.
+ * - **The trunk breathes about two and a half degrees** at the chest, on a 3.6 s
+ *   period, against an 11 s weight drift and a 7.3 s noise wander. Three
+ *   mutually irrational periods so the loop never visibly repeats — a
+ *   single-period idle is the most recognisable tell of procedural animation
+ *   there is.
  */
 CLIPS.idle = {
   duration: 0,
@@ -198,65 +345,64 @@ CLIPS.idle = {
   spring: 11,
   fn(p, c) {
     const t = c.t;
-    const breath = Math.sin(t * TAU / 3.6);
+    const st = c.stance;
+    const breath = Math.sin(t * TAU / 3.6) * st.breath;
     const shift = Math.sin(t * TAU / 11.0);
     const drift = noise1(t * 0.42, c.seed);
     const w = c.bias.weight;
     const lead = c.leadSide;
 
-    // Weight on alternating legs: the pelvis drops and rolls toward the loaded
-    // side and the spine counter-curves, which is the whole read of "standing".
-    // The constant `ry` terms are the plate's shoulder-over-hip twist — the hips
-    // open away from the weapon side and the chest closes back over them, so the
-    // torso carries a diagonal instead of facing squarely down +Z.
-    p.rot('hips', 0.012 * breath, lead * -0.09 + shift * 0.055, shift * 0.075 * w);
-    p.pos('hips', shift * 0.008 * c.H, 0, 0);
-    p.rot('spine', 0.020 + breath * 0.016, lead * 0.07 + shift * -0.030, shift * -0.045);
-    p.rot('chest', 0.008 + breath * 0.022, lead * 0.11 + shift * -0.028, shift * -0.030);
-    p.rot('neck', -0.030 - breath * 0.012, lead * -0.05 + drift * 0.05, shift * 0.020);
-    p.rot('head', -0.045 - breath * 0.010, lead * -0.07 + drift * 0.10, shift * 0.028 + drift * 0.03);
+    // The trunk. `yaw` is split so the pelvis stays squarer to the threat than
+    // the shoulders — a third of it backwards at the hips, the rest forwards up
+    // the spine — which is the diagonal the plate stands on. The roll and the
+    // pelvis drop follow the loaded leg, which is what "standing" actually is.
+    p.rot('hips', st.lean * 0.25 + 0.012 * breath, -st.yaw * 0.30 + shift * 0.045, shift * 0.070 * w);
+    p.pos('hips', shift * 0.007 * c.H, 0, 0);
+    p.rot('spine', st.lean * 0.40 + 0.014 * breath, st.yaw * 0.40 + shift * -0.025, shift * -0.042);
+    p.rot('chest', st.lean * 0.35 + 0.038 * breath, st.yaw * 0.60 + shift * -0.022, shift * -0.028);
+    // The neck gives a little of the yaw back so the head does not lead the
+    // chest round; `lookAt` layers the actual gaze on top of this.
+    p.rot('neck', -0.030 - breath * 0.012, -st.yaw * 0.10 + drift * 0.05, shift * 0.020);
+    p.rot('head', -0.045 - breath * 0.010, -st.yaw * 0.12 + drift * 0.10, shift * 0.028 + drift * 0.03);
 
     p.pair((side, s) => {
-      const phase = side > 0 ? 0 : Math.PI * 0.85;
-      const swing = Math.sin(t * TAU / 7.3 + phase);
       const isLead = side === lead;
-      // The bind pose already splays the arm ten degrees, so the roll here is
-      // *inward*: the plate's upper arms sit against the ribs, and the weapon
-      // arm is drawn in furthest because it is holding something across the body.
-      const tuck = isLead ? -0.10 : -0.05;
-      // The weapon arm carries: shoulder slightly forward, elbow near a right
-      // angle. The off arm hangs with the small permanent bend an unloaded arm
-      // has — a dead-straight hanging arm is the other half of the "simplified"
-      // read, and the one that shows even when the character is doing nothing.
-      const carry = isLead ? 1 : 0;
-      p.rot(`arm${s}`,
-        -0.06 - 0.22 * carry + swing * 0.035,
-        side * 0.10 * carry,
-        side * (tuck + shift * side * 0.04));
-      p.rot(`forearm${s}`, -0.30 - 0.72 * carry - swing * 0.05, 0, side * 0.06);
-      p.rot(`hand${s}`, -0.06 * carry, 0, side * 0.08);
+      const a = isLead ? st.lead : st.off;
+      // Opposite phases so the two arms never sway in lockstep, which is the
+      // other classic procedural tell.
+      const swing = Math.sin(t * TAU / 7.3 + (isLead ? 0 : Math.PI * 0.85));
 
-      // Stance. `open` splays the whole leg from the hip so the feet sit apart
-      // and the knees follow, rather than translating the ankles and leaving two
-      // parallel tubes; `stagger` puts the off-weapon foot forward, which is how
-      // all four plate figures are standing.
-      // 0.155 rad, not the 0.085 this first read as. Measured on the plate, the
-      // staff-mage's boots span 0.325 H outer-to-outer standing still; 0.085
-      // gave 0.234 H, which is the difference between a fighting stance and
-      // standing to attention. The splay is taken at the hip so the knee and
-      // ankle both travel — a bowed leg rather than a translated one.
-      const open = 0.155 + shift * side * 0.015;
-      const stagger = isLead ? 0.10 : -0.12;
-      // The unloaded leg straightens and the loaded one takes the bend — but
-      // neither ever locks: 0.13 rad is the floor, and the ground solve turns
-      // that into the small crouch the plate's characters actually stand in.
-      const load = 0.5 + 0.5 * shift * side;
-      p.rot(`thigh${s}`, stagger * 0.55 - 0.06 - load * 0.05, side * 0.03, side * open);
-      p.rot(`shin${s}`, 0.13 + load * 0.09, 0, 0);
-      p.rot(`foot${s}`, -0.07 - load * 0.04, 0, side * open * 0.35);
+      // `yaw` is authored as "across the body", so it takes the side's sign; a
+      // positive yaw carries either hand toward the character's centreline.
+      p.rot(`arm${s}`, a.pitch + swing * 0.030, -side * a.yaw, side * (a.roll + swing * 0.025));
+      p.rot(`forearm${s}`, a.elbow - swing * 0.045, 0, side * 0.05);
+      // The wrist is what sets the *weapon's* angle. Rotating the `weapon` bone
+      // would do it too and would be wrong: the fist is modelled closed around
+      // the haft at a fixed bore, so turning the weapon inside the hand slides
+      // it straight out through the fingers. Turning the hand takes the grip
+      // with it.
+      p.rot(`hand${s}`, a.wrist[0], a.wrist[1], side * a.wrist[2]);
+
+      // Legs. `open` splays the whole leg from the hip so the feet sit apart and
+      // the knees follow, rather than translating the ankles and leaving two
+      // parallel tubes. Measured on the plate, the staff-mage's boots span
+      // 0.325 H outer-to-outer standing still, which is what the 0.13–0.26 band
+      // above is calibrated to.
+      const open = st.open + shift * side * 0.014;
+      // The weapon-side foot goes back; the free-side foot leads.
+      const stagger = isLead ? st.stagger : -st.stagger * 1.15;
+      // Weight stays on the back foot, with the slow shift only modulating how
+      // much: 0.55–0.95 on the loaded leg against 0.05–0.45 on the free one.
+      const load = isLead ? 0.75 + 0.20 * shift : 0.25 - 0.20 * shift;
+      p.rot(`thigh${s}`, stagger * 0.55 - 0.06 - st.crouch * 0.42 - load * 0.05,
+        side * 0.03, side * open);
+      p.rot(`shin${s}`, 0.13 + st.crouch * 0.80 + load * 0.09, 0, 0);
+      p.rot(`foot${s}`, -0.07 - st.crouch * 0.36 - load * 0.04, 0, side * open * 0.35);
     });
 
-    if (c.hasWeapon) p.rot('weapon', breath * 0.02, 0, drift * 0.03);
+    // Kept tiny on purpose — see the wrist note above. This is the haft
+    // trembling in the fist, not the character aiming it.
+    if (c.hasWeapon) p.rot('weapon', breath * 0.016, 0, drift * 0.024);
   },
 };
 
@@ -714,9 +860,13 @@ export class Animator {
     this.leadSide = mount.endsWith('L') ? 1 : -1;
     this.hasWeapon = Boolean(bones.weapon);
 
+    /** This character's standing stance — see {@link STANCES}. */
+    this.stance = stanceFor(def);
+
     this._ctx = {
       t: 0, u: 0, H: metrics.height, seed: this.seed, bias: this.bias,
       leadSide: this.leadSide, hasWeapon: this.hasWeapon, speedScale: 1,
+      stance: this.stance,
     };
 
     /** @type {{name:string, clip:object, time:number, speed:number, loop:boolean}} */
@@ -753,6 +903,10 @@ export class Animator {
     this.time = 0;
     this._disposed = false;
     this._q = new THREE.Quaternion();
+    // Scratch for `_groundSolve`'s three-bone chain: pelvis, thigh, shin.
+    this._qh = new THREE.Quaternion();
+    this._q1 = new THREE.Quaternion();
+    this._q2 = new THREE.Quaternion();
     this._e = new THREE.Euler();
     this._v = new THREE.Vector3();
     this._m = new THREE.Matrix4();
@@ -1009,9 +1163,44 @@ export class Animator {
    *
    * Taking the offsets from the rig makes the identity exact instead: at a zero
    * pose this returns the bind ankle to the last bit, whatever the pre-bend is.
+   *
+   * ### Why it runs the full three-bone chain rather than the sagittal one
+   *
+   * It used to compose the thigh and shin as scalar rotations about +X, which is
+   * exact only for a leg that swings in the sagittal plane. Every stance in
+   * {@link STANCES} splays the hip outward by 7–15° so the feet sit apart, and
+   * an outward splay *shortens the leg vertically* by `L(1 − cos θ)` — up to
+   * 1.4% of body height, six pixels at battle framing, which the solver could
+   * not see and therefore did not compensate. The whole cast stood that far off
+   * the grass, which at a grazing camera angle reads as the shadow having come
+   * unstuck rather than as the character hovering, and is correspondingly hard
+   * to attribute.
+   *
+   * Composing the actual pose quaternions — pelvis, thigh, shin — costs three
+   * quaternion multiplies per leg per frame and is exact for any pose, including
+   * the pelvis roll that the sagittal form also ignored.
    */
   _groundSolve(buf) {
     const J = this.metrics.joints;
+    const e = this._e;
+    const qh = this._qh;
+    const q1 = this._q1;
+    const q2 = this._q2;
+    const v = this._v;
+    const hi = this.index.hips;
+
+    // The pelvis's own rotation, about the hips joint. Absent from the index
+    // (nothing writes it) it is identity, which is what `set(0,0,0)` gives.
+    //
+    // **`'YXZ'`, matching the application loop.** The pose buffer's three
+    // channels are composed as YXZ when they are written onto a bone, so a
+    // solver reading the same channels in three.js's default XYZ is not
+    // predicting the pose that ships — and for a splayed leg, where the Y and Z
+    // terms are both non-zero, the two orders disagree by degrees.
+    if (hi !== undefined) e.set(buf[hi * CH], buf[hi * CH + 1], buf[hi * CH + 2], 'YXZ');
+    else e.set(0, 0, 0, 'YXZ');
+    qh.setFromEuler(e);
+
     let lowest = Infinity;
     for (const s of ['L', 'R']) {
       const ti = this.index[`thigh${s}`];
@@ -1020,17 +1209,22 @@ export class Animator {
       const hip = J[`thigh${s}`];
       const knee = J[`shin${s}`];
       const ankle = J[`foot${s}`];
-      const a1 = buf[ti * CH];
-      const a2 = a1 + buf[si * CH];
-      // Rotation about +X takes (y, z) to (y cos − z sin, y sin + z cos); only
-      // the y component matters for ground contact.
-      const y = hip.y
-        + (knee.y - hip.y) * Math.cos(a1) - (knee.z - hip.z) * Math.sin(a1)
-        + (ankle.y - knee.y) * Math.cos(a2) - (ankle.z - knee.z) * Math.sin(a2);
+      e.set(buf[ti * CH], buf[ti * CH + 1], buf[ti * CH + 2], 'YXZ');
+      q1.setFromEuler(e).premultiply(qh);
+      e.set(buf[si * CH], buf[si * CH + 1], buf[si * CH + 2], 'YXZ');
+      q2.setFromEuler(e).premultiply(q1);
+
+      // hips → hip socket, rotated by the pelvis; then each segment by its own
+      // accumulated rotation. Only the y component matters for ground contact.
+      v.set(hip.x - J.hips.x, hip.y - J.hips.y, hip.z - J.hips.z).applyQuaternion(qh);
+      let y = J.hips.y + v.y;
+      v.set(knee.x - hip.x, knee.y - hip.y, knee.z - hip.z).applyQuaternion(q1);
+      y += v.y;
+      v.set(ankle.x - knee.x, ankle.y - knee.y, ankle.z - knee.z).applyQuaternion(q2);
+      y += v.y;
       if (y < lowest) lowest = y;
     }
     if (!Number.isFinite(lowest)) return;
-    const hi = this.index.hips;
     if (hi === undefined) return;
     // Only ever *lower* the pelvis. Lifting it would let a bent-knee pose hover,
     // and a floating character is a far worse artefact than a slightly sunk foot.
