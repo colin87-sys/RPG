@@ -140,18 +140,22 @@ export const ROSTER = Object.freeze([
       glow: 0xfff0b8,
     }),
 
-    // Mass class: **swept wedge**. Narrowest crown in the party (0.82 heads
-    // wide) with the volume thrown backwards and down the -Z axis, so the head
-    // silhouettes as an arrowhead pointing forward — the exact inverse of
-    // Emrys's outward starburst, which is the pair most at risk of colliding at
-    // 80 px. Four fringe clumps rather than five: ANIME_PIPELINE §3 wants a few
-    // broad tapered forms with clear points, and five was one short of the
-    // width where neighbouring locks fuse into a single carved mass.
+    // Mass class: **swept wedge**. Narrowest crown in the party with the volume
+    // thrown backwards and down the -Z axis, so the head silhouettes as an
+    // arrowhead pointing forward — the exact inverse of Emrys's outward
+    // starburst, which is the pair most at risk of colliding at 80 px.
+    //
+    // `part` is the hard side parting: it shifts the whole fringe fan off centre
+    // so no clump hangs down the middle of the face, and `lean` biases the back
+    // clumps to the same side so the parting reads from the front too.
+    // `backCount` is how many chunky clumps the mass is carved from — six is the
+    // count at which neighbours fuse into one form at the crown while still
+    // separating into points at the nape.
     hair: Object.freeze({
       style: 'swept',
       capScale: 1.12, capDrop: 0.55,
-      fringe: 3, fringeLength: 0.40, fringeSweep: 0.95, fringeSpread: 1.0,
-      backLength: 1.20, backWidth: 0.86, backDepth: 1.30,
+      fringe: 4, fringeLength: 0.40, fringeSweep: 0.95, fringeSpread: 1.0, part: 0.20,
+      backCount: 6, backLength: 0.66, backWidth: 0.86, backDepth: 1.10, lean: 0.26,
       boneCount: 0,
     }),
 
@@ -190,7 +194,11 @@ export const ROSTER = Object.freeze([
     limit: { id: 'aubade', name: 'Aubade' },
 
     proportions: proportions({
-      height: 1.06, headScale: 1.05, shoulder: 0.87, chest: 0.92, hip: 0.96,
+      // Head at 1.00 rather than 1.05: she is the shortest frame in the party
+      // and the hair shell that sits over her skull is the widest, so the
+      // *silhouette* head mass REFERENCE §1 measures came out at 2.94 heads —
+      // outside the 3.0–3.5 band even though the skull alone was inside it.
+      height: 1.06, headScale: 1.00, shoulder: 0.87, chest: 0.92, hip: 0.96,
       limb: 0.90, foot: 0.78,
       eye: 1.12, eyeSpacing: 1.03, browAngle: 0.14, eyeShape: 'round', brow: 'gentle',
     }),
@@ -225,9 +233,12 @@ export const ROSTER = Object.freeze([
     hair: Object.freeze({
       style: 'sheet',
       capScale: 1.14, capDrop: 0.66,
-      fringe: 3, fringeLength: 0.34, fringeSweep: 0.10, fringeSpread: 1.45,
-      backLength: 1.55, backWidth: 1.55, backFlare: 1.20,
-      braidWidth: 0.80,
+      fringe: 3, fringeLength: 0.34, fringeSweep: 0.10, fringeSpread: 1.45, part: 0.10,
+      // Seven broad clumps side by side, overlapping heavily at the crown and
+      // fanning to a blunt hem — a curtain, not a slab. `backWidth` spreads
+      // where the tips land; it no longer fattens the clumps themselves.
+      backCount: 7, backLength: 1.45, backWidth: 1.55, backFlare: 1.20,
+      braidWidth: 0.70,
       boneCount: 4, boneStiffness: 0.34,
     }),
 
@@ -305,7 +316,7 @@ export const ROSTER = Object.freeze([
       // as one smooth unbroken dome — a helmet, not hair — and the clumps are
       // what break the outline without giving him a hairstyle he is not
       // supposed to have.
-      fringe: 2, fringeLength: 0.20, fringeSweep: 0.30, fringeSpread: 0.95,
+      fringe: 2, fringeLength: 0.20, fringeSweep: 0.30, fringeSpread: 0.95, part: 0.22,
       backLength: 0.34, backWidth: 0.8,
       // Head diameters, like every other hair length. At the old 0.50 of *body*
       // height this was three and a half head-radii of mass whose top edge
@@ -382,8 +393,10 @@ export const ROSTER = Object.freeze([
     hair: Object.freeze({
       style: 'bob',
       capScale: 1.11, capDrop: 0.44,
-      fringe: 3, fringeLength: 0.30, fringeSweep: 0.55, fringeSpread: 1.1,
-      backLength: 0.82, backWidth: 1.46, braidWidth: 0.50,
+      fringe: 3, fringeLength: 0.30, fringeSweep: 0.55, fringeSpread: 1.1, part: 0.24,
+      // Eight clumps wrapping past both ears onto the cheeks: the bell has to
+      // close in front of the ear or it reads as a hood seen from the side.
+      backCount: 8, backLength: 0.62, backWidth: 1.46, braidWidth: 0.50,
       lean: 0.40, cutAngle: 0.62,
       boneCount: 1, boneStiffness: 0.5,
     }),
@@ -425,7 +438,11 @@ export const ROSTER = Object.freeze([
     // frame in the party. `eye` at 1.16 is the top of the band — at 80 px the
     // eye block is the only thing that says "kid".
     proportions: proportions({
-      height: 1.00, headScale: 1.08, legLength: 0.94, shoulder: 0.83, chest: 0.88,
+      // Head at 1.02 rather than 1.08 — still the largest ratio in the party.
+      // REFERENCE §1 measures the head *mass*, hair shell included, and at 1.08
+      // his silhouette head was 39% of a 1.00-unit frame: 2.87 heads, outside
+      // the 3.0–3.5 band.
+      height: 1.00, headScale: 1.02, legLength: 0.94, shoulder: 0.83, chest: 0.88,
       hip: 0.90, limb: 0.85, arm: 0.92, hand: 0.92, foot: 0.94,
       eye: 1.16, eyeSpacing: 1.05, browAngle: 0.06, eyeShape: 'round', brow: 'gentle',
     }),
@@ -460,9 +477,9 @@ export const ROSTER = Object.freeze([
     // ten thin ones — ANIME_PIPELINE §3's "chunky clumps with a clear point".
     hair: Object.freeze({
       style: 'spike',
-      capScale: 1.13, capDrop: 0.42,
-      fringe: 3, fringeLength: 0.30, fringeSweep: 0.20, fringeSpread: 1.2,
-      spikes: 7, spikeLength: 0.60, spikeSpread: 1.55, spikeJitter: 0.35,
+      capScale: 1.12, capDrop: 0.42,
+      fringe: 3, fringeLength: 0.30, fringeSweep: 0.20, fringeSpread: 1.2, part: 0.12,
+      spikes: 8, spikeLength: 0.52, spikeSpread: 1.55, spikeJitter: 0.35,
       backLength: 0.48, backWidth: 0.95,
       boneCount: 0,
     }),
@@ -538,8 +555,10 @@ export const ROSTER = Object.freeze([
     hair: Object.freeze({
       style: 'topknot',
       capScale: 1.10, capDrop: 0.48,
-      fringe: 2, fringeLength: 0.28, fringeSweep: 0.45, fringeSpread: 1.15,
-      topknot: 0.42, topknotWidth: 0.52,
+      fringe: 2, fringeLength: 0.28, fringeSweep: 0.45, fringeSpread: 1.15, part: 0.18,
+      // Six clumps combed *up* from the hairline into the binding ring: the
+      // gather is what makes a topknot read as bound hair rather than as a hat.
+      backCount: 6, topknot: 0.42, topknotWidth: 0.50,
       braidLength: 2.40, braidWidth: 0.11, braidSegments: 6,
       backLength: 0.40, backWidth: 0.85, backDepth: 0.55,
       boneCount: 5, boneStiffness: 0.5,

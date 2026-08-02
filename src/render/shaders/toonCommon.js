@@ -97,6 +97,8 @@ uniform float uToonRimGain;
 uniform vec2  uToonRimFocus;
 uniform vec2  uToonRimShape;
 uniform float uToonRimFloor;
+uniform float uToonRimWidth;
+uniform float uToonRimCeiling;
 
 uniform vec3  uToonPulse;
 uniform float uToonPulseRate;
@@ -268,35 +270,55 @@ vec3 awToonPlate( const in vec3 c ) {
 }
 
 /**
- * The mandatory rim.
+ * The mandatory rim — a **profile**, in 0..1. Its radiance is applied by the
+ * composite, against a ceiling; see 'TOON_SURFACE_COMPOSITE'.
  *
- * Two terms multiplied. A bare 'pow( 1 - N·V, k )' haloes a character uniformly
- * and reads as a force field; weighting it by how much the surface faces the rim
- * light concentrates it on the back-lit edge, which is what the reference frames
- * actually show and what gives the silhouette a light *direction* instead of a
- * glow.
+ * Three terms, and the order they combine in is the correction this function
+ * carries. The previous arrangement windowed 'fresnel * focus' together, which
+ * produced the defect the review named: character edges clipping to flat white
+ * in a band wide enough to read as a second outline drawn beside the ink one.
+ * Two separate mechanisms put it there.
  *
- * The directional weight is floored rather than allowed to reach zero, and that
- * floor is load-bearing. With a pure directional weight the rim exists only
- * where the rig's rim vector happens to point — in a dusk rig that is the upper
- * hemisphere, so the band lands on the top of the cranium and the lower body
- * dissolves into dark ground. REFERENCE_TARGET §1 asks for the rim to separate
- * the character "from the background in every frame", i.e. around the whole
- * silhouette; the floor supplies that continuous edge while the directional term
- * still rides on top of it and carries the light's direction.
+ * **Width.** 'pow( 1 - N·V, k )' has no width control. Where its tail drops
+ * below the window's lower edge is decided jointly by 'k' and by that edge, and
+ * at the exponent this project actually runs — 'Lighting.RIM_CONTRACT' floors it
+ * at 3 and 'CharacterFactory.BODY_RIM' pins it there — the tail is still above
+ * the window across the outer *fifth* of a chibi silhouette's radius. That is a
+ * slab, not a rim. So the grazing term is remapped first: 'uToonRimWidth' states
+ * the band's inner edge directly, in N·V, and the exponent then shapes the
+ * falloff *inside* the band instead of deciding how far it reaches. A width of 1
+ * reproduces the bare fresnel exactly, which is what the classes that genuinely
+ * want a broad wrap (glass) are given.
  *
- * The product is then smooth-stepped a second time. That is not redundant with
- * the first 'pow': 'pow' alone produces a long low-amplitude tail that creeps
- * across the whole facing side and greys it out, while the window collapses the
- * tail to zero and holds the band tight to the edge.
+ * **The floor.** The directional weight is floored rather than allowed to reach
+ * zero, and that floor is load-bearing: with a pure directional weight the rim
+ * exists only where the rig's rim vector points — in a dusk rig, the upper
+ * hemisphere — so the band lands on the crown and the lower body dissolves into
+ * dark ground, while REFERENCE_TARGET section 1 wants the character separated
+ * from the background *around the whole silhouette*. But folding the floor
+ * inside the window made it useless as a dimmer: at 'floor = 0.55' the product
+ * still reached the window's upper edge wherever the fresnel saturated, so the
+ * wrap came out at the same full brightness as the back-lit edge and the
+ * direction the focus term exists to carry was invisible. Windowing the fresnel
+ * alone and letting the focus *scale* the result restores it — the wrap is now
+ * literally 'floor' times the lit edge — and it is also the shape
+ * 'Lighting.RIM_CONTRACT' names as its target: 'pow( 1 - N·V, k )' weighted by
+ * 'N·L_rim'.
+ *
+ * The window itself is not redundant with the 'pow': 'pow' alone leaves a long
+ * low-amplitude tail creeping across the facing side, and the window collapses
+ * that tail to exactly zero.
  */
 float awToonRim( const in vec3 n, const in vec3 v, const in vec3 rimDirView ) {
 
-  float fresnel = pow( 1.0 - saturate( dot( n, v ) ), max( uToonRimPower, 0.5 ) );
-  float focus = smoothstep( uToonRimFocus.x, uToonRimFocus.y, dot( n, rimDirView ) );
-  focus = mix( clamp( uToonRimFloor, 0.0, 1.0 ), 1.0, focus );
+  float span = max( uToonRimWidth, 1e-3 );
+  float edge = saturate( ( span - saturate( dot( n, v ) ) ) / span );
+  float fresnel = pow( edge, max( uToonRimPower, 0.5 ) );
 
-  return smoothstep( uToonRimShape.x, uToonRimShape.y, fresnel * focus );
+  float band = smoothstep( uToonRimShape.x, uToonRimShape.y, fresnel );
+  float facing = smoothstep( uToonRimFocus.x, uToonRimFocus.y, dot( n, rimDirView ) );
+
+  return band * mix( clamp( uToonRimFloor, 0.0, 1.0 ), 1.0, facing );
 
 }
 `;

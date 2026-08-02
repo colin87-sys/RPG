@@ -282,12 +282,40 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
   // shadowed — the rig's rim light casts none, and a character stepping into
   // shade must not lose the edge holding it off a fog-coloured background.
   //
-  // Allowed past 1.0. ART_BIBLE §6 puts the bloom threshold at 1.0 and §2.3
-  // names specular pings as one of the three things permitted to clip, so only
-  // the hottest sliver of the rim spills into bloom.
+  // Added against the *headroom left below a ceiling* rather than added outright,
+  // and that is the fix for the review's "edges clipping to pure white". The rim
+  // is solved by the rig to a fixed radiance, but the surface it lands on is not
+  // fixed: on a dark coat that radiance is the whole pixel, while on a lit chibi
+  // face — already near 1.0 before the rim, because the face is the brightest
+  // albedo in the cast under a face-flattening floor — the same addition lands
+  // the edge past 2.0, where ACES has nothing left to resolve and every hue in
+  // the frame flattens to the same white. Scaling by the remaining headroom
+  // makes the rim what it is meant to be: a term that lifts an edge *to* a
+  // brightness, not one that piles onto whatever brightness is already there.
+  //
+  // The bound is exact and worth stating, because it is the property the defect
+  // was about. With ceiling 'c', accumulated peak 's' and rim peak 'r', the
+  // result is 's + r(1 - s/c) = r + s(1 - r/c)', which for 'r <= c' rises
+  // monotonically in 's' to exactly 'c' at 's = c' and is suppressed to zero
+  // beyond it. So no fragment this material shades can be pushed above 'c' by
+  // the rim — and the presets put 'c' at 1.5–2.0, inside the band that feeds
+  // ART_BIBLE §6's soft-knee bloom (threshold 1.0, knee 0.6) without saturating.
+  //
+  // Measured on the peak channel, since that is the channel that clips, and
+  // applied to all three so the rim keeps its chromaticity as it dims — the
+  // whole point of the rig solving the rim for luminance rather than for peak.
+  // 'totalEmissiveRadiance' is included because an emissive crystal is exactly
+  // the surface that would otherwise be pushed over by its own glow plus a rim.
   vec3 rimDirView = normalize( ( viewMatrix * vec4( uRimDirection, 0.0 ) ).xyz );
   float awRim = awToonRim( normal, geometryViewDir, rimDirView );
-  reflectedLight.directSpecular += uRimColor * ( awRim * uToonRimGain * uRimStrength );
+
+  vec3 awSoFar = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse
+    + reflectedLight.directSpecular + reflectedLight.indirectSpecular
+    + totalEmissiveRadiance;
+  float awHeadroom = 1.0 - saturate( max3( awSoFar ) / max( uToonRimCeiling, 1e-3 ) );
+
+  reflectedLight.directSpecular += uRimColor
+    * ( awRim * awHeadroom * uToonRimGain * uRimStrength );
 
   // ---- battle feedback channel -------------------------------------------
   // A surface-wide additive tint the combat layer drives for hit flashes, limit

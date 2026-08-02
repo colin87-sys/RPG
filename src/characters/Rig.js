@@ -351,11 +351,16 @@ export function computeMetrics(def = {}) {
   //    edge is *derived* from the eye line, not guessed at. Retune either and
   //    they stay locked together.
   const faceSize = head.ry * 1.90;
-  // 0.17 ry below the head's centre. Eyes sit low on a chibi skull — the
-  // convention that reads as "young" — and this places the pair 58.5% of the
-  // way from crown to chin, which is what `FACE_LAYOUT.eyeY`'s 0.56 is aiming
-  // at once the plate's small overhang above the crown is accounted for.
-  const eyeY = headCY - head.ry * 0.17;
+  // 0.12 ry below the head's centre, which puts the painted pair **exactly 56%
+  // of the way from crown to chin** — `FACE_LAYOUT.eyeY`'s number, measured on
+  // the skull rather than on the texture.
+  //
+  // It used to be 0.17, i.e. 58.5%, on the reasoning that the plate overhangs
+  // the crown a little. It does not: `face.top` is *derived* from this line, so
+  // the overhang is a consequence of the offset rather than a correction to it,
+  // and the two percent it bought was simply the eye line sitting low. At the
+  // battle camera that reads as the face slipping down the skull.
+  const eyeY = headCY - head.ry * 0.12;
   const face = {
     /** Edge of the square the face texture maps onto, in world units. */
     size: faceSize,
@@ -376,18 +381,27 @@ export function computeMetrics(def = {}) {
      */
     lift: headR * 0.016,
     /**
-     * Plate extent. Deliberately *not* square.
+     * Plate extent. Deliberately *not* square, and **never past `size / 2`**.
      *
      * The face texture is square, but the region of skull that can carry it
      * without the projector running out of cross-section is not: the skull
      * narrows hard toward the chin, so a plate as tall as it is wide runs its
-     * lower corners past the jaw's half-width, where the projection's `acos`
-     * saturates and the texture piles up into the smear the review saw as a
-     * "truncated" eye. Capping the height at 0.88 ry and solving the width
-     * against the *local* cross-section (see `CharacterFactory.buildFacePlate`)
-     * removes the saturation entirely rather than tuning around it.
+     * lower corners past the jaw's half-width, where the projection saturates
+     * and the texture piles up into the smear the review saw as a "truncated"
+     * eye. Capping the height at 0.88 ry and solving the width against the
+     * *local* cross-section (see `CharacterFactory.buildFacePlate`) removes the
+     * saturation entirely rather than tuning around it.
+     *
+     * The width ceiling is a separate and harder rule. `buildFacePlate` writes
+     * `u = 0.5 + ox / size`, so a `halfX` above `size / 2` — 0.95 ry — asks the
+     * sampler for a `u` outside [0, 1]. At `ClampToEdge` that is a band of the
+     * texture's outermost column smeared down each side of the face, which is
+     * the "mask-like band" the review found; at any repeating wrap it would be a
+     * second pair of eyes wrapped onto the temple. 0.94 keeps every vertex
+     * strictly inside the texture with a margin, so neither is reachable from
+     * any roster value.
      */
-    halfX: head.ry * 0.98,
+    halfX: head.ry * 0.94,
     halfY: head.ry * 0.88,
     /**
      * How far the plate is flattened toward a plane, 0–1.

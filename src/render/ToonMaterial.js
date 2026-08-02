@@ -188,6 +188,10 @@ const SKIN_SHADOW_TINT = 0xe0a98f;
  *  - `specAlbedoMix` — how much of the surface's own colour the highlight keeps.
  *    Hair wants roughly half: a bright, slightly desaturated version of the hair
  *    colour, not a white dot.
+ *  - `rimWidth` / `rimCeiling` — how far the rim reaches in from the silhouette,
+ *    and the HDR level it lifts that edge to. See `DEFAULT_RIM_WIDTH` and
+ *    `DEFAULT_RIM_CEILING`; between them they are why the rim now glows instead
+ *    of clipping to a white second outline.
  *  - `flat` — this class is a character surface, so detail maps are dropped.
  *  - `envSpecular` — gain on the environment probe. Small for every dielectric:
  *    a toon character drinking a full-strength probe stops looking hand-painted.
@@ -200,7 +204,8 @@ export const TOON_PRESETS = Object.freeze({
     ambientGain: 0.85, metalAlbedo: 0.0,
     specColor: 0xffffff, specGain: 0.25, specExponent: 56,
     specThreshold: 0.50, specSoftness: 0.05, specAlbedoMix: 0.25,
-    rimPower: 2.6, rimGain: 1.7, rimFloor: 0.35,
+    rimPower: 3.4, rimGain: 1.45, rimFloor: 0.35,
+    rimWidth: 0.75, rimCeiling: 1.50,
     roughness: 0.62, metalness: 0.0, envMapIntensity: 0.30, envSpecular: 0.12,
     flat: false,
   },
@@ -219,7 +224,13 @@ export const TOON_PRESETS = Object.freeze({
     shadowLevel: 0.30, shadowGain: 1.0, shadowLift: 0.14, shadowFloor: 0.75,
     ambientGain: 0.90,
     specGain: 0.0,
-    rimPower: 2.3, rimGain: 1.7, rimFloor: 0.40,
+    // The tightest rim in the set, and the lowest ceiling. Skin is the brightest
+    // albedo the cast owns and `shadowFloor` keeps it lit even in shadow, so it
+    // is the surface with the least headroom left — and it is also the one
+    // surface where a wide band would eat into the painted face, which is the
+    // read the whole pipeline exists to protect.
+    rimPower: 3.4, rimGain: 1.35, rimFloor: 0.40,
+    rimWidth: 0.55, rimCeiling: 1.42,
     roughness: 0.55, metalness: 0.0, envMapIntensity: 0.22, envSpecular: 0.05,
     flat: true,
   },
@@ -241,7 +252,8 @@ export const TOON_PRESETS = Object.freeze({
     specColor: SURFACE_TINT.SILK_SPEC, specGain: 1.45, specExponent: 96,
     specThreshold: 0.52, specSoftness: 0.035, specAlbedoMix: 0.45,
     aniso: true, anisoShift: 0.18,
-    rimPower: 2.8, rimGain: 2.2, rimFloor: 0.32,
+    rimPower: 3.6, rimGain: 1.90, rimFloor: 0.32,
+    rimWidth: 0.66, rimCeiling: 1.60,
     roughness: 0.42, metalness: 0.0, envMapIntensity: 0.22, envSpecular: 0.06,
     flat: true,
   },
@@ -257,7 +269,8 @@ export const TOON_PRESETS = Object.freeze({
     shadowLevel: 0.25, shadowGain: 1.0, shadowLift: 0.10, shadowFloor: 0.0,
     ambientGain: 0.85,
     specGain: 0.0,
-    rimPower: 2.4, rimGain: 1.5, rimFloor: 0.38,
+    rimPower: 3.2, rimGain: 1.35, rimFloor: 0.38,
+    rimWidth: 0.70, rimCeiling: 1.50,
     roughness: 0.88, metalness: 0.0, envMapIntensity: 0.18, envSpecular: 0.05,
     flat: true,
   },
@@ -271,7 +284,8 @@ export const TOON_PRESETS = Object.freeze({
     ambientGain: 0.85,
     specColor: 0xffffff, specGain: 0.18, specExponent: 44,
     specThreshold: 0.48, specSoftness: 0.05, specAlbedoMix: 0.30,
-    rimPower: 2.6, rimGain: 1.6, rimFloor: 0.35,
+    rimPower: 3.2, rimGain: 1.40, rimFloor: 0.35,
+    rimWidth: 0.75, rimCeiling: 1.50,
     roughness: 0.60, metalness: 0.0, envMapIntensity: 0.26, envSpecular: 0.10,
     flat: false,
   },
@@ -292,7 +306,11 @@ export const TOON_PRESETS = Object.freeze({
     specColor: 0xffffff, specGain: 2.4, specExponent: 130,
     specThreshold: 0.45, specSoftness: 0.03, specAlbedoMix: 0.50,
     aniso: true, anisoShift: 0.06,
-    rimPower: 3.0, rimGain: 2.4, rimFloor: 0.30,
+    // ART_BIBLE §2.3 lets a specular ping clip, so metal keeps the highest
+    // ceiling of the character classes — but it is a *ping*, and the rim is not
+    // one, hence the narrow band.
+    rimPower: 3.6, rimGain: 2.00, rimFloor: 0.30,
+    rimWidth: 0.62, rimCeiling: 1.85,
     roughness: 0.35, metalness: 1.0, envMapIntensity: 0.55, envSpecular: 0.45,
     flat: true,
   },
@@ -308,7 +326,8 @@ export const TOON_PRESETS = Object.freeze({
     ambientGain: 0.90,
     specColor: 0xffffff, specGain: 3.0, specExponent: 220,
     specThreshold: 0.60, specSoftness: 0.03, specAlbedoMix: 0.0,
-    rimPower: 3.4, rimGain: 1.2, rimFloor: 0.20,
+    rimPower: 3.4, rimGain: 1.10, rimFloor: 0.20,
+    rimWidth: 0.85, rimCeiling: 1.50,
     roughness: 0.20, metalness: 0.0, envMapIntensity: 0.20, envSpecular: 0.25,
     flat: true,
   },
@@ -322,7 +341,13 @@ export const TOON_PRESETS = Object.freeze({
     ambientGain: 0.90,
     specColor: 0xffffff, specGain: 1.4, specExponent: 120,
     specThreshold: 0.42, specSoftness: 0.04, specAlbedoMix: 0.20,
-    rimPower: 1.6, rimGain: 2.6, rimFloor: 0.30,
+    // The one class that wants a broad wrap rather than an edge: on glass the
+    // fresnel *is* the material, so the width stays at the identity value and
+    // the band is the bare `pow(1 - N·V, k)` it always was. The ceiling is the
+    // highest in the set because a crystal's own emissive already sits at
+    // 1.2–1.8 and the rim must still be visible over it.
+    rimPower: 1.6, rimGain: 2.10, rimFloor: 0.30,
+    rimWidth: 1.00, rimCeiling: 2.00,
     roughness: 0.10, metalness: 0.0, envMapIntensity: 0.9, envSpecular: 0.9,
     flat: false,
   },
@@ -335,11 +360,52 @@ export const TOON_PRESETS = Object.freeze({
  *  surface turns fully toward the light and the fresnel has already died. */
 const DEFAULT_RIM_FOCUS = new THREE.Vector2(-0.50, 0.35);
 
-/** Window applied to fresnel × focus. Opens at 0.05 rather than 0 to kill the
+/** Window applied to the grazing term. Opens at 0.05 rather than 0 to kill the
  *  long low tail `pow()` leaves across the facing side — that tail is what turns
  *  a rim into a wash. Closes at 0.5 so the band reaches full strength in the
- *  outer quarter of the silhouette. */
+ *  outer sliver of the silhouette. */
 const DEFAULT_RIM_SHAPE = new THREE.Vector2(0.05, 0.50);
+
+/**
+ * Where the rim band's inner edge sits, in `N·V`.
+ *
+ * The control the model was missing, and the reason the review found "a hard
+ * white outline competing with the ink outline" rather than a rim. A bare
+ * `pow(1 - N·V, k)` states a falloff but never a *reach*: the band ends wherever
+ * that curve happens to fall under the shape window, and at the exponent this
+ * project actually runs — `Lighting.RIM_CONTRACT` floors it at 3 and
+ * `CharacterFactory.BODY_RIM` pins it there, so nothing a preset here says
+ * survives — the band covers the outer fifth of a chibi silhouette's radius.
+ * Twenty percent of a head is a slab of light, and a slab of light at the
+ * silhouette is an outline.
+ *
+ * Stating the reach separately is what makes the width a property of the surface
+ * class (how sharply its silhouette curves away) instead of a side effect of an
+ * exponent two other modules have opinions about. 0.7 puts the band's foot at
+ * roughly 6% of a sphere's projected radius with the peak in the outer 1% — read
+ * as a glow hugging the edge at the battle camera, still under the 2 px ink line
+ * in a closeup. `1.0` is the identity case and restores the bare fresnel exactly.
+ */
+const DEFAULT_RIM_WIDTH = 0.70;
+
+/**
+ * The HDR level the rim lifts an edge *to*, and cannot push past.
+ *
+ * The review's defect: "character edges are clipping to pure white rather than
+ * glowing [...] it should read as a bright edge that feeds bloom". A rim added
+ * outright cannot promise that, because its brightness is the rig's but the
+ * surface under it is the character's — the same rim that reads as a glow on a
+ * navy coat lands a lit face past 2.0, where ACES has nothing left to resolve
+ * and hue collapses to white. `TOON_SURFACE_COMPOSITE` therefore spends the rim
+ * against the headroom below this value, which bounds the result at it exactly.
+ *
+ * 1.5 sits above ART_BIBLE §6's bloom threshold of 1.0 by more than the 0.6 knee
+ * half-width, so the hottest part of the band is fully inside bloom and glows;
+ * and it is far enough below the tone curve's shoulder that the rim's teal
+ * survives the mapping instead of washing out. Classes whose highlights the art
+ * direction *does* allow to clip — metal, crystal — carry a higher one.
+ */
+const DEFAULT_RIM_CEILING = 1.50;
 
 /** Default anisotropy axis: world up. Hair falls, blades are worn vertically,
  *  and armour brushing runs with the body — world +Y is right far more often
@@ -402,6 +468,11 @@ const DETAIL_MAP_KEYS = Object.freeze(['normalMap', 'roughnessMap', 'aoMap', 'bu
  * @param {number} [opts.shadowLevel] luminance of the flat shadow fill.
  * @param {number} [opts.shadowLift] share of the key the shadow band keeps.
  * @param {number} [opts.specGain] 0 compiles the highlight out entirely.
+ * @param {number} [opts.rimGain] the rim's radiance, scaling `uRimColor`.
+ * @param {number} [opts.rimWidth] the rim band's inner edge, in `N·V`. 1 is the
+ *   bare fresnel; lower values hold the band to the outer silhouette.
+ * @param {number} [opts.rimCeiling] HDR level the rim lifts an edge to and
+ *   cannot exceed. 1.2–2.0 glows into bloom; higher clips to white.
  * @param {boolean} [opts.aniso] force the anisotropic highlight on or off.
  * @param {THREE.Vector3} [opts.anisoDirection] world-space strand axis.
  * @returns {THREE.MeshStandardMaterial} patched, ready to add to a scene.
@@ -520,6 +591,8 @@ export function createToonMaterial(opts = {}) {
     uToonRimFocus: { value: toVec2(opts.rimFocus, DEFAULT_RIM_FOCUS) },
     uToonRimShape: { value: toVec2(opts.rimShape, DEFAULT_RIM_SHAPE) },
     uToonRimFloor: { value: opts.rimFloor ?? p.rimFloor },
+    uToonRimWidth: { value: opts.rimWidth ?? p.rimWidth ?? DEFAULT_RIM_WIDTH },
+    uToonRimCeiling: { value: opts.rimCeiling ?? p.rimCeiling ?? DEFAULT_RIM_CEILING },
 
     // ---- battle feedback --------------------------------------------------
     uToonPulse: { value: toColor(opts.pulse ?? 0x000000) },
@@ -675,6 +748,8 @@ const SCALAR_KEYS = Object.freeze({
   rimPower: 'uToonRimPower',
   rimGain: 'uToonRimGain',
   rimFloor: 'uToonRimFloor',
+  rimWidth: 'uToonRimWidth',
+  rimCeiling: 'uToonRimCeiling',
   pulseRate: 'uToonPulseRate',
   anisoShift: 'uToonAnisoShift',
   outlineWidth: 'uOutlineWidth',
