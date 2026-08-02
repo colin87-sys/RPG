@@ -3231,6 +3231,13 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
       const hull = buildOutline(mesh, { width: outlineWidth });
       if (hull) {
         hull.layers.enable(CAST_LAYER);
+        // The hull must be parented, not merely returned. It is a SkinnedMesh
+        // sharing the source's skeleton and bind matrix, so adding it to the
+        // same root is what puts it in the render graph and keeps it deforming
+        // with the body. Handing it back in the result object and trusting the
+        // scene to parent it meant every character shipped with no ink line at
+        // all — the outline pass ran, produced geometry, and drew nothing.
+        root.add(hull);
         outlines.push(hull);
       }
     }
