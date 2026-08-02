@@ -26,8 +26,17 @@
  *     rig's own key radiance, so neither a form shadow nor a *cast* fringe
  *     shadow can carve a face into darkness.
  *
- * The rim from REFERENCE_TARGET §1 survives all of that unchanged: it is the one
- * term the reference frames never omit.
+ * REFERENCE_TARGET §1's rim survives all of that, but no longer outranks the ink
+ * line: it is capped at a width in *pixels* and runs at roughly a third of the
+ * radiance it used to, because at full strength it was a saturated teal band
+ * wrapping every contour in the frame — the silhouette line, drawn in light.
+ * See `CHARACTER_RIM_GAIN` and `DEFAULT_RIM_PIXELS`.
+ *
+ * **Nothing on a character surface is allowed to be a gradient except the band.**
+ * The `flat` classes take their indirect light at zero directional order
+ * (`TOON_FLAT_AMBIENT`), so the hemisphere fill, the environment probe and the
+ * grazing fresnel contribute their energy without contributing a ramp. That is
+ * what makes the terminator an edge rather than a kink in a falloff.
  *
  * **No noise touches a character.** ANIME_PIPELINE's absolute rule. The presets
  * that describe character surfaces carry `flat: true`, and a flat preset drops
@@ -56,15 +65,22 @@
  *   createToonOutlineMaterial({ width, ... })             -> THREE.MeshBasicMaterial
  *   createToonOutline(sourceMesh, { material })           -> THREE.Mesh | THREE.SkinnedMesh
  *
+ * The last two are **adapters over `render/Outline.js`**, which owns the one
+ * inverted-hull implementation in the project. They exist so callers that hold
+ * this module's spelling keep working; new code should call `Outline.js`
+ * directly.
+ *
  * Pass `{ lighting }` (the `Lighting` service) and the rig's key/rim uniforms are
  * *aliased*, not copied: the character's rim tracks the rim light that casts it,
  * every frame, at zero per-frame cost and with no possibility of the two
  * disagreeing. It is also how the face-flattening fill knows the key's colour, so
  * a face without it is flattened by a fixed white light instead of by the sun.
  *
- * Nothing here allocates a GPU resource; the materials and geometries this module
- * returns are the caller's to `dispose()`, and `createToonOutline` shares the
- * source geometry rather than cloning it, so the outline must never dispose it.
+ * The materials this module returns are the caller's to `dispose()`. A hull from
+ * `createToonOutline` is released through `disposeToonOutline`, which delegates
+ * to `Outline.disposeOutline` — the hull's geometry shares its attribute buffers
+ * with the source mesh, and that function is the one that detaches them before
+ * disposing.
  *
  * OWNED BY: render/ToonMaterial.js.
  */
@@ -76,11 +92,11 @@ import {
   TOON_SURFACE_COMPOSITE,
 } from './shaders/toonSurface.js';
 import {
-  TOON_OUTLINE_PARS,
-  TOON_OUTLINE_PROJECT,
-  TOON_OUTLINE_FRAGMENT_PARS,
-  TOON_OUTLINE_TINT,
-} from './shaders/toonOutline.js';
+  OUTLINE_DEFAULTS,
+  buildOutline,
+  createOutlineMaterial,
+  disposeOutline,
+} from './Outline.js';
 
 /* -------------------------------------------------------------------------- */
 /* Colour helpers                                                             */
@@ -161,6 +177,52 @@ function toVec2(v, fallback) {
 const SKIN_SHADOW_TINT = 0xe0a98f;
 
 /**
+ * Why every character class's `rimGain` was cut by roughly half.
+ *
+ * `Lighting` pins the character rim's hottest sliver to a fixed pre-tone-map
+ * luminance (`RIM_PEAK_LUMA`, 0.80) and normalises `uRimStrength` against a
+ * nominal preset gain of 1.7 — so the gains this table used to ship (1.35–2.1)
+ * put the band at 0.6–1.0 luminance in `RING_GLOW` teal, which after ACES is a
+ * pale cyan at roughly 210–230 sRGB. Wrapped round a contour at a width that
+ * scaled with the subject, that band was not a rim: it was the silhouette line,
+ * drawn in light. The review measured it as "a 4–6 px cyan-white line" doing the
+ * job the ink outline is supposed to do, and correctly called it the single
+ * reason nothing in the frame read as drawn.
+ *
+ * REFERENCE_TARGET §1 still requires the rim — it is a separation device against
+ * a fog-coloured background — but ANIME_PIPELINE supersedes it on character
+ * rendering and lists the ink line, not the rim, as one of the four pillars. So
+ * the rim keeps its job and loses its rank: at these gains the band lands
+ * between 0.28 and 0.42 luminance, plainly visible where a dark figure meets
+ * bright mist, comfortably under the surface's own lit values, and — with
+ * `DEFAULT_RIM_PIXELS` capping its width — always thinner than the 2 px hull it
+ * sits inside. Hair and metal carry the top of the range because §2 grants those
+ * two classes the extra lit-side band; the face carries the bottom, because a
+ * glowing cranium edge is the fastest way to lose a painted face.
+ */
+const CHARACTER_RIM_GAIN = Object.freeze({
+  skin: 0.60, cloth: 0.70, hair: 0.85, metal: 0.90, generic: 0.70, leather: 0.70,
+});
+
+/**
+ * Hard cap on the rim band's width, in **device pixels**.
+ *
+ * The other half of the same defect. `rimWidth` states the band's reach in N·V,
+ * which is a fraction of the *subject's projected radius* — so one number gives
+ * a sub-pixel sheen on a chibi hand and a 5–6 px slab around a boss occupying
+ * half the frame height. Line weight that scales with the subject is precisely
+ * the bug `render/Outline.js` exists to avoid on the ink line, and there was no
+ * reason for the rim to be exempt from it.
+ *
+ * `awToonRim` converts this into N·V per fragment through `fwidth`, and takes
+ * the tighter of the two. 1.6 px is deliberately *under* `OUTLINE_DEFAULTS.width`
+ * (2.0): the rim must read as light catching the edge inside the ink line, never
+ * as a line of its own. Declared ahead of `TOON_PRESETS` because the table reads
+ * it at module init.
+ */
+const DEFAULT_RIM_PIXELS = 1.6;
+
+/**
  * Named surface classes.
  *
  * These exist so that six characters authored by different agents cannot end up
@@ -188,10 +250,16 @@ const SKIN_SHADOW_TINT = 0xe0a98f;
  *  - `specAlbedoMix` — how much of the surface's own colour the highlight keeps.
  *    Hair wants roughly half: a bright, slightly desaturated version of the hair
  *    colour, not a white dot.
- *  - `rimWidth` / `rimCeiling` — how far the rim reaches in from the silhouette,
- *    and the HDR level it lifts that edge to. See `DEFAULT_RIM_WIDTH` and
- *    `DEFAULT_RIM_CEILING`; between them they are why the rim now glows instead
- *    of clipping to a white second outline.
+ *  - `rimWidth` / `rimPixels` / `rimCeiling` — how far the rim reaches in from
+ *    the silhouette in N·V, the hard cap on that reach in *pixels*, and the HDR
+ *    level it lifts the edge to. See `DEFAULT_RIM_WIDTH`, `DEFAULT_RIM_PIXELS`
+ *    and `DEFAULT_RIM_CEILING`.
+ *  - `rimGain` — the rim's radiance, and the number that decides whether the
+ *    band reads as a sheen or as a second, brighter outline. `Lighting` solves
+ *    `uRimStrength` so that a gain of `NOMINAL_TOON_RIM_GAIN` (1.7) lands the
+ *    hottest sliver on its `RIM_PEAK_LUMA`, so a preset's gain is literally its
+ *    fraction of that peak. See `CHARACTER_RIM_GAIN` for why every character
+ *    class now sits well under 1.
  *  - `flat` — this class is a character surface, so detail maps are dropped.
  *  - `envSpecular` — gain on the environment probe. Small for every dielectric:
  *    a toon character drinking a full-strength probe stops looking hand-painted.
@@ -204,8 +272,8 @@ export const TOON_PRESETS = Object.freeze({
     ambientGain: 0.85, metalAlbedo: 0.0,
     specColor: 0xffffff, specGain: 0.25, specExponent: 56,
     specThreshold: 0.50, specSoftness: 0.05, specAlbedoMix: 0.25,
-    rimPower: 3.4, rimGain: 1.45, rimFloor: 0.35,
-    rimWidth: 0.75, rimCeiling: 1.50,
+    rimPower: 3.4, rimGain: CHARACTER_RIM_GAIN.generic, rimFloor: 0.35,
+    rimWidth: 0.75, rimPixels: DEFAULT_RIM_PIXELS, rimCeiling: 1.50,
     roughness: 0.62, metalness: 0.0, envMapIntensity: 0.30, envSpecular: 0.12,
     flat: false,
   },
@@ -229,8 +297,8 @@ export const TOON_PRESETS = Object.freeze({
     // is the surface with the least headroom left — and it is also the one
     // surface where a wide band would eat into the painted face, which is the
     // read the whole pipeline exists to protect.
-    rimPower: 3.4, rimGain: 1.35, rimFloor: 0.40,
-    rimWidth: 0.55, rimCeiling: 1.42,
+    rimPower: 3.4, rimGain: CHARACTER_RIM_GAIN.skin, rimFloor: 0.40,
+    rimWidth: 0.55, rimPixels: DEFAULT_RIM_PIXELS, rimCeiling: 1.42,
     roughness: 0.55, metalness: 0.0, envMapIntensity: 0.22, envSpecular: 0.05,
     flat: true,
   },
@@ -260,8 +328,8 @@ export const TOON_PRESETS = Object.freeze({
     specColor: SURFACE_TINT.SILK_SPEC, specGain: 1.05, specExponent: 96,
     specThreshold: 0.52, specSoftness: 0.035, specAlbedoMix: 0.58,
     aniso: true, anisoShift: 0.18,
-    rimPower: 3.6, rimGain: 1.90, rimFloor: 0.32,
-    rimWidth: 0.66, rimCeiling: 1.60,
+    rimPower: 3.6, rimGain: CHARACTER_RIM_GAIN.hair, rimFloor: 0.32,
+    rimWidth: 0.66, rimPixels: DEFAULT_RIM_PIXELS, rimCeiling: 1.60,
     roughness: 0.42, metalness: 0.0, envMapIntensity: 0.22, envSpecular: 0.06,
     flat: true,
   },
@@ -277,8 +345,8 @@ export const TOON_PRESETS = Object.freeze({
     shadowLevel: 0.25, shadowGain: 1.0, shadowLift: 0.10, shadowFloor: 0.0,
     ambientGain: 0.85,
     specGain: 0.0,
-    rimPower: 3.2, rimGain: 1.35, rimFloor: 0.38,
-    rimWidth: 0.70, rimCeiling: 1.50,
+    rimPower: 3.2, rimGain: CHARACTER_RIM_GAIN.cloth, rimFloor: 0.38,
+    rimWidth: 0.70, rimPixels: DEFAULT_RIM_PIXELS, rimCeiling: 1.50,
     roughness: 0.88, metalness: 0.0, envMapIntensity: 0.18, envSpecular: 0.05,
     flat: true,
   },
@@ -292,8 +360,8 @@ export const TOON_PRESETS = Object.freeze({
     ambientGain: 0.85,
     specColor: 0xffffff, specGain: 0.18, specExponent: 44,
     specThreshold: 0.48, specSoftness: 0.05, specAlbedoMix: 0.30,
-    rimPower: 3.2, rimGain: 1.40, rimFloor: 0.35,
-    rimWidth: 0.75, rimCeiling: 1.50,
+    rimPower: 3.2, rimGain: CHARACTER_RIM_GAIN.leather, rimFloor: 0.35,
+    rimWidth: 0.75, rimPixels: DEFAULT_RIM_PIXELS, rimCeiling: 1.50,
     roughness: 0.60, metalness: 0.0, envMapIntensity: 0.26, envSpecular: 0.10,
     flat: false,
   },
@@ -323,8 +391,8 @@ export const TOON_PRESETS = Object.freeze({
     // ART_BIBLE §2.3 lets a specular ping clip, so metal keeps the highest
     // ceiling of the character classes — but it is a *ping*, and the rim is not
     // one, hence the narrow band.
-    rimPower: 3.6, rimGain: 2.00, rimFloor: 0.30,
-    rimWidth: 0.62, rimCeiling: 1.85,
+    rimPower: 3.6, rimGain: CHARACTER_RIM_GAIN.metal, rimFloor: 0.30,
+    rimWidth: 0.62, rimPixels: DEFAULT_RIM_PIXELS, rimCeiling: 1.85,
     roughness: 0.35, metalness: 1.0, envMapIntensity: 0.55, envSpecular: 0.45,
     flat: true,
   },
@@ -340,8 +408,8 @@ export const TOON_PRESETS = Object.freeze({
     ambientGain: 0.90,
     specColor: 0xffffff, specGain: 3.0, specExponent: 220,
     specThreshold: 0.60, specSoftness: 0.03, specAlbedoMix: 0.0,
-    rimPower: 3.4, rimGain: 1.10, rimFloor: 0.20,
-    rimWidth: 0.85, rimCeiling: 1.50,
+    rimPower: 3.4, rimGain: 0.50, rimFloor: 0.20,
+    rimWidth: 0.85, rimPixels: DEFAULT_RIM_PIXELS, rimCeiling: 1.50,
     roughness: 0.20, metalness: 0.0, envMapIntensity: 0.20, envSpecular: 0.25,
     flat: true,
   },
@@ -360,8 +428,8 @@ export const TOON_PRESETS = Object.freeze({
     // the band is the bare `pow(1 - N·V, k)` it always was. The ceiling is the
     // highest in the set because a crystal's own emissive already sits at
     // 1.2–1.8 and the rim must still be visible over it.
-    rimPower: 1.6, rimGain: 2.10, rimFloor: 0.30,
-    rimWidth: 1.00, rimCeiling: 2.00,
+    rimPower: 1.6, rimGain: 1.60, rimFloor: 0.30,
+    rimWidth: 1.00, rimPixels: 0, rimCeiling: 2.00,
     roughness: 0.10, metalness: 0.0, envMapIntensity: 0.9, envSpecular: 0.9,
     flat: false,
   },
@@ -485,6 +553,8 @@ const DETAIL_MAP_KEYS = Object.freeze(['normalMap', 'roughnessMap', 'aoMap', 'bu
  * @param {number} [opts.rimGain] the rim's radiance, scaling `uRimColor`.
  * @param {number} [opts.rimWidth] the rim band's inner edge, in `N·V`. 1 is the
  *   bare fresnel; lower values hold the band to the outer silhouette.
+ * @param {number} [opts.rimPixels] hard cap on the band's width in device
+ *   pixels, whatever the subject's size or distance. 0 disables the cap.
  * @param {number} [opts.rimCeiling] HDR level the rim lifts an edge to and
  *   cannot exceed. 1.2–2.0 glows into bloom; higher clips to white.
  * @param {boolean} [opts.aniso] force the anisotropic highlight on or off.
@@ -606,6 +676,7 @@ export function createToonMaterial(opts = {}) {
     uToonRimShape: { value: toVec2(opts.rimShape, DEFAULT_RIM_SHAPE) },
     uToonRimFloor: { value: opts.rimFloor ?? p.rimFloor },
     uToonRimWidth: { value: opts.rimWidth ?? p.rimWidth ?? DEFAULT_RIM_WIDTH },
+    uToonRimPixels: { value: opts.rimPixels ?? p.rimPixels ?? DEFAULT_RIM_PIXELS },
     uToonRimCeiling: { value: opts.rimCeiling ?? p.rimCeiling ?? DEFAULT_RIM_CEILING },
 
     // ---- battle feedback --------------------------------------------------
@@ -656,6 +727,11 @@ export function createToonMaterial(opts = {}) {
   if (hasSpec) material.defines.TOON_SPECULAR = '';
   if (aniso) material.defines.TOON_ANISO = '';
   if (litBand) material.defines.TOON_LIT_BAND = '';
+  // A character surface takes its indirect light without a gradient — the same
+  // `flat` classification that drops the fBm detail maps, applied to the other
+  // thing that puts a smooth ramp on a cel character. See the comment on
+  // `RE_IndirectDiffuse_Toon`.
+  if (flat) material.defines.TOON_FLAT_AMBIENT = '';
 
   material.userData.toon = { kind: 'surface', uniforms, levels, shared, preset: presetName };
   material.userData.isToonMaterial = true;
@@ -676,7 +752,7 @@ export function createToonMaterial(opts = {}) {
   // and the other renders with someone else's BRDF — a bug that presents as
   // "characters look fine until you walk past a rock".
   const cacheKey = `aw-toon-surface|${presetName}|${litBand ? 'lit3' : 'lit2'}`
-    + `|${hasSpec ? (aniso ? 'aniso' : 'iso') : 'nospec'}`;
+    + `|${hasSpec ? (aniso ? 'aniso' : 'iso') : 'nospec'}|${flat ? 'flatamb' : 'amb'}`;
   material.customProgramCacheKey = () => cacheKey;
 
   return material;
@@ -763,12 +839,10 @@ const SCALAR_KEYS = Object.freeze({
   rimGain: 'uToonRimGain',
   rimFloor: 'uToonRimFloor',
   rimWidth: 'uToonRimWidth',
+  rimPixels: 'uToonRimPixels',
   rimCeiling: 'uToonRimCeiling',
   pulseRate: 'uToonPulseRate',
   anisoShift: 'uToonAnisoShift',
-  outlineWidth: 'uOutlineWidth',
-  outlineDarkness: 'uOutlineDarkness',
-  outlineSaturation: 'uOutlineSaturation',
 });
 
 /** Colour options written verbatim as radiance. */
@@ -783,8 +857,9 @@ const COLOR_KEYS = Object.freeze({
  *
  * Safe to call every frame — it touches only the keys present in `opts` and
  * allocates nothing on the scalar and vector paths. Safe to call on a material
- * that has not compiled yet, and on the outline material (which shares the
- * `outline*` keys and ignores the rest).
+ * that has not compiled yet. It does **not** drive the ink line: outline
+ * materials are `render/Outline.js`'s, and its `setOutlineWidth` is the API for
+ * them, so that one module stays the only place line weight is decided.
  *
  * Two behaviours are worth knowing about. Writing `rimColor` / `rimStrength` /
  * `keyColor` on a material built with `{ lighting }` **breaks the alias to the
@@ -883,191 +958,93 @@ export function updateToonUniforms(material, opts = {}) {
     u.uToonRimShape.value.copy(toVec2(opts.rimShape, DEFAULT_RIM_SHAPE));
   }
 
-  // The outline's colour is a material property rather than a uniform, because
-  // it is `MeshBasicMaterial.color` and hijacking that uniform object would
-  // fight three's own `refreshUniformsCommon`.
-  if (opts.outlineColor !== undefined && material.color) {
-    material.color.copy(toColor(opts.outlineColor));
-  }
-
   return material;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Inverted-hull outline                                                      */
+/* Inverted-hull outline — thin adapters over render/Outline.js               */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Default line weight, as a fraction of viewport height.
+ * The reference viewport height the legacy fraction-of-viewport spelling is
+ * resolved against.
  *
- * ANIME_PIPELINE §4 asks for a constant screen-space weight of 1.5–2.5 px at
- * 1080p, and names "no outlines, or too subtle to see" as one of the four
- * failures of the first attempt. 0.0018 is ~1.9 px at 1080p and ~2.6 px at
- * 1440p: unmistakably an ink line, still short of the cartoon border that a
- * heavier value would give.
+ * This module used to own a *second*, independent inverted-hull implementation,
+ * and the two had drifted: it shared the source geometry (so it pushed along
+ * `toCreasedNormals`' split normals and tore the shell open at every hard edge —
+ * a gap in the line exactly at a hair clump's point or a boot's corner),
+ * defaulted `vertexColors` on (so a hull with no colour attribute collapsed
+ * `diffuseColor` to zero and abandoned ANIME_PIPELINE §4's per-albedo tint for a
+ * fixed swatch), carried no floor under the darkened colour, and registered with
+ * nothing, so `setOutlineWidth` could not reach it. The enemy — the largest
+ * figure in frame and the one the review measured the broken contour on — was
+ * outlined by that copy while the party was outlined by `render/Outline.js`.
+ *
+ * Two implementations of one technique is the actual defect; there is now one.
+ * These functions are kept because callers hold them, and they translate the one
+ * argument whose units differ: `Outline.js` takes line weight in **device
+ * pixels**, which is what "constant screen-space weight" means, while this
+ * entry point documented a fraction of viewport height. 1080p is the capture
+ * harness's viewport and the height §4's "1.5–2.5 px" is quoted at, so it is the
+ * only defensible constant to resolve the old spelling against.
  */
-const DEFAULT_OUTLINE_WIDTH = 0.0018;
+const OUTLINE_REFERENCE_HEIGHT = 1080;
 
 /**
- * How far the outline darkens the albedo it is derived from, and how much it
- * saturates on the way down.
+ * Fallback line level for a hull with no albedo and no per-vertex colour.
  *
- * §4: "Outline colour is **not black** — use a heavily darkened, saturated
- * version of the underlying albedo, so hair gets a dark-warm line and cloth a
- * dark-cool one." 0.16 is heavily darkened; 1.55 saturation is what stops the
- * darkening from also draining the hue and landing on the near-black line the
- * document rules out. A true black outline would additionally be the only pure
- * black in frame, sitting on the subject, which breaks ART_BIBLE §2.3's tinted
- * value floor.
+ * `Outline.js` derives the line from the surface underneath, and with nothing to
+ * derive from its own fallback is the scene shadow tint — but a caller reaching
+ * this adapter without an albedo (the husks in `LookdevScene`) would otherwise
+ * fall through to its `0xffffff` default and get a line *lighter* than the body
+ * it wraps, which is the exact inversion the review scored. Naming the colour
+ * here keeps that impossible.
  */
-const DEFAULT_OUTLINE_DARKNESS = 0.16;
-const DEFAULT_OUTLINE_SATURATION = 1.55;
-
-/** Fallback outline colour, for a hull with no per-vertex colour to darken. */
 const DEFAULT_OUTLINE_LEVEL = 0.035;
 
 /**
  * Build the material for an inverted-hull outline.
  *
- * @param {Object} [opts]
- * @param {number} [opts.width=0.0018] fraction of viewport height.
- * @param {boolean} [opts.vertexColors=true] derive the line colour from the
- *   hull's per-vertex colour block, which is how §4's "dark-warm line on hair,
- *   dark-cool on cloth" is achieved on a single merged mesh. Requires the
- *   geometry to carry a `color` attribute — `CharacterFactory` paints one.
- * @param {THREE.ColorRepresentation} [opts.color] explicit line colour. With
- *   `vertexColors` on this multiplies the vertex colour; leave it white.
- * @param {number} [opts.darkness] / [opts.saturation] the §4 tint controls.
+ * @param {Object} [opts] forwarded to `Outline.createOutlineMaterial`, except:
+ * @param {number} [opts.width] fraction of viewport height (this module's
+ *   historical spelling), resolved against 1080p. Pass `pixels` instead to state
+ *   the weight the way `Outline.js` does.
+ * @param {number} [opts.pixels] line weight in device pixels; wins over `width`.
+ * @param {boolean} [opts.vertexColors=false] derive the line per fragment from
+ *   the hull's colour attribute. Only correct when the geometry carries one.
  * @returns {THREE.MeshBasicMaterial}
  */
 export function createToonOutlineMaterial(opts = {}) {
-  const vertexColors = opts.vertexColors ?? true;
-  const color = opts.color !== undefined
-    ? toColor(opts.color)
-    : (vertexColors ? new THREE.Color(1, 1, 1) : chromaAt(LIGHT.SHADOW_TINT, opts.level ?? DEFAULT_OUTLINE_LEVEL));
+  const vertexColors = opts.vertexColors ?? false;
+  const width = opts.pixels
+    ?? (opts.width !== undefined ? opts.width * OUTLINE_REFERENCE_HEIGHT : OUTLINE_DEFAULTS.width);
 
-  const material = new THREE.MeshBasicMaterial({
+  return createOutlineMaterial({
+    ...opts,
     name: opts.name ?? 'toon:outline',
-    color,
+    width,
     vertexColors,
-    // BackSide is the hull; FrontSide culling is what makes the shell visible
-    // only where it pokes out past the silhouette.
-    side: THREE.BackSide,
-    fog: opts.fog ?? true,
-    // Opaque and depth-writing. A transparent outline would need sorting against
-    // the character it wraps, and would show the seam wherever the shell
-    // self-overlaps on a concave part like an armpit.
-    transparent: false,
-    depthWrite: true,
-    toneMapped: true,
+    // Only when the caller named neither, and only for a flat hull: with vertex
+    // colours the fragment stage derives the line and an explicit colour would
+    // override every zone with one value.
+    color: opts.color ?? (opts.albedo === undefined && !vertexColors
+      ? chromaAt(LIGHT.SHADOW_TINT, opts.level ?? DEFAULT_OUTLINE_LEVEL)
+      : undefined),
   });
-
-  const uniforms = { uOutlineWidth: { value: opts.width ?? DEFAULT_OUTLINE_WIDTH } };
-  // The tint is only meaningful when there is an albedo to derive from. With an
-  // explicit flat colour the caller has already chosen the line, and darkening
-  // it a second time would halve a value that was picked deliberately.
-  const tint = opts.tint ?? vertexColors;
-  if (tint) {
-    uniforms.uOutlineDarkness = { value: opts.darkness ?? DEFAULT_OUTLINE_DARKNESS };
-    uniforms.uOutlineSaturation = { value: opts.saturation ?? DEFAULT_OUTLINE_SATURATION };
-    uniforms.uOutlineFallback = {
-      value: chromaAt(LIGHT.SHADOW_TINT, opts.level ?? DEFAULT_OUTLINE_LEVEL),
-    };
-  }
-
-  material.userData.toon = { kind: 'outline', uniforms, levels: {}, shared: new Set() };
-  material.userData.isToonMaterial = true;
-
-  material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, material.userData.toon.uniforms);
-    shader.vertexShader = TOON_OUTLINE_PARS + shader.vertexShader;
-    if (shader.vertexShader.indexOf('#include <project_vertex>') === -1) {
-      console.error('[ToonMaterial] outline anchor missing; outline will not offset.');
-    } else {
-      shader.vertexShader = shader.vertexShader.replace(
-        '#include <project_vertex>', () => TOON_OUTLINE_PROJECT,
-      );
-    }
-    if (tint) {
-      shader.fragmentShader = TOON_OUTLINE_FRAGMENT_PARS + shader.fragmentShader;
-      shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <color_fragment>', () => TOON_OUTLINE_TINT,
-      );
-    }
-    material.userData.toonShader = shader;
-  };
-
-  material.customProgramCacheKey = () => `aw-toon-outline|${tint ? 'tint' : 'flat'}`;
-  return material;
 }
 
 /**
  * Attach an inverted-hull outline to a mesh.
  *
- * The hull is added as a **child of the source with an identity local matrix**,
- * which is the only arrangement correct for both cases: a static mesh inherits
- * the source's world transform exactly, and a `SkinnedMesh` — which three
- * transforms through its bind matrix and skeleton rather than through its own
- * world matrix — ends up sharing the source's skeleton, bind matrix and bind
- * mode, so the hull deforms with the animation instead of drifting off it.
- * Cloning the geometry would double the vertex memory of every character in the
- * party for no benefit, so it is shared; `disposeToonOutline` therefore disposes
- * the material only.
- *
  * @param {THREE.Mesh} source
- * @param {Object} [opts] forwarded to {@link createToonOutlineMaterial}, plus
- *   `material` to supply a shared one.
+ * @param {Object} [opts] forwarded to `Outline.buildOutline`.
  * @returns {THREE.Mesh|THREE.SkinnedMesh|null} null if `source` has no geometry.
  */
 export function createToonOutline(source, opts = {}) {
-  if (!source?.geometry) return null;
-  const material = opts.material ?? createToonOutlineMaterial(opts);
-  const ownsMaterial = !opts.material;
-
-  let outline;
-  if (source.isSkinnedMesh) {
-    outline = new THREE.SkinnedMesh(source.geometry, material);
-    outline.bindMode = source.bindMode;
-    outline.bind(source.skeleton, source.bindMatrix);
-  } else {
-    outline = new THREE.Mesh(source.geometry, material);
-  }
-
-  outline.name = `${source.name || 'mesh'}::outline`;
-  // The hull is a shading trick, not an occluder: casting from it would thicken
-  // every contact shadow by the outline width, and receiving would band the line
-  // where the key crosses it.
-  outline.castShadow = false;
-  outline.receiveShadow = false;
-  // Local transform stays identity, so `matrixWorld` resolves to the source's
-  // every frame with no syncing code and no chance of the hull lagging the
-  // character by a frame during a fast dash.
-  outline.position.set(0, 0, 0);
-  outline.quaternion.identity();
-  outline.scale.set(1, 1, 1);
-  // Drawn before the surface so the depth buffer rejects the hull's interior
-  // early, and so a translucent effect layered over the character sorts against
-  // one silhouette rather than two.
-  outline.renderOrder = source.renderOrder - 1;
-  outline.frustumCulled = source.frustumCulled;
-  outline.userData.isToonOutline = true;
-  outline.userData.ownsMaterial = ownsMaterial;
-
-  source.add(outline);
-  return outline;
+  return buildOutline(source, opts);
 }
 
-/**
- * Detach and dispose an outline built by {@link createToonOutline}.
- *
- * Geometry is shared with the source mesh and is deliberately left alone, and so
- * is a material the caller supplied — a party sharing one outline material is
- * the normal case, and disposing it from the first character to be torn down
- * would blank the other five.
- */
+/** Detach and release a hull built by {@link createToonOutline}. */
 export function disposeToonOutline(outline) {
-  if (!outline) return;
-  outline.parent?.remove(outline);
-  if (outline.userData?.ownsMaterial !== false) outline.material?.dispose();
-  if (outline.isSkinnedMesh) outline.skeleton = null;
+  disposeOutline(outline);
 }

@@ -124,11 +124,21 @@ function optionHash(opts) {
  *    roughness, because that is what makes a wet patch read as wet rather than
  *    as a dark stain.
  *
- * 3. **Distance-varying detail.** Past `fadeNear` the shader cross-fades the
- *    detail albedo into a re-sample of the *same* map at a quarter tiling and
- *    relaxes the normal toward geometric. Re-sampling rather than fading to flat
- *    matters: the far ground still needs texture for the atmospheric gradient to
- *    grade, it just must not be carrying 2 m grain at 60 m.
+ * 3. **Distance-varying detail.** Past `fadeNear` the shader dissolves the
+ *    detail albedo into the surface's own mean colour and relaxes the normal
+ *    toward geometric, leaving the macro layer as the only structure in the far
+ *    field. That is REFERENCE §3's "background elements are near-silhouettes
+ *    with very little internal detail" applied to the ground plane.
+ *
+ *    This used to cross-fade into a re-sample of the *same* detail map at a
+ *    quarter tiling, on the theory that the far ground still needs texture for
+ *    the atmospheric gradient to grade. It does not, and the re-sample was the
+ *    source of the review's "directional smearing and stretch streaks": grass
+ *    is 2400 stamped blades laid along a coherent flow field, and magnifying
+ *    that tile 4.3× turns 15 cm blades into 70 cm strokes that all lean the
+ *    same way. Blown up and mip-blurred across the midground they read as
+ *    brush drag. Any map with directional content — grass, sand ripples, dirt
+ *    cracks — fails the same way, so the technique is gone rather than tuned.
  *
  * Implemented as a subclass rather than a bare `onBeforeCompile` because scenes
  * clone this material to tint it, and `Material.copy` copies a fixed field list
@@ -159,7 +169,9 @@ class GroundMaterial extends THREE.MeshStandardMaterial {
       // detail map over — but the *ratio* to the detail frequency is exactly
       // what the "is this one frequency or several" read depends on.
       uGroundMacroScale: { value: 1 / 32 },
-      uGroundCoarseScale: { value: 0.23 },
+      // The surface's own mean albedo, in linear light — what the detail layer
+      // dissolves into once it is too far away to resolve.
+      uGroundMeanColor: { value: new THREE.Vector3(0.5, 0.5, 0.5) },
       uGroundFade: { value: new THREE.Vector2(14, 62) },
       uGroundDrift: { value: 0.34 },
       uGroundRoughVar: { value: 0.11 },
@@ -175,7 +187,7 @@ class GroundMaterial extends THREE.MeshStandardMaterial {
       const dst = this.groundUniforms;
       dst.uGroundMacroMap.value = src.uGroundMacroMap.value;
       dst.uGroundMacroScale.value = src.uGroundMacroScale.value;
-      dst.uGroundCoarseScale.value = src.uGroundCoarseScale.value;
+      dst.uGroundMeanColor.value.copy(src.uGroundMeanColor.value);
       dst.uGroundFade.value.copy(src.uGroundFade.value);
       dst.uGroundDrift.value = src.uGroundDrift.value;
       dst.uGroundRoughVar.value = src.uGroundRoughVar.value;
@@ -213,7 +225,7 @@ class GroundMaterial extends THREE.MeshStandardMaterial {
       /* glsl */ `#include <common>
         uniform sampler2D uGroundMacroMap;
         uniform float uGroundMacroScale;
-        uniform float uGroundCoarseScale;
+        uniform vec3 uGroundMeanColor;
         uniform vec2 uGroundFade;
         uniform float uGroundDrift;
         uniform float uGroundRoughVar;
@@ -230,11 +242,16 @@ class GroundMaterial extends THREE.MeshStandardMaterial {
           vec4 gMacro = texture2D( uGroundMacroMap, vMapUv * uGroundMacroScale );
           gFar = smoothstep( uGroundFade.x, uGroundFade.y, length( vViewPosition ) );
 
-          // Frequency change, not a fade: the same albedo re-sampled four times
-          // larger. Far ground keeps texture for the fog gradient to bite on
-          // while losing the near-field grain that was flattening the depth read.
-          vec3 gCoarse = texture2D( map, vMapUv * uGroundCoarseScale ).rgb;
-          diffuseColor.rgb = mix( diffuseColor.rgb, gCoarse, gFar * 0.7 );
+          // Dissolve to the surface mean rather than to a magnified re-sample.
+          // The macro layer below still varies the far ground's value and hue,
+          // so it does not go dead flat — but nothing out there carries a
+          // *direction* any more, which is what was reading as brush drag.
+          // Multiplied by the diffuse uniform because at this point in the order
+          // diffuseColor already carries the material tint, and scenes do tint
+          // the stage floor — dissolving toward the untinted mean would leave a
+          // ring of raw, more saturated albedo at exactly the distance the fog
+          // has not yet taken over.
+          diffuseColor.rgb = mix( diffuseColor.rgb, uGroundMeanColor * diffuse, gFar * 0.85 );
 
           // Two decorrelated periods of value drift, so the macro layer itself
           // is not single-frequency — which would only move the problem up a
@@ -247,8 +264,14 @@ class GroundMaterial extends THREE.MeshStandardMaterial {
 
           // Unit-luminance chroma: this rotates hue without touching value, so
           // the drift term below is the only thing moving the histogram.
-          vec3 gTint = mix( vec3( 1.0 ), uGroundDryTint, gDry * 0.55 );
-          gTint = mix( gTint, uGroundDampTint, gDamp * 0.70 );
+          //
+          // Both mixes are pulled back from 0.55/0.70. Hue is the channel the
+          // eye reads as *material*, and a ground swinging between warm bounce
+          // and cold shadow tint over 15 m stops being one surface with form on
+          // it and becomes two substances marbled together. Value drift carries
+          // the form; the tint is only allowed to season it.
+          vec3 gTint = mix( vec3( 1.0 ), uGroundDryTint, gDry * 0.38 );
+          gTint = mix( gTint, uGroundDampTint, gDamp * 0.52 );
           diffuseColor.rgb *= gTint * ( 1.0 + gDrift * uGroundDrift - gDamp * 0.22 );
         }
         #endif`,
@@ -580,6 +603,11 @@ export class AssetForge {
         mat = new GroundMaterial(common);
         const u = mat.groundUniforms;
         u.uGroundMacroMap.value = this.texture('macro-ground');
+        // Measured off the map we just generated rather than authored, so a
+        // change to the grass or sand generator cannot leave the far field
+        // dissolving toward a colour the near field no longer has.
+        const mean = meta.meanLinear;
+        u.uGroundMeanColor.value.set(mean[0], mean[1], mean[2]);
         // Dry earth pushes toward the bible's warm bounce; damp earth toward
         // SHADOW_TINT. Both as unit chroma, so the ground gains the teal-amber
         // spread §2.1 asks for without any change to its luminance band.

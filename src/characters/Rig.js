@@ -41,6 +41,19 @@
 import * as THREE from 'three';
 import { FACE_LAYOUT } from './FaceTexture.js';
 
+/**
+ * Layer bit every character surface — body, cape, outline hull, contact decal —
+ * is enabled on in addition to layer 0.
+ *
+ * It lives here rather than in `CharacterFactory` only because `Cloth` needs it
+ * too and must not import the factory that constructs it. Its purpose is the
+ * factory's: it lets a scene name the whole cast in one call, which is what a
+ * depth-aware volumetric composite or a cast pass drawn *after* the mist needs
+ * in order to exist. Enabling an extra bit changes nothing for a renderer that
+ * does not look for it.
+ */
+export const CAST_LAYER = 3;
+
 /** The contractual core skeleton, in the order used for `skinIndex`. */
 export const BONE_NAMES = Object.freeze([
   'root',
@@ -117,6 +130,7 @@ const F = Object.freeze({
 const FALLBACK_PROPORTIONS = Object.freeze({
   height: 1.16, headScale: 1, legLength: 1, shoulder: 1, chest: 1, hip: 1,
   limb: 1, arm: 1, hand: 1, foot: 1, eye: 1, eyeSpacing: 1, browAngle: 0,
+  stance: 1,
 });
 
 const v3 = (x, y, z) => ({ x, y, z });
@@ -244,6 +258,18 @@ export function computeMetrics(def = {}) {
   const wristY = elbowY - fore * cy;
 
   const thighX = H * F.thighX * p.hip;
+  /**
+   * Stance width, applied below the hip only.
+   *
+   * The hip sockets stay where the pelvis puts them and the knee and ankle
+   * swing outward, so a wide stance is a *bowed* leg rather than a translated
+   * one — which is the difference between Bramm reading as "a keg on bowed
+   * legs" and reading as the same tube pair everyone else has, moved apart.
+   * REFERENCE §1 gives the silhouette no facial or costume detail to work with
+   * at eighty pixels, and the gap between two legs is one of the few interior
+   * shapes that survives; six identical gaps is six identical figures.
+   */
+  const stance = p.stance ?? 1;
 
   /** Bind-pose world positions of the core skeleton. */
   const joints = {
@@ -265,12 +291,12 @@ export function computeMetrics(def = {}) {
     handR: v3(-wristX, wristY, 0),
 
     thighL: v3(thighX, hipY - H * 0.012, 0),
-    shinL: v3(thighX * 1.04, kneeY, 0),
-    footL: v3(thighX * 1.08, ankleY, 0),
+    shinL: v3(thighX * 1.04 * stance, kneeY, 0),
+    footL: v3(thighX * 1.08 * stance, ankleY, 0),
 
     thighR: v3(-thighX, hipY - H * 0.012, 0),
-    shinR: v3(-thighX * 1.04, kneeY, 0),
-    footR: v3(-thighX * 1.08, ankleY, 0),
+    shinR: v3(-thighX * 1.04 * stance, kneeY, 0),
+    footR: v3(-thighX * 1.08 * stance, ankleY, 0),
   };
 
   const limb = p.limb;

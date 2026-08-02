@@ -29,7 +29,11 @@
  *  3. **Indirect** is held, not applied, for the same reason as (1). The probe
  *     reaches dielectrics as irradiance only — never as a reflection-vector
  *     lookup, which is the sliding mirror hotspot that reads as PBR — and metal
- *     as a plate-quantised reflection.
+ *     as a plate-quantised reflection. On a character class the whole indirect
+ *     chain is additionally evaluated at **zero directional order**
+ *     (`TOON_FLAT_AMBIENT`), so it contributes light without contributing a
+ *     gradient; see the comment on `RE_IndirectDiffuse_Toon` for why that is
+ *     what makes the terminator an edge rather than a kink.
  *  4. **Composite**: two albedos (lit, and the hue-shifted shadow one), selected
  *     by the band; the face-flattening floor; a flat shadow fill; the mandatory
  *     rim; the battle-feedback pulse.
@@ -177,15 +181,68 @@ void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryP
 
 }
 
+/**
+ * The indirect chain, evaluated at **zero directional order** on a character.
+ *
+ * ANIME_PIPELINE §2's terminator is a hard edge only if it is the *only* thing
+ * on the surface that varies. It was not. Every character fragment was summing
+ * the banded key with three continuous, normal-dependent terms, each of the same
+ * order as the step the band is supposed to draw:
+ *
+ *  - the hemisphere fill, which is 'mix( ground, sky, 0.5 · N·up + 0.5 )' —
+ *    a smooth top-to-bottom ramp across every surface, by construction;
+ *  - the environment probe's irradiance, a smooth SH/mip-1 lookup on the same
+ *    shading normal;
+ *  - the environment fresnel's 'pow( 1 - N·V, 5 )' grazing ramp.
+ *
+ * On a small convex form the band still wins. On the largest smooth mass the
+ * cast owns — a shoulder pauldron in a close-up — those ramps *are* the image,
+ * and the review read exactly that: "a smooth continuous gradient from pale to
+ * mid", i.e. the PBR falloff ANIME_PIPELINE was written to remove, with a faint
+ * kink in it where the terminator is.
+ *
+ * The fix is not to turn the ambient down — that darkens the cast, which the
+ * same review already calls the darkest thing in frame — but to strip the
+ * *direction* out of it and keep the energy. Reconstructing the irradiance from
+ * the light uniforms at band 0 is exactly that: the hemisphere's average of sky
+ * and ground, the probe's constant SH term, and the ambient light, which is flat
+ * already. Same total light, no gradient. After this the only spatial variation
+ * left on a character's diffuse is the band itself, so the terminator is an edge
+ * by construction rather than by tuning — which is the property the review asks
+ * to verify by eye on the pauldron.
+ *
+ * Compiled only for the classes that describe a character surface ('flat' in the
+ * preset table). Props, terrain and monsters keep three's per-normal indirect.
+ */
 void RE_IndirectDiffuse_Toon( const in vec3 irradiance, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
 
-  // Ambient, light probes and the hemisphere fill — whose sky colour Lighting
-  // has already forced inside ART_BIBLE §2.1's hue window. Held rather than
-  // applied, because the albedo it multiplies is not decided until the composite.
-  // 'uToonAmbientGain' exists because ambient is the one term in the model that
-  // is a smooth gradient by nature: too much of it and it washes across the
-  // terminator and puts the soft falloff back.
-  awToonAmbient += irradiance * RECIPROCAL_PI * uToonAmbientGain;
+  // Held rather than applied, because the albedo it multiplies is not decided
+  // until the composite. 'uToonAmbientGain' scales it because ambient is the one
+  // term with no band in it at all: too much and it lifts the shadow mass until
+  // the terminator has no value break left to show.
+  #ifdef TOON_FLAT_AMBIENT
+
+    vec3 awFlat = getAmbientLightIrradiance( ambientLightColor );
+
+    #if defined( USE_LIGHT_PROBES )
+      // Band 0 of 'shGetIrradianceAt': the probe's directional average, which is
+      // the whole of it that survives flattening.
+      awFlat += lightProbe[ 0 ] * 0.886227;
+    #endif
+
+    #if NUM_HEMI_LIGHTS > 0
+      for ( int i = 0; i < NUM_HEMI_LIGHTS; i ++ ) {
+        awFlat += mix( hemisphereLights[ i ].groundColor, hemisphereLights[ i ].skyColor, 0.5 );
+      }
+    #endif
+
+    awToonAmbient += awFlat * RECIPROCAL_PI * uToonAmbientGain;
+
+  #else
+
+    awToonAmbient += irradiance * RECIPROCAL_PI * uToonAmbientGain;
+
+  #endif
 
 }
 
@@ -197,17 +254,43 @@ void RE_IndirectSpecular_Toon( const in vec3 radiance, const in vec3 irradiance,
   // costs a few percent of brightness on a rough dielectric and buys not having
   // a GGX split-sum evaluation on a material that has no GGX lobe left to
   // conserve energy against.
-  awToonAmbient += irradiance * RECIPROCAL_PI * uToonAmbientGain;
+  //
+  // Flattened on a character for the reason given above 'RE_IndirectDiffuse_Toon'.
+  // 'getIBLIrradiance' is a mip-1 cube lookup rather than an SH evaluation, so
+  // there is no band-0 term to isolate; the two antipodal samples along world up
+  // are its directional average to the accuracy the lookup itself has, and they
+  // are constant over the surface, which is the property that matters here.
+  vec3 awProbe = irradiance;
 
-  float dotNV = saturate( dot( geometryNormal, geometryViewDir ) );
-  vec3 F = material.specularColorBlended
-    + ( vec3( material.specularF90 ) - material.specularColorBlended ) * pow( 1.0 - dotNV, 5.0 );
+  #if defined( TOON_FLAT_AMBIENT ) && defined( USE_ENVMAP )
+    vec3 awUpView = ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz;
+    awProbe = 0.5 * ( getIBLIrradiance( awUpView ) + getIBLIrradiance( - awUpView ) );
+  #endif
+
+  awToonAmbient += awProbe * RECIPROCAL_PI * uToonAmbientGain;
+
+  // The grazing fresnel is the third smooth ramp, and on a character it is also
+  // a *silhouette-brightening* one — it peaks exactly where the ink line has to
+  // win. Characters therefore take the environment at normal incidence, which is
+  // a constant: cel-painted armour reflects its world as a flat plate value, not
+  // as a rolled edge. Props keep the real Schlick term.
+  #ifdef TOON_FLAT_AMBIENT
+
+    vec3 F = material.specularColorBlended;
+
+  #else
+
+    float dotNV = saturate( dot( geometryNormal, geometryViewDir ) );
+    vec3 F = material.specularColorBlended
+      + ( vec3( material.specularF90 ) - material.specularColorBlended ) * pow( 1.0 - dotNV, 5.0 );
+
+  #endif
 
   // Dielectric: irradiance only. It is evaluated from the shading normal, so it
   // varies smoothly across the surface and cannot form the sliding mirror
   // hotspot a reflection-vector lookup does — the exact defect this replacement
   // exists to remove. Metal: the real reflection, stepped into plates.
-  vec3 env = mix( irradiance * RECIPROCAL_PI, awToonPlate( radiance ), material.metalness );
+  vec3 env = mix( awProbe * RECIPROCAL_PI, awToonPlate( radiance ), material.metalness );
 
   reflectedLight.indirectSpecular += env * F * uToonEnvSpecular;
 

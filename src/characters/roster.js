@@ -96,7 +96,41 @@ const BASE_PROPORTIONS = Object.freeze({
   browAngle: 0.0,   // radians; positive raises the inner end (gentle)
   eyeShape: 'almond', // 'narrow' | 'sharp' | 'almond' | 'round'
   brow: 'level',      // 'hard' | 'level' | 'gentle'
+  stance: 1.0,        // knee/ankle spread; the hip socket does not move
 });
+
+/**
+ * Body-mass silhouette block, consumed by `CharacterFactory.silhouetteOf`.
+ *
+ * REFERENCE_TARGET §1 makes a distinct black shape at 80 px a hard requirement,
+ * and the review found the party failing it on the body: "all six share an
+ * identical box torso, straight untapered tube legs and the same egg head; only
+ * character 5's long pale hair and character 6's spikes read as distinct
+ * shapes. Costume colour, by contrast, does separate them — colour is currently
+ * doing all the identification work that silhouette should share."
+ *
+ * That was literally true. Everything the roster could say about a body was a
+ * scalar girth multiplier — `chest`, `hip`, `limb` — and a scalar changes a
+ * figure's *area* while leaving its outline the same rectangle. These four
+ * numbers change the outline instead:
+ *
+ *   `hip` / `waist` / `chest`  signed push on three bumps along the trunk, so
+ *                              barrel, hourglass, bell and column are different
+ *                              shapes rather than different sizes.
+ *   `limbTaper`                0 keeps the old near-cylinder; 1 is the full
+ *                              chibi taper, just over 2:1 from thigh to ankle.
+ *
+ * The six below are deliberately spread across the available shape space: no
+ * two share a sign pattern, and the two most at risk of colliding (Auren and
+ * Kite, both "a vertical line" in costume terms) are given opposite waists.
+ */
+const BASE_SILHOUETTE = Object.freeze({
+  hip: 0, waist: 0, chest: 0, limbTaper: 1,
+});
+
+function silhouette(overrides) {
+  return Object.freeze({ ...BASE_SILHOUETTE, ...overrides });
+}
 
 function proportions(overrides) {
   return Object.freeze({ ...BASE_PROPORTIONS, ...overrides });
@@ -113,8 +147,13 @@ export const ROSTER = Object.freeze([
 
     proportions: proportions({
       height: 1.19, shoulder: 1.07, chest: 1.04, legLength: 1.02,
-      eye: 0.96, browAngle: -0.10, eyeShape: 'sharp', brow: 'hard',
+      eye: 0.96, browAngle: -0.10, eyeShape: 'sharp', brow: 'hard', stance: 1.06,
     }),
+
+    // Square-shouldered wedge: chest out, waist and pelvis held in. The only
+    // party member whose trunk widens upward, which is what a soldier's coat
+    // reads as and the exact inverse of Emrys's bell.
+    silhouette: silhouette({ chest: 0.11, waist: -0.05, hip: -0.02 }),
 
     // **Cobalt and bone.** The party's only blue, and it is a *bright* one:
     // the failed cast's slate #3D4A5C sat at linear luminance 0.06, which is
@@ -201,7 +240,15 @@ export const ROSTER = Object.freeze([
       height: 1.06, headScale: 1.00, shoulder: 0.87, chest: 0.92, hip: 0.96,
       limb: 0.90, foot: 0.78,
       eye: 1.12, eyeSpacing: 1.03, browAngle: 0.14, eyeShape: 'round', brow: 'gentle',
+      // Feet together under a floor-length robe: a closed base is half of what
+      // makes a standing oracle read as a candle flame rather than as a figure.
+      stance: 0.78,
     }),
+
+    // A narrow column that flares at the hem — the robe does the widening, not
+    // the body. Her legs keep a softer taper because they are bare and the
+    // hemline is where her outline actually changes.
+    silhouette: silhouette({ chest: -0.07, waist: -0.01, hip: 0.13, limbTaper: 0.75 }),
 
     // **Ivory.** Her separation is by *value* rather than hue: she is the only
     // near-white costume in the party and the brightest thing on the stage that
@@ -283,7 +330,15 @@ export const ROSTER = Object.freeze([
       height: 1.13, headScale: 0.95, legLength: 0.84, shoulder: 1.26, chest: 1.34,
       hip: 1.28, limb: 1.26, arm: 0.94, hand: 1.18, foot: 1.20,
       eye: 0.84, browAngle: -0.26, eyeShape: 'narrow', brow: 'hard',
+      // "bowed legs", made literal: the hips stay put and the ankles swing wide,
+      // so the gap between his legs is a shape nobody else in the party has.
+      stance: 1.34,
     }),
+
+    // The keg. The only trunk whose *waist* is its widest ring — everyone else
+    // pinches there — so his outline is a barrel rather than a figure, which is
+    // the strongest single silhouette in the party and costs one number.
+    silhouette: silhouette({ chest: 0.12, waist: 0.21, hip: 0.15, limbTaper: 1.15 }),
 
     // **Ochre and oxblood.** A forge apron in hot brass over iron work clothes:
     // the warmest large mass in the party and the only ochre, which is what
@@ -361,8 +416,14 @@ export const ROSTER = Object.freeze([
     proportions: proportions({
       height: 1.15, headScale: 0.98, legLength: 1.08, shoulder: 0.97, chest: 0.95,
       hip: 1.0, limb: 0.93, arm: 1.05, foot: 1.06,
-      eye: 1.0, browAngle: -0.16, eyeShape: 'sharp', brow: 'hard',
+      eye: 1.0, browAngle: -0.16, eyeShape: 'sharp', brow: 'hard', stance: 1.14,
     }),
+
+    // Hourglass, cut hard at the waist: the deepest pinch in the party against
+    // a flared belt line. Auren is the figure she is most likely to collide
+    // with as a black shape, and his waist is held straight — so the two
+    // separate on the one contour they share.
+    silhouette: silhouette({ chest: 0.01, waist: -0.14, hip: 0.08, limbTaper: 1.1 }),
 
     // **Scarlet.** The sister's sash was the only red in the party and it was
     // four pixels wide; promoting it to the whole coat gives the fastest
@@ -447,7 +508,13 @@ export const ROSTER = Object.freeze([
       height: 1.00, headScale: 1.00, legLength: 0.94, shoulder: 0.83, chest: 0.88,
       hip: 0.90, limb: 0.85, arm: 0.92, hand: 0.92, foot: 0.94,
       eye: 1.16, eyeSpacing: 1.05, browAngle: 0.06, eyeShape: 'round', brow: 'gentle',
+      stance: 0.86,
     }),
+
+    // A bell with a child on top: narrow at the shoulders, widening all the way
+    // to the hem. The coat is an adult's and does not fit, and that is a *body*
+    // outline decision as much as a costume one.
+    silhouette: silhouette({ chest: -0.11, waist: 0.05, hip: 0.19, limbTaper: 0.9 }),
 
     // **Violet with an ember lining.** The coat is an adult's and swamps him,
     // so it is nearly his whole silhouette — which makes it the one costume in
@@ -525,8 +592,16 @@ export const ROSTER = Object.freeze([
     proportions: proportions({
       height: 1.26, headScale: 0.96, legLength: 1.10, shoulder: 1.02, chest: 0.98,
       hip: 0.98, limb: 0.94, arm: 1.08, foot: 1.02,
-      eye: 0.98, browAngle: 0.0, eyeShape: 'almond', brow: 'level',
+      eye: 0.98, browAngle: 0.0, eyeShape: 'almond', brow: 'level', stance: 0.94,
     }),
+
+    // A long lean column with almost no shaping at all — the tallest frame in
+    // the party reading as a single vertical, which is what a dragoon standing
+    // beside a spear should be. Deliberately the *flattest* silhouette block in
+    // the roster: with five shaped trunks around her, "unshaped" is itself a
+    // distinguishable shape, and her legs carry the hardest taper because they
+    // are bare below a short mantle and are most of her outline.
+    silhouette: silhouette({ chest: -0.05, waist: -0.03, hip: -0.05, limbTaper: 1.2 }),
 
     // **Jade and bone.** The party's only green and the only cool costume that
     // is not blue, sitting a clean 70° off Auren on the wheel. Bone trim on a
@@ -566,14 +641,24 @@ export const ROSTER = Object.freeze([
       boneCount: 5, boneStiffness: 0.5,
     }),
 
-    // "a spear standing in a cloak" — carried across the shoulders like a yoke,
-    // which puts a long horizontal bar through her silhouette. Nobody else in
-    // the party has a horizontal, so this alone identifies her.
+    // "a spear standing in a cloak", raked across the body on a hard diagonal.
+    //
+    // `tilt` is a rotation about **X**, so the old 1.42 rad laid the shaft along
+    // +Z — straight down the barrel of the fixed side-view camera, where a 1.3 m
+    // lance foreshortens to a stub and the one horizontal in the party
+    // disappears. `roll` is the rotation about Z, which is the axis that swings
+    // the shaft across the frame, so the diagonal has to be authored there.
+    //
+    // 0.45 rad rather than a full 90°: a truly horizontal yoke spans ±0.65 m,
+    // and the staged party sits 0.49 m apart, so a horizontal lance drives its
+    // blade through a neighbour's head. A 26° rake holds the lateral span inside
+    // ±0.29 m — comfortably within the gap — while still cutting a diagonal
+    // through her whole silhouette, and nobody else in the party owns one.
     weapon: Object.freeze({
       kind: 'lance', mount: 'handR',
       length: 1.05, width: 0.030, thickness: 0.030,
       headLength: 0.24, headWidth: 0.085, ribs: 5,
-      tilt: 1.42, roll: 0.0,
+      tilt: 0.20, roll: 0.45,
       emissive: 0.30,
     }),
 
@@ -588,7 +673,11 @@ export const ROSTER = Object.freeze([
       length: 0.28, width: 0.44, split: 0.0, asymmetry: 0.0,
       hem: 'round',
       stiffness: 0.30, mass: 0.95, drag: 0.070, boneCount: 3,
-      feathers: 11, featherLength: 0.20,
+      // Six broad plates, not eleven quills. `buildAccessories` halves this
+      // count and more than doubles the width, because silhouette value at 80 px
+      // is carried by mass and a row of thin blades reads as cutlery — see the
+      // rebuild note there.
+      feathers: 11, featherLength: 0.22,
     }),
 
     accessories: Object.freeze({ pauldron: null, collar: 'feather', tattoo: true, beltRing: true }),

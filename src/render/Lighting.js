@@ -65,20 +65,38 @@
  * cancels exactly the integration the mist and DOF are buying. It is the single
  * defect a reviewer named first.
  *
- * The rim is therefore rebuilt as light rather than as ink, in two halves that
- * have to agree:
+ * The rim is therefore rebuilt as light rather than as ink, in three parts that
+ * have to agree. The direction, colour and intensity were always the rig's to
+ * own; the shape has to be too, or the parts disagree and one wins by accident.
  *
- *  - the rig publishes a rim whose peak *luminance* — not peak channel — lands
- *    just under the bloom threshold, so `RING_GLOW`'s teal survives instead of
- *    clipping to white, and
- *  - the rig publishes the rim's **shape** to the materials that consume it
- *    (`_applyRimContract`): the directional term is floored at zero, so the rim
- *    dies on the key-facing side and its width varies along the form, which is
- *    what a back light does and what the reference frames show.
+ *  - **Shape.** The rig publishes the rim's falloff to the materials that
+ *    consume it (`_applyRimContract`): the directional term is floored at zero
+ *    and both windows are narrow, so the rim dies across the whole key-facing
+ *    side, its width varies along the form, and its edges are crisp enough to
+ *    read as a drawn shape instead of a soft glow. That is what a back light
+ *    does and what the reference frames show. Its direction is the anti-key, so
+ *    the mask the materials evaluate is `saturate(N · -L_key)` in all but name.
  *
- * The rim direction, colour and intensity were always the rig's to own; the
- * shape has to be, too, or the two halves disagree and one of them wins by
- * accident.
+ *  - **Colour.** The character rim is split from the analytic rim light and is
+ *    warm amber. `this.rim` is a *scene* light and stays on `RING_GLOW` — the
+ *    ring is where the back light physically comes from, and REFERENCE_TARGET
+ *    section 4 wants the environment's cool cast — but separation is a contrast
+ *    job, and `_conformAtmosphere` deliberately pins the haze to the cool end of
+ *    the palette. A teal rim on a teal mist band carries no hue contrast at all.
+ *    The review measured exactly that consequence: cast and mist within a few
+ *    points of one another, no directional separation anywhere in frame, while
+ *    the rig was nominally spending its entire rim budget on producing it. Amber
+ *    is the palette's named counter-accent to teal, so on the one surface class
+ *    that has to cut through the mist the rim finally does its job.
+ *
+ *  - **Radiance.** The rim is solved against the background it separates from
+ *    rather than against a constant. In an atmospheric frame the fog *is* the
+ *    value the cast reads against, so the target is a fixed contrast ratio over
+ *    the conformed fog luminance, clamped under section 6's bloom threshold so
+ *    the edge blooms softly instead of clipping. A constant target is how the
+ *    rim ended up dimmer than the mist it was supposed to cut through. The solve
+ *    also has to know what gain the materials it lights actually carry, which it
+ *    measures rather than assumes; see `_rimGainPeak`.
  *
  * **Cascades.** Shadow texel density is what makes a 1.2 m chibi read as a solid
  * object rather than a smudge, and a single ortho frustum stretched over a 120 m
@@ -213,48 +231,73 @@ const RIM_AZIMUTH_DEG = 180;
  * separating. The floor is not zero because a perfectly horizontal rim carries
  * no vertical information at all and reads as a flat sticker edge; the ceiling
  * keeps a high noon rim from becoming a second key and flattening the form.
+ *
+ * The coupling to the key is *negative*, and that is the correction. The rim's
+ * assigned mask is `saturate(N · -L_key)`, so the honest direction for it is the
+ * anti-key — whose elevation is the key's, negated. A rim genuinely below the
+ * horizon is a horror key and cannot be used literally, but the sign of the
+ * relationship survives the clamp: a high sun puts its back light *low*, and
+ * tracking that keeps the published rim direction as close to `-L_key` as a
+ * usable light can get. The previous positive coupling did the reverse, and at
+ * noon it aimed the rim 32 degrees up — the one place where "opposite the key"
+ * and "where the rim actually points" disagreed most.
  */
 const RIM_ELEVATION_MIN_DEG = 7;
 const RIM_ELEVATION_MAX_DEG = 32;
-const RIM_ELEVATION_FROM_KEY = 0.28;
-const RIM_ELEVATION_BASE_DEG = 10;
+const RIM_ELEVATION_FROM_KEY = -0.14;
+const RIM_ELEVATION_BASE_DEG = 18;
 
 /** ART_BIBLE section 5.6 sizes rims at 0.8 (`RING_GLOW`) to 1.2 (key-coloured).
  *  This is the *analytic* light, i.e. what the environment gets; the character
- *  rim is solved separately against `RIM_HDR_PEAK` below, so this can be tuned
- *  for grass and stone without dimming the one edge holding the party off the
- *  background. Kept in the lower half of the band because section 5.1 wants a
- *  backlit foreground occluder reading *under* the subject, not competing. */
+ *  rim is solved separately against the haze (`_solveCharacterRim`), so this can
+ *  be tuned for grass and stone without dimming the one edge holding the party
+ *  off the background. Kept in the lower half of the band because section 5.1
+ *  wants a backlit foreground occluder reading *under* the subject, not
+ *  competing. */
 const RIM_INTENSITY_NIGHT = 0.80;
 const RIM_INTENSITY_DAY = 0.95;
 
 /**
- * Pre-tonemap **luminance** the hottest sliver of the toon rim is solved to.
+ * The character rim's radiance target, expressed against the haze rather than
+ * as a constant.
  *
- * Luminance, not peak channel, and that is the whole correction. Normalising
- * the peak *channel* to a value past 1.0 — what this constant used to do at
- * 1.25 — drives `RING_GLOW`'s green to 1.25 and its red to 0.31, and once bloom
- * and ACES have had that, the edge is white. Every rim in every frame was
- * therefore the same colourless line, which is both why the review read it as
- * an outline pass and why it complained there is almost no teal on screen while
- * the rig was nominally spending its whole rim budget on teal.
+ * Solving for **luminance** rather than for peak channel is one half of the
+ * correction and it is not new: normalising the peak *channel* past 1.0 drives
+ * one primary to the target and leaves the other two near zero, which is a white
+ * line with a colourful name, and it is why every rim in every frame used to
+ * read as an outline pass.
  *
- * Solving for luminance instead keeps the rim's chromaticity intact and lands
- * `RING_GLOW`'s dominant channel at ~0.96 — bright enough to separate a
- * character from fog of a similar value, just under section 6's bloom threshold
- * of 1.0, so only genuine speculars and magic bloom. A directional rim is a
- * narrow sliver rather than a full silhouette wrap, so it no longer needs to be
- * pushed past the threshold to be seen; section 2.3's "~10% of pixels above
- * 0.75" is paid by the sky, the sun disc and spell cores, which is where that
- * budget was always meant to come from.
+ * The other half is what the target is measured against. It used to be a fixed
+ * 0.80 pre-tonemap luminance, chosen once and then left to fend for itself while
+ * `_conformAtmosphere` was independently deciding how bright the mist is. Those
+ * two numbers have to be related or the rim has no defined contrast: the review
+ * measured the party at L 80 against a mist band at L 149 and correctly reported
+ * that nothing separates the cast from the background, which is what happens
+ * when the separation device is *dimmer than what it separates from*.
+ *
+ * So the target is a ratio over the haze the characters are standing in.
+ * `RIM_OVER_HAZE` is a value-contrast step of just under a stop and a half —
+ * enough that the edge reads instantly at the 80 px the battle camera gives a
+ * chibi, and, combined with the amber-against-teal hue contrast, more than
+ * enough at a glance. The floor keeps a rim on a night frame where the haze goes
+ * nearly black (the rim is mandatory, not adaptive exposure); the ceiling sits
+ * just under section 6's bloom threshold of 1.0 so the hottest sliver rides the
+ * soft knee and glows rather than clipping to white — which is the failure the
+ * whole rebuild is about.
+ *
+ * Section 2.3's "~10% of pixels above 0.75" is not paid from here. A directional
+ * rim is a narrow sliver; that budget is the sky, the sun disc and spell cores,
+ * which is where it was always meant to come from.
  */
-const RIM_PEAK_LUMA = 0.80;
+const RIM_OVER_HAZE = 2.6;
+const RIM_PEAK_LUMA_MIN = 0.55;
+const RIM_PEAK_LUMA_MAX = 0.92;
 
 /**
  * The rim's *shape*, published to every toon material the rig lights.
  *
- * `render/ToonMaterial.js` evaluates
- * `smoothstep(shape, pow(1 - N·V, power) * mix(floor, 1, smoothstep(focus, N·L_rim)))`,
+ * `render/shaders/toonCommon.js` evaluates
+ * `smoothstep(shape, pow(1 - N·V, power)) * mix(floor, 1, smoothstep(focus, N·L_rim))`,
  * and ships per-preset floors between 0.20 and 0.40. A non-zero floor is what
  * turns the term from a rim into a halo: it guarantees a fresnel band on every
  * silhouette edge in the frame regardless of where the light is, including the
@@ -264,35 +307,64 @@ const RIM_PEAK_LUMA = 0.80;
  * The contract below is the assigned formula — `pow(1 - saturate(N·V), 3) *
  * saturate(N·L_rim)` — expressed in this material's parameterisation:
  *
- *  - `floor: 0` so the rim reaches zero across the whole key-facing side.
- *  - `focus` opens slightly *below* zero rather than at it, because a surface
- *    exactly perpendicular to the rim is the middle of the band, not its end;
- *    starting at 0 would terminate the rim in a hard edge halfway round a
- *    cylinder. Closing at 0.45 saturates the band before the fresnel has died,
- *    so the two terms are not fighting each other at the peak.
- *  - `shape` keeps a narrow window on the product, which is not redundant with
- *    the `pow`: `pow` alone leaves a long low tail that greys the facing side.
+ *  - `floor: 0` so the rim reaches zero across the whole key-facing side. This
+ *    is the term that makes the mask `saturate(N · L_rim)` rather than a halo.
+ *  - `focus` opens at zero, which is where `saturate` opens, so the rim covers
+ *    exactly the hemisphere the rim light can reach and nothing else. It closes
+ *    early, at 0.30, so the mask is effectively a threshold: the band is at full
+ *    strength across the back-lit contour and absent elsewhere, with the
+ *    transition short enough to read as an edge. An earlier revision opened it
+ *    below zero to avoid terminating the rim "halfway round a cylinder"; that is
+ *    a real effect and it is also the definition of a back light, and softening
+ *    it is what turned the rim into the omnidirectional wash the review could
+ *    not attribute to any light direction.
+ *  - `shape` is a narrow window on the fresnel, not redundant with the `pow`:
+ *    `pow` alone leaves a long low tail that greys the facing side, and a *wide*
+ *    window turns the band's own edge into a gradient. Narrow and centred on the
+ *    profile's midpoint gives a hard-edged sliver — a drawn shape, per the note,
+ *    rather than a soft glow.
  *  - `minPower` meets the specified exponent of 3. It is a floor rather than an
  *    assignment so a preset that deliberately wants a *tighter* rim (glass, wet
  *    metal) keeps it; nothing is allowed to want a broader one.
  *
  * `rimGain` is deliberately not touched — it is the per-character variation the
- * roster tunes, and it scales brightness, not width.
+ * roster tunes, and it scales brightness, not width. The rig measures it instead
+ * (`_rimGainPeak`) so the radiance solve stays true to what is on screen.
  */
 const RIM_CONTRACT = Object.freeze({
   floor: 0.0,
-  focusIn: -0.18,
-  focusOut: 0.45,
-  shapeIn: 0.06,
-  shapeOut: 0.55,
+  focusIn: 0.0,
+  focusOut: 0.30,
+  shapeIn: 0.26,
+  shapeOut: 0.44,
   minPower: 3.0,
 });
 
-/** The rim gain the toon presets cluster around (`ToonMaterial` ships 1.2–2.6,
- *  with every hero preset between 1.5 and 2.2). The solve below cannot see a
- *  material's own gain, so it normalises against this nominal value and the
- *  spread across presets survives as intended per-character variation. */
-const NOMINAL_TOON_RIM_GAIN = 1.7;
+/**
+ * The toon surface classes the character rim's radiance is solved for, and the
+ * gain assumed until the first scene scan has measured one.
+ *
+ * The rig cannot publish a per-material strength — `uRimStrength` is one shared
+ * uniform, which is the whole reason it is cheap — so the solve has to pick a
+ * reference gain, and it used to hard-code a nominal 1.7 copied out of
+ * `ToonMaterial`. Copied constants across a module boundary do not stay true:
+ * that table has since been retuned to 0.60–0.90 for every character class, and
+ * the stale 1.7 silently scaled the entire cast's rim to roughly 40% of its
+ * target. A rim solved to sit under the mist is not a rim, and it is precisely
+ * the "no genuine rim light" the review reported.
+ *
+ * So the rig measures instead, on the scan it is already running, and normalises
+ * against the *largest* gain among the character classes. Max rather than mean is
+ * the semantics the solve wants: the target is where the hottest sliver in the
+ * frame lands, so every other class comes out as its own documented fraction of
+ * it and nothing can exceed it. Classes outside this set — `crystal`, `eye`,
+ * glass — deliberately ride their own `rimCeiling` instead; they are props and
+ * accents, and letting a glowing crystal set the cast's exposure is backwards.
+ */
+const RIM_SOLVE_CLASSES = Object.freeze(new Set([
+  'skin', 'hair', 'cloth', 'leather', 'metal', 'generic',
+]));
+const RIM_GAIN_FALLBACK = 0.9;
 
 /** Bounds on the solved rim strength. The floor stops a bright noon rim from
  *  being solved away to nothing (the rim is mandatory, not adaptive exposure);
@@ -303,8 +375,23 @@ const RIM_STRENGTH_MAX = 2.9;
 
 /** How far the rim's chroma is allowed to drift from `RING_GLOW` toward the key
  *  in full daylight. A dusk rim wants a trace of the sun's amber in it; letting
- *  it go further than this loses the cool separation the palette depends on. */
+ *  it go further than this loses the cool separation the palette depends on.
+ *  This is the *analytic* rim — the one lighting grass and stone. The character
+ *  rim has its own anchor; see `CHAR_RIM_GAMUT`. */
 const RIM_KEY_TINT = 0.2;
+
+/**
+ * The character rim's warm anchor, and how much of the key is folded into it.
+ *
+ * `SURFACE_TINT.PRACTICAL` is the palette's warm practical source — the one warm
+ * light ART_BIBLE section 3 allows on a night frame — and it sits almost exactly
+ * opposite `FOG_NEAR` through the neutral point, which is the property being
+ * bought here. A trace of `KEY_SUN` is mixed in so the rim reads as light with a
+ * source in the scene rather than as a decal; both anchors are warm, so unlike
+ * the teal-to-amber mixes elsewhere in this file the segment between them never
+ * passes near neutral and the blend cannot go grey at any weight.
+ */
+const CHAR_RIM_KEY_MIX = 0.35;
 
 /**
  * ART_BIBLE section 2.1's shadow rule has two clauses, and at some times of day
@@ -430,6 +517,20 @@ const FOG_CHROMA_RANGE = 0.100;
 const KEY_CHROMA_CEILING = 0.24;
 const RING_CHROMA_CEILING = 0.26;
 const ENV_CHROMA_CEILING = 0.125;
+
+/**
+ * The character rim's ceiling, and the only one in this file that is deliberately
+ * the *highest* of the set.
+ *
+ * The ordering is the brief's, stated as numbers: environment 0.125 < key 0.24 <
+ * character rim 0.28 < magic, which alone is unbounded (section 2.2).
+ * REFERENCE_TARGET section 3 requires environment saturation to sit below
+ * character saturation, and the review's blind comparison put the failure in
+ * exactly those terms — the cast measured *less* saturated than the pine trees
+ * behind it. The rim is the rig's only lever on character chroma, so it is the
+ * one term allowed above the key.
+ */
+const CHAR_RIM_CHROMA_CEILING = 0.28;
 
 /**
  * How far the conformed fog is pulled toward `FOG_NEAR` after projection.
@@ -700,6 +801,14 @@ const KEY_GAMUT_COOL = gamutFromHex([0xffffff, LIGHT.RING_GLOW, 0xa8c8e8], RING_
  *  somewhere on that cool-to-warm axis instead of off it in the magenta wedge. */
 const FOG_GAMUT = gamutFromHex([0xffffff, LIGHT.FOG_NEAR, LIGHT.FOG_FAR], ENV_CHROMA_CEILING);
 
+/** The character rim's gamut: neutral out to the warm practical and the sun. The
+ *  anchor is built from those two colours, so the projection is inert on hue and
+ *  the gamut is here for its ceiling — which is what stops a warm rim from
+ *  drifting into the pure chroma section 2.2 reserves for elemental magic. */
+const CHAR_RIM_GAMUT = gamutFromHex(
+  [0xffffff, SURFACE_TINT.PRACTICAL, LIGHT.KEY_SUN], CHAR_RIM_CHROMA_CEILING,
+);
+
 /** Whichever key gamut the incoming colour is already closer to. Safe to share
  *  the module scratch with `conformChroma`: the pick completes before the
  *  projection starts and neither holds a reference past its own call. */
@@ -894,9 +1003,15 @@ export class Lighting {
     this._shadowTint = new THREE.Color(LIGHT.SHADOW_TINT);
     this._bounce = new THREE.Color(LIGHT.BOUNCE_GROUND);
     this._ringGlow = new THREE.Color(LIGHT.RING_GLOW);
+    this._charRimAnchor = new THREE.Color(SURFACE_TINT.PRACTICAL);
+    this._keySun = new THREE.Color(LIGHT.KEY_SUN);
     this._fogNear = new THREE.Color(LIGHT.FOG_NEAR);
     this._fogScratch = new THREE.Color();
     this._hsl = { h: 0, s: 0, l: 0 };
+    /** Largest `uToonRimGain` seen on a character surface in the active scene.
+     *  Measured by `refreshMaterials`; see `RIM_SOLVE_CLASSES` for why the rig
+     *  measures this rather than assuming it. */
+    this._rimGainPeak = RIM_GAIN_FALLBACK;
     /** Smoothed "is this a sunlit frame" term, written by `_sampleTarget` and
      *  read by the atmosphere conform. 1 until the first sample lands. */
     this._dayness = 1;
@@ -934,6 +1049,10 @@ export class Lighting {
       fillIntensity: 0.55,
       rimDir: new THREE.Vector3(-0.5, 0.5, -0.7).normalize(),
       rimColor: new THREE.Color(LIGHT.RING_GLOW),
+      // The rim the *characters* get. Warm where `rimColor` is cool, and eased
+      // separately so a time-of-day scrub cannot momentarily land the two on the
+      // same hue mid-transition.
+      charRimColor: new THREE.Color(SURFACE_TINT.PRACTICAL),
       rimIntensity: RIM_INTENSITY_DAY,
       exposure: 1,
     };
@@ -1228,19 +1347,40 @@ export class Lighting {
     return true;
   }
 
-  /** Sweep the active scene for materials that still need wiring. Two jobs, one
-   *  traverse: cascade registration, and the rim contract above. */
+  /**
+   * Sweep the active scene for materials that still need wiring. Three jobs, one
+   * traverse: cascade registration, the rim contract above, and the reference
+   * gain the radiance solve normalises against.
+   *
+   * The gain is remeasured from scratch on every sweep rather than accumulated,
+   * because the quantity wanted is "the largest character rim gain *currently in
+   * the scene*". A running maximum would survive a scene swap and keep the cast
+   * of the previous battle setting the exposure of this one — and `AssetForge`
+   * caches materials across swaps, so that is not a hypothetical. Measuring is
+   * a uniform read per toon material on a traverse that already happens at 5 Hz.
+   */
   refreshMaterials() {
     if (!this.scene || !this.csm) return;
+    let gainPeak = 0;
+    const visit = (m) => {
+      this.registerMaterial(m);
+      const toon = m?.userData?.toon;
+      if (toon?.kind !== 'surface' || !RIM_SOLVE_CLASSES.has(toon.preset)) return;
+      const gain = toon.uniforms?.uToonRimGain?.value ?? 0;
+      if (gain > gainPeak) gainPeak = gain;
+    };
     this.scene.traverse((obj) => {
       const mat = obj.material;
       if (!mat) return;
       if (Array.isArray(mat)) {
-        for (const m of mat) this.registerMaterial(m);
+        for (const m of mat) visit(m);
       } else {
-        this.registerMaterial(mat);
+        visit(mat);
       }
     });
+    // A scene with no cast in it yet (a title card, a loading mount) must not
+    // solve the rim against a gain of zero and blow the strength to its ceiling.
+    this._rimGainPeak = gainPeak > 1e-3 ? gainPeak : RIM_GAIN_FALLBACK;
   }
 
   /** Restore every patched material to the state it was handed to us in. */
@@ -1365,10 +1505,22 @@ export class Lighting {
 
     // RING_GLOW is the palette's named rim colour; a fraction of the key's
     // chroma is folded in so a sunset rim carries a trace of the sun without
-    // ever losing the cool separation the whole look depends on.
+    // ever losing the cool separation the whole look depends on. This is the
+    // analytic light — the ring, lighting the environment.
     mixChroma(this._ringGlow, T.keyColor, RIM_KEY_TINT * dayness, T.rimColor);
     T.rimIntensity = THREE.MathUtils.lerp(RIM_INTENSITY_NIGHT, RIM_INTENSITY_DAY, dayness)
       * this.rimBoost;
+
+    // The character rim is the counter-hue, and it is anchored rather than
+    // derived: the haze it has to cut through is pinned to the cool end of the
+    // palette by `_conformAtmosphere` at every hour, so the rim's answer to it is
+    // the same warm anchor at every hour too. Deriving it from the key instead
+    // would hand the night rig a teal rim on a teal mist — the exact absence of
+    // separation the review measured — because at night the key *is* the ring.
+    // Chroma-only mixing, so the anchor's value never leaks into the solve that
+    // follows, and a gamut projection to hold it under the magic reserve.
+    mixChroma(this._charRimAnchor, this._keySun, CHAR_RIM_KEY_MIX, T.charRimColor);
+    conformChroma(T.charRimColor, CHAR_RIM_GAMUT, 0, KEY_CHROMA_RANGE);
   }
 
   /**
@@ -1433,27 +1585,16 @@ export class Lighting {
     u.uKeyDirection.value.copy(S.keyDir);
     u.uKeyColor.value.copy(S.keyColor).multiplyScalar(S.keyIntensity);
     u.uRimDirection.value.copy(S.rimDir);
-    u.uRimColor.value.copy(S.rimColor).multiplyScalar(S.rimIntensity);
+    u.uRimColor.value.copy(S.charRimColor).multiplyScalar(S.rimIntensity);
     u.uFillSky.value.copy(S.fillSky).multiplyScalar(S.fillIntensity);
     u.uFillGround.value.copy(S.fillGround).multiplyScalar(S.fillIntensity);
 
-    // Solve the toon rim's strength so its hottest sliver always lands on
-    // RIM_PEAK_LUMA. `toonSurface` adds `uRimColor * (awRim * uToonRimGain *
-    // uRimStrength)` to specular, and `awRim` reaches 1 where the surface is
-    // both grazing and facing the rim, so the peak is exactly the product below.
-    // Solving against *luminance* rather than the largest channel is what keeps
-    // the rim a colour: normalising the peak channel drives `RING_GLOW`'s green
-    // to the target on its own and leaves red and blue near zero, which is a
-    // white line with a teal name. Pinning it at all — rather than letting it
-    // ride the analytic rim's day/night curve — is what keeps the character rim
-    // a constant separation device across the whole clock while the analytic
-    // rim stays free to be tuned for grass and stone.
-    const rimPeak = lumOf(S.rimColor) * S.rimIntensity * NOMINAL_TOON_RIM_GAIN;
-    u.uRimStrength.value = rimPeak > 1e-4
-      ? THREE.MathUtils.clamp(RIM_PEAK_LUMA / rimPeak, RIM_STRENGTH_MIN, RIM_STRENGTH_MAX)
-      : 0;
-
+    // Ahead of the rim solve, not after it: the solve's target is a ratio over
+    // the fog, and the fog is not final until it has been conformed. Running
+    // these the other way round is how the rim ended up chasing last frame's
+    // haze — invisible while the clock is still, and a visible lag on a scrub.
     this._conformAtmosphere();
+    this._solveCharacterRim();
 
     // ART_BIBLE section 3 pins exposure to the time of day. Sky writes the same
     // value un-eased; services tick in registration order and `lighting` is
@@ -1512,6 +1653,58 @@ export class Lighting {
   }
 
   /**
+   * Solve `uRimStrength` so the character rim's hottest sliver lands a fixed
+   * contrast step above the haze it has to cut through.
+   *
+   * `toonSurface` adds `uRimColor * (awRim * awHeadroom * uToonRimGain *
+   * uRimStrength)` to specular, and `awRim` reaches 1 exactly where the surface
+   * is both grazing and facing the rim, so the unoccluded peak is the product
+   * below. Three properties of that product are the point:
+   *
+   *  - It is solved against **luminance**, not the largest channel. Normalising
+   *    the peak channel drives one primary to the target and leaves the other
+   *    two near zero, which is a white line with a colourful name — and a white
+   *    line is what the review read as a second, brighter outline.
+   *  - The reference gain is **measured**, not copied. See `RIM_SOLVE_CLASSES`.
+   *  - The target is **relative to the fog**, so a rim can never be dimmer than
+   *    the mist it separates a character from. That is not a tuning preference;
+   *    a separation device below the value it separates against does not exist
+   *    on screen, whatever number is in the uniform.
+   *
+   * `awHeadroom` still bounds the result per surface, so this is the ceiling the
+   * rim reaches on a dark coat and not a floor imposed on a lit face.
+   */
+  _solveCharacterRim() {
+    const S = this._current;
+
+    // The haze the cast reads against. `FogExp2` asymptotes to its own colour,
+    // so for anything at mid-ground depth — the whole battle stage — that colour
+    // *is* the background radiance, in the same pre-tonemap linear space as the
+    // rim. Scenes with no fog fall through to the floor, which is correct: an
+    // interior has no mist to lose the silhouette in, and the rim there is a
+    // fixed art device rather than a contrast solve.
+    const haze = this.scene?.fog?.color ? lumOf(this.scene.fog.color) : 0;
+    const base = THREE.MathUtils.clamp(
+      haze * RIM_OVER_HAZE, RIM_PEAK_LUMA_MIN, RIM_PEAK_LUMA_MAX,
+    );
+    // `rimBoost` scales the *target*, and it has to be applied here rather than
+    // left to ride `rimIntensity`: the solve is a ratio, so a boost folded into
+    // the peak divides straight back out and a scene asking for a hotter rim
+    // silently gets the standard one. Scaling after the floor rather than before
+    // it keeps a deliberate *dim* honest too — a scene pulling the rim down for
+    // a shot must not be clamped back up by the night floor — while the ceiling
+    // still holds, so a boost buys headroom up to the bloom threshold and no
+    // further. `rimBoost = 0` collapses `rimIntensity` as well, and the guard
+    // below turns that into a strength of exactly zero rather than a division.
+    const target = Math.min(base * this.rimBoost, RIM_PEAK_LUMA_MAX);
+
+    const peak = lumOf(S.charRimColor) * S.rimIntensity * this._rimGainPeak;
+    this.uniforms.uRimStrength.value = peak > 1e-4
+      ? THREE.MathUtils.clamp(target / peak, RIM_STRENGTH_MIN, RIM_STRENGTH_MAX)
+      : 0;
+  }
+
+  /**
    * Re-read every source and apply it immediately, with no easing.
    *
    * Used on a scene mount and on a scripted time-of-day jump, where a glide
@@ -1529,6 +1722,7 @@ export class Lighting {
     S.fillIntensity = T.fillIntensity;
     S.rimDir.copy(T.rimDir);
     S.rimColor.copy(T.rimColor);
+    S.charRimColor.copy(T.charRimColor);
     S.rimIntensity = T.rimIntensity;
     S.exposure = T.exposure;
     this._applyState();
@@ -1568,6 +1762,7 @@ export class Lighting {
     S.fillSky.lerp(T.fillSky, kc);
     S.fillGround.lerp(T.fillGround, kc);
     S.rimColor.lerp(T.rimColor, kc);
+    S.charRimColor.lerp(T.charRimColor, kc);
     S.keyIntensity += (T.keyIntensity - S.keyIntensity) * kc;
     S.fillIntensity += (T.fillIntensity - S.fillIntensity) * kc;
     S.rimIntensity += (T.rimIntensity - S.rimIntensity) * kc;

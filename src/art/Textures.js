@@ -313,7 +313,10 @@ const SURFACES = {
   foliage: { spec: 'foliage', bump: 2.8, ao: 0.5, repeat: 1, alpha: true, doubleSided: true },
   cloth: { spec: 'cloth', bump: 2.2, ao: 0.45, repeat: 6 },
   silk: { spec: 'silk', bump: 1.4, ao: 0.25, repeat: 6 },
-  leather: { spec: 'leather', bump: 3.4, ao: 0.8, repeat: 4 },
+  // `ao` is well under the old 0.8: the hide's height field is now four plates
+  // per tile rather than a pore lattice, and an occlusion kernel run over
+  // metre-scale domes paints broad dark haloes instead of crease contact.
+  leather: { spec: 'leather', bump: 3.4, ao: 0.5, repeat: 4 },
   // Metal bump is deliberately high for a surface whose relief is measured in
   // microns: the grind field is the *only* thing giving a blade internal
   // structure (§4 forbids fractional metalness, so there is no albedo contrast
@@ -765,21 +768,44 @@ function genSilk(buf, n, rng) {
 }
 
 /**
- * Leather: cellular pore grain. The F1 field gives the domed grain islands and
- * the F2−F1 edges give the creases between them; a second, much coarser
- * cellular layer gives the large-scale hide structure. Worn edges lower
- * roughness to the bible's 0.35 and lighten albedo, which is what makes a
- * leather prop look used rather than moulded.
+ * Leather — the **creature hide**, and therefore a character surface.
+ *
+ * The only thing in frame wearing this map is the shardhusk's shell, which
+ * makes `leather` the one surface in the library that lands on a character. It
+ * used to be authored as photoreal hide: a 90-cell pore field, a 26-cell coarse
+ * cellular layer, domain-warped wrinkles, and a warm `worn` tone (#8A6440)
+ * sprayed over the dark base wherever a wear mask cleared its threshold. On a
+ * 3.4 m creature at repeat 3 that puts roughly 270 pore cells across the
+ * silhouette — per-pixel by the time it reaches the battle camera — and the
+ * review read the warm speckle for exactly what it is: rust. ANIME_PIPELINE's
+ * absolute rule is that no procedural noise texture ever touches a character
+ * surface, so tuning the pore frequency was never an option; the technique had
+ * to go.
+ *
+ * What replaces it is the anime read of a hide: **flat colour, and form carried
+ * entirely by shading.** Three consequences:
+ *
+ * - **Albedo is a single constant.** Not "low contrast" — constant. Any
+ *   variation at all would be re-normalised across the full §4 albedo band by
+ *   `fitAlbedoBand`, which turns a 1% authored drift into a 100% swing; and a
+ *   character's colour zones are supposed to come from vertex colour and
+ *   material tint, never from a texture. `fitAlbedoBand`'s degenerate branch
+ *   centres the constant in the band, so the physical constraint still holds.
+ * - **Height carries plates, not grain.** Four cells across the tile — about
+ *   35 cm of creature per plate — domed slightly and separated by a crease at
+ *   the cell boundary. Under cel shading a crease resolves as a drawn panel
+ *   line and the plate between it stays a flat block, which is the same
+ *   contract the party's cloth zones honour.
+ * - **Roughness is constant.** The husk binds this map with a scalar of 1, so a
+ *   varying roughness would modulate its one specular band into a mottled
+ *   field — the highlight equivalent of the albedo speckle.
  */
 function genLeather(buf, n, rng) {
   const { w, h } = buf;
-  const hide = hexToLinear(0x4e3524, [0, 0, 0]);
-  const worn = hexToLinear(0x8a6440, [0, 0, 0]);
-  const crease = hexToLinear(0x241609, [0, 0, 0]);
+  const hide = hexToLinear(0x53392a, [0, 0, 0]);
   const spec = SURFACE_SPEC.leather;
-  const col = [0, 0, 0];
+  const rough = (spec.roughness[0] + spec.roughness[1]) * 0.5;
   const cell = new Float32Array(4);
-  const cell2 = new Float32Array(4);
 
   for (let y = 0; y < h; y++) {
     const v = (y + 0.5) / h;
@@ -787,26 +813,24 @@ function genLeather(buf, n, rng) {
       const i = y * w + x;
       const u = (x + 0.5) / w;
 
-      n.worley2(u, v, 90, 1, cell);
-      n.worley2(u, v, 26, 0.95, cell2);
-      const pore = 1 - smoothstep(0.0, 0.5, cell[3]);
-      const grain = Math.pow(1 - clamp(cell[0] * 1.5, 0, 1), 1.6);
-      const coarse = 1 - smoothstep(0.0, 0.32, cell2[3]);
-      const wrinkle = n.warp2(u, v, { period: 3, octaves: 3, warp: 0.5 });
-      const wear = smoothstep(0.15, 0.6, n.fbm2(u, v, { period: 3, octaves: 3, gain: 0.55, z: 44.4 }));
+      // Four cells, high jitter: irregular plates rather than a visible lattice.
+      n.worley2(u, v, 4, 0.95, cell);
+      // F1 is continuous across the whole tile, so using it directly domes each
+      // plate without introducing a step anywhere except the crease itself.
+      const dome = 1 - smoothstep(0.05, 0.62, cell[0]);
+      const crease = 1 - smoothstep(0.0, 0.09, cell[3]);
+      // One slow undulation so a large flat panel of hide is not mathematically
+      // flat. Two octaves at period 2 is half a tile per feature — form, at a
+      // frequency no camera in this game can resolve as texture.
+      const sag = n.fbm2(u, v, { period: 2, octaves: 2, gain: 0.5, z: 44.4 });
 
-      buf.height[i] = grain * 0.5 - pore * 0.55 - coarse * 0.35 + wrinkle * 0.3;
+      buf.height[i] = dome * 0.9 + sag * 0.35 - crease * 0.85;
 
-      mix3(hide, crease, clamp(pore * 0.8 + coarse * 0.5, 0, 1), col);
-      mix3(col, worn, wear * (0.35 + grain * 0.4), col);
-      const shade = 0.86 + grain * 0.2 + wrinkle * 0.16;
-      col[0] *= shade; col[1] *= shade; col[2] *= shade;
+      buf.albedo[i * 3] = hide[0];
+      buf.albedo[i * 3 + 1] = hide[1];
+      buf.albedo[i * 3 + 2] = hide[2];
 
-      buf.albedo[i * 3] = col[0];
-      buf.albedo[i * 3 + 1] = col[1];
-      buf.albedo[i * 3 + 2] = col[2];
-
-      buf.rough[i] = clamp(0.66 - wear * 0.31 + pore * 0.06, 0.35, spec.roughness[1]);
+      buf.rough[i] = rough;
     }
   }
 }
@@ -930,6 +954,16 @@ function genMetal(buf, n, rng, metal) {
  * cheat a matte painter uses for ice. The outermost layer also drives the
  * height field, giving genuine cut facets; the interior layers only tint and
  * glow. Emissive interior is mandatory per the bible.
+ *
+ * The one place this map lands in a battle frame is the shardhusk's crown,
+ * which makes it a character surface, so the fBm `flaw` layer that used to
+ * mottle the albedo, the height and the roughness is gone: it was mid-frequency
+ * noise on a creature, and it fought the facets besides. Colour is now blocked
+ * flat per facet with the cut edges lifted toward the element core, which is
+ * both what ANIME_PIPELINE §5 asks of a character surface and a better gem —
+ * a cut stone is flat planes meeting at bright edges, not a mottled lump. The
+ * cellular interior layers survive because they drive the *emissive*, and glow
+ * pooling at inclusions is light rather than surface detail.
  */
 function genCrystal(buf, n, rng, opts) {
   const { w, h } = buf;
@@ -965,11 +999,12 @@ function genCrystal(buf, n, rng, opts) {
       const inner1 = 1 - smoothstep(0.0, 0.25, cell[3]);
       n.worleyAniso2(u, v, 19, 17, 1.0, 0.75, 1.0, cell);
       const inner2 = 1 - smoothstep(0.0, 0.3, cell[3]);
-      const flaw = n.fbm2(u, v, { period: 5, octaves: 4, gain: 0.6, z: 27.4 });
 
-      buf.height[i] = face * 0.9 - facetEdge * 0.5 + flaw * 0.12;
+      buf.height[i] = face * 0.9 - facetEdge * 0.5;
 
-      mix3(deep, accent, clamp(0.35 + facetId * 0.5 + flaw * 0.5, 0, 1), col);
+      // Flat per facet: `facetId` is constant inside a cell, so each face is a
+      // single block of colour and the only value change in the map is at a cut.
+      mix3(deep, accent, clamp(0.30 + facetId * 0.55, 0, 1), col);
       mix3(col, core, facetEdge * 0.55 + inner1 * 0.3, col);
       buf.albedo[i * 3] = col[0];
       buf.albedo[i * 3 + 1] = col[1];
@@ -983,7 +1018,7 @@ function genCrystal(buf, n, rng, opts) {
       emis[i * 3 + 1] = mix(accent[1], core[1], inner2 * 0.6) * gi;
       emis[i * 3 + 2] = mix(accent[2], core[2], inner2 * 0.6) * gi;
 
-      buf.rough[i] = clamp(0.07 + facetEdge * 0.08 + flaw * 0.04, spec.roughness[0], spec.roughness[1]);
+      buf.rough[i] = clamp(0.07 + facetEdge * 0.08, spec.roughness[0], spec.roughness[1]);
     }
   }
 }
@@ -1876,16 +1911,30 @@ function genBlueNoise(size, seed) {
  *   B  roughness drift (0.5 neutral), decorrelated from R so the two do not lock
  *   A  coarse value drift, ~4x R's period — stacked on R to avoid a single-scale read
  *
- * The moisture field is warped by an independent low-frequency vector field and
- * biased against the value drift, so damp patches settle into the darker macro
- * regions and their boundaries meander like drainage rather than reading as the
- * blobs an unwarped fBm produces.
+ * **No domain warping anywhere in this map, deliberately.** The previous build
+ * pushed the value and moisture fields through an independent low-frequency
+ * vector field to make their boundaries meander like drainage. Warped fBm is
+ * the textbook *marble* generator, and that is precisely how the review read
+ * the result: "directional smearing and stretch streaks … marbled oil rather
+ * than ground". The warp shears a field's iso-contours along a common flow
+ * direction, which produces exactly the elongated swirls veined stone is made
+ * of — and at ±34% albedo, sampled 12 tiles across a 900 m stage, those swirls
+ * are the largest structure in the bottom half of the frame. Every field here
+ * is now isotropic, so the macro layer reads as swells and hollows with no
+ * grain direction for the eye to lock onto.
+ *
+ * Moisture is a *localised* field rather than a second smooth fBm: damp ground
+ * collects in discrete basins, so a large-cell Worley picks the basins and the
+ * value form decides which of them are low enough to hold water. That gives
+ * patches with a beginning and an end, which is what the ground actually wants;
+ * a smooth field spread over everything is a second material, not a patch.
  */
 function genMacroGround(size, seed) {
   const n = makeNoise(seed);
   n.maxPeriod = size * 0.5;
   const bytes = new Uint8ClampedArray(size * size * 4);
   const enc = (x) => (clamp(x * 0.5 + 0.5, 0, 1) * 255 + 0.5) | 0;
+  const cell = new Float32Array(4);
 
   for (let y = 0; y < size; y++) {
     const v = (y + 0.5) / size;
@@ -1893,20 +1942,24 @@ function genMacroGround(size, seed) {
       const i = (y * size + x) * 4;
       const u = (x + 0.5) / size;
 
-      // The warp is itself periodic over the unit square, so warping preserves
-      // tileability exactly — the composite still wraps.
-      const wx = n.fbm2(u, v, { period: 3, octaves: 2, gain: 0.5, z: 71.3 }) * 0.09;
-      const wy = n.fbm2(u, v, { period: 3, octaves: 2, gain: 0.5, z: 88.9 }) * 0.09;
-
-      const mid = n.fbm2(u + wx, v + wy, { period: 6, octaves: 3, gain: 0.5, z: 2.7 });
+      const mid = n.fbm2(u, v, { period: 6, octaves: 3, gain: 0.5, z: 2.7 });
       const coarse = n.fbm2(u, v, { period: 2, octaves: 2, gain: 0.55, z: 17.9 });
-      const moist = n.fbm2(u + wx, v + wy, { period: 4, octaves: 3, gain: 0.55, z: 33.1 });
       const rough = n.fbm2(u, v, { period: 5, octaves: 3, gain: 0.5, z: 49.6 });
 
+      // Basins: five cells across the map, so roughly 14 m of stage each.
+      n.worley2(u, v, 5, 1, cell);
+      const basin = 1 - smoothstep(0.14, 0.55, cell[0]);
+      // Only the basins that sit in a *hollow* of the value form hold damp, and
+      // the crowns opposite them go mildly dry. The gains are set against the
+      // measured distribution of `mid` rather than guessed: a three-octave fBm
+      // is concentrated near zero, so the unit-gain version of this expression
+      // left the dry half of the field inert on 99% of the map. These land it at
+      // roughly 18% damp, 21% dry, 60% untinted, and nothing clips.
+      const damp = basin * (0.22 + clamp(-mid * 3.0, 0, 1) * 0.63);
+      const dry = clamp(mid * 3.2, 0, 1) * 0.6;
+
       bytes[i] = enc(mid * 1.15);
-      // 0.85/0.5 weighting keeps the field mostly neutral: a ground that is half
-      // wet reads as mud, and the note asked for patches, not a second material.
-      bytes[i + 1] = enc(moist * 0.85 - mid * 0.5);
+      bytes[i + 1] = enc(damp - dry);
       bytes[i + 2] = enc(rough * 1.1);
       bytes[i + 3] = enc(coarse);
     }

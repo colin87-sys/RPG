@@ -94,19 +94,34 @@ import {
  * cartoon border a heavier value gives a chibi character whose whole body is
  * only ~80 px tall.
  *
- * `darkness` and `saturation` are §4's colour rule. 0.16 in linear light is
- * heavily darkened; boosting saturation by 1.55 on the way down is what stops
- * the darkening from also draining the hue and landing on the near-black line
- * the document rules out. `floor` keeps a very dark albedo — a deep navy coat,
- * which crushes to black inside a code value at 0.16 — off zero, so the line
- * still carries the garment's hue and no pure black lands on the subject
- * (ART_BIBLE §2.3).
+ * `darkness` and `saturation` are §4's colour rule. 0.18 in linear light is
+ * heavily darkened; pushing saturation up on the way down is what stops the
+ * darkening from also draining the hue and landing on the near-black line the
+ * document rules out. 1.25 rather than the 1.55 this shipped at, because the
+ * saturation identity clamps: on any garment darker than mid — which is most of
+ * this cast — 1.55 drove two of the three channels to exactly zero, so a navy
+ * coat, a teal sash and a violet cape all resolved to the same single-channel
+ * line and §4's "dark-warm on hair, dark-cool on cloth" distinction was thrown
+ * away by the very term meant to protect it. `floor` keeps a very dark albedo —
+ * a deep navy, which crushes to black inside a code value at this level — off
+ * zero, so no pure black lands on the subject (ART_BIBLE §2.3).
+ *
+ * `fog: false`, and it is the correction the review demanded rather than a
+ * convenience. This project's environment is built on heavy mist, and the mist
+ * is *brighter* than the cast — the review measured the mist band at L≈149
+ * against a party at L≈80. A fogged ink line is therefore mixed toward something
+ * paler than the character it is supposed to close, so the line gets weaker with
+ * distance precisely where the silhouette needs it most, and on a heavily hazed
+ * figure it inverts into a light edge. Ink is a drawn mark on top of the image,
+ * not a surface in the scene: it does not stand in the atmosphere, so nothing in
+ * the atmosphere may lift it.
  */
 export const OUTLINE_DEFAULTS = Object.freeze({
   width: 2.0,
-  darkness: 0.16,
-  saturation: 1.55,
+  darkness: 0.18,
+  saturation: 1.25,
   floor: 0.008,
+  fog: false,
 });
 
 /**
@@ -173,7 +188,7 @@ function toColor(v) {
  *
  * @param {THREE.ColorRepresentation} albedo the surface colour underneath.
  * @param {Object} [opts]
- * @param {number} [opts.darkness=0.16] value multiplier.
+ * @param {number} [opts.darkness=0.18] value multiplier.
  * @param {number} [opts.saturation=1.55] HSV saturation multiplier.
  * @param {number} [opts.floor=0.008] minimum peak channel, so no line is black.
  * @returns {THREE.Color}
@@ -404,6 +419,8 @@ export function buildOutlineGeometry(source, opts = {}) {
  * @param {number} [opts.width=2] line weight in device pixels.
  * @param {number} [opts.darkness] / [opts.saturation] / [opts.floor] §4 tint
  *   controls; meaningful with `vertexColors`, folded into the colour otherwise.
+ * @param {boolean} [opts.fog=false] let the atmosphere lift the line. Off by
+ *   default; see `OUTLINE_DEFAULTS`.
  * @param {THREE.Texture} [opts.alphaMap] / [opts.alphaTest] cutout, inherited
  *   from the source material so an alpha-tested card is outlined at its cut
  *   edge rather than at the edge of its quad.
@@ -413,7 +430,7 @@ export function buildOutlineGeometry(source, opts = {}) {
  *   itself — so this has to be switchable: with the attribute absent the shader
  *   would reference an undeclared name and fail to compile. Turning it off falls
  *   back to the shading normal, which tears the shell open at hard edges.
- * @param {boolean} [opts.fog=true]
+ * @param {boolean} [opts.fog=false] see `OUTLINE_DEFAULTS`.
  * @returns {THREE.MeshBasicMaterial}
  */
 export function createOutlineMaterial(opts = {}) {
@@ -443,7 +460,7 @@ export function createOutlineMaterial(opts = {}) {
     // BackSide is the inversion: three culls front faces, so the shell is
     // visible only where it escapes the silhouette.
     side: THREE.BackSide,
-    fog: opts.fog ?? true,
+    fog: opts.fog ?? OUTLINE_DEFAULTS.fog,
     // Opaque and depth-writing, for the post chain's sake — see the module
     // header. A transparent line would also need sorting against the character
     // it wraps and would show its own seam wherever the shell self-overlaps at
@@ -648,7 +665,10 @@ export function buildOutline(mesh, opts = {}) {
         ?? (!!src?.vertexColors && !!geometry.getAttribute('color')),
       alphaMap: opts.alphaMap ?? src?.alphaMap ?? null,
       alphaTest: opts.alphaTest ?? src?.alphaTest ?? 0,
-      fog: opts.fog ?? src?.fog ?? true,
+      // Deliberately *not* inherited from the source material: the surface
+      // stands in the mist and the line drawn round it does not. See
+      // `OUTLINE_DEFAULTS`.
+      fog: opts.fog ?? OUTLINE_DEFAULTS.fog,
     }));
   }
   // An array source stays an array even if it is down to one entry: three only

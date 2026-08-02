@@ -98,6 +98,7 @@ uniform vec2  uToonRimFocus;
 uniform vec2  uToonRimShape;
 uniform float uToonRimFloor;
 uniform float uToonRimWidth;
+uniform float uToonRimPixels;
 uniform float uToonRimCeiling;
 
 uniform vec3  uToonPulse;
@@ -308,11 +309,41 @@ vec3 awToonPlate( const in vec3 c ) {
  * The window itself is not redundant with the 'pow': 'pow' alone leaves a long
  * low-amplitude tail creeping across the facing side, and the window collapses
  * that tail to exactly zero.
+ *
+ * **The width is finally clamped in pixels, and that is the defect this
+ * function was rewritten for.** 'uToonRimWidth' states the band's reach in N·V,
+ * which is a fraction of the *subject's own projected radius*: the identical
+ * uniform that puts a ~1 px sheen on a chibi hand puts a 5-6 px band around a
+ * boss that fills half the frame. At the radiance the rig solves the character
+ * rim to, a saturated teal band that wide, wrapping the contour, simply *is* the
+ * silhouette line — drawn in light instead of in ink — and it buries the 2 px
+ * inverted hull underneath it. That is the review's "bright cyan-white line
+ * where the ink outline should be", and no amount of retuning the exponent fixes
+ * it, because the exponent has never had a screen-space term in it.
+ *
+ * So the reach is converted into pixels the same way the outline's is:
+ * 'fwidth( N·V )' is how much the grazing term moves per pixel here, so
+ * 'uToonRimPixels * fwidth( N·V )' is the reach that spans exactly that many
+ * pixels, whatever the subject's size or distance. Taking the *tighter* of the
+ * two keeps 'uToonRimWidth' meaningful as an art ceiling on a close-up, while
+ * guaranteeing the rim can never outweigh the ink line it sits inside. A
+ * non-positive 'uToonRimPixels' disables the clamp, which is what the one class
+ * that genuinely wants a broad wrap (glass, where the fresnel *is* the material)
+ * is given.
  */
 float awToonRim( const in vec3 n, const in vec3 v, const in vec3 rimDirView ) {
 
+  float grazing = saturate( dot( n, v ) );
+
   float span = max( uToonRimWidth, 1e-3 );
-  float edge = saturate( ( span - saturate( dot( n, v ) ) ) / span );
+  if ( uToonRimPixels > 0.0 ) {
+    // 'fwidth' is floored because a surface facing the camera dead-on has no
+    // silhouette here and a zero derivative would divide the band to nothing —
+    // which is correct, but must not become a NaN on the way.
+    span = max( min( span, uToonRimPixels * max( fwidth( grazing ), 1e-5 ) ), 1e-4 );
+  }
+
+  float edge = saturate( ( span - grazing ) / span );
   float fresnel = pow( edge, max( uToonRimPower, 0.5 ) );
 
   float band = smoothstep( uToonRimShape.x, uToonRimShape.y, fresnel );

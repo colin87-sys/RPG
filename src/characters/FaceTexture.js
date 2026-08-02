@@ -13,9 +13,10 @@
  * Everything here is authored the way a 2D animator authors a face:
  *
  *   - **Flat colour and hard edges.** No noise, ever (ANIME_PIPELINE's absolute
- *     rule). The only gradients in the file are the three the spec explicitly
- *     asks for — the sclera's cool tint, the iris body, and the cheek blush —
- *     and each is a deliberate painted ramp, not a lighting effect.
+ *     rule). The only gradients in the file are the ones the spec asks for — the
+ *     sclera's cool tint, the iris body, the cheek blush, and the cel shadow
+ *     band, whose ramp is 6% of its radius wide precisely so it stays a hard
+ *     terminator. Each is a deliberate painted mark, not a lighting effect.
  *   - **The eye is seven stacked layers in a fixed order.** §1 "The eye, drawn
  *     back to front" is reproduced literally, because each layer's read depends
  *     on the one under it: the iris ring only works over a gradient iris, the
@@ -28,12 +29,15 @@
  *     Anything subtler than that is invisible where it matters and is not drawn.
  *
  * Per-character identity is *derived from `roster.js`*, never from a table keyed
- * by id — a new party member must get a coherent face without an edit here. The
- * three channels the roster already carries (`proportions.eye`,
- * `proportions.eyeSpacing`, `proportions.browAngle`) plus the palette's iris,
- * lash and hair colours are enough to separate the six into recognisable people:
- * Bramm's narrow hard glare and Seren's tall round one are the same code with
- * different numbers.
+ * by id — a new party member must get a coherent face without an edit here. It
+ * is derived from five channels rather than one: `proportions.eyeShape` and
+ * `proportions.brow` select a construction family (see `EYE_SHAPES` and
+ * `BROW_STYLES`), and `eye`, `eyeSpacing` and `browAngle` modulate it. The
+ * earlier build collapsed all of that onto a single roundness scalar, which is
+ * why the review found "all six faces are the same layout recoloured": one
+ * scalar can only slide one shape along one axis. Bramm's narrow, low-browed
+ * glare and Seren's tall round one are now different drawings, not one drawing
+ * at two sizes.
  *
  * Determinism: the micro-variation that stops the six looking rubber-stamped is
  * driven by an `Rng` seeded from the character id, following the same convention
@@ -48,8 +52,36 @@ import { Rng } from '../core/GameState.js';
 import { ROSTER } from './roster.js';
 import { mixHex, saturate, hexToLinear, luminance } from '../art/Palette.js';
 
-/** Default edge of the square face texture. 512 is ample: see the 80 px note. */
-export const FACE_TEXTURE_SIZE = 512;
+/**
+ * Default edge of the square face texture.
+ *
+ * 1024, not 512. The review measured the lash line, the iris rim and the mouth
+ * arc as "soft and mushy" at closeup, and the cause is sampling rather than
+ * drawing: the closeup camera magnifies the face plate to roughly the texture's
+ * own resolution, so at 512 every rasterised curve is being stretched. 1024
+ * supersamples the highest-contrast edge in the game for 4 MB a head, and
+ * `buildFaceTexture` pairs it with a **hand-drawn mip chain** so the battle
+ * camera does not throw that crispness away again (see the note there).
+ */
+export const FACE_TEXTURE_SIZE = 1024;
+
+/**
+ * Minimum feature sizes **in texels of the level being drawn**.
+ *
+ * These are what make a hand-authored mip chain worth having. A box-filtered
+ * 128² mip of a 1024² face averages the 12%-wide iris ring and the catch-light
+ * into the iris around them — which is exactly the review's "the iris ring is
+ * entirely absent" and "catch-lights ~12% of iris radius, tinted pink", both
+ * measured off a *downscaled* frame. Redrawing each level with every feature
+ * held above a texel floor keeps the ring and the catch-light as real, opaque,
+ * full-contrast marks at the size the battle camera actually samples.
+ */
+const MIN_PX = Object.freeze({
+  ring: 1.25, highlight: 2.0, highlightSmall: 1.1, lash: 2.5,
+  pupil: 2.0, brow: 2.0, mouth: 1.5, lid: 1.0,
+});
+
+const atLeast = (v, floor) => (v < floor ? floor : v);
 
 /**
  * ANIME_PIPELINE §1 layout table, verbatim, in fractions of the texture with
@@ -90,6 +122,71 @@ const EXPRESSIONS = Object.freeze({
 
 /** Canonical expression names, in review order. */
 export const EXPRESSION_NAMES = Object.freeze(Object.keys(EXPRESSIONS));
+
+/**
+ * Eye-shape families, keyed by `roster.proportions.eyeShape`.
+ *
+ * The previous build derived every shape dial from a single `roundness` scalar,
+ * and the review's verdict was blunt: "all six faces are the same layout
+ * recoloured — same eye shape, same brow angle, same mouth arc". A scalar can
+ * only slide one shape along one axis, so six characters came out as six points
+ * on one line. These are four genuinely different *constructions* — a slit, a
+ * raked wedge, a leaf and a circle — and they differ in aperture height, width,
+ * corner drop, lid depth, tilt and iris fill at once, which is what makes them
+ * read as different eyes rather than as one eye at different sizes.
+ *
+ * The roster already carries the key (`'narrow' | 'sharp' | 'almond' | 'round'`)
+ * and documented it as intent-only. It is a real input now; `pickEyeShape`
+ * still falls back to deriving a family for any entry that omits it, so the
+ * roster stays the source of truth and a new character cannot crash the painter.
+ *
+ *   `openU` / `openL`  aperture half-heights, as fractions of the envelope
+ *   `widen`            aperture width multiplier — narrow eyes are *wider* than
+ *                      tall, round ones nearly circular
+ *   `tilt`             rotation of the whole eye, outer corner up (radians)
+ *   `irisFill`         iris diameter as a fraction of aperture width; > 1 means
+ *                      the circle is deliberately clipped by the lids, which is
+ *                      how an anime iris gets its size without a floating disc
+ */
+const EYE_SHAPES = Object.freeze({
+  narrow: Object.freeze({ round: 0.05, widen: 1.12, openU: 0.60, openL: 0.60, cornerDrop: 0.21, lowerDepth: 0.46, lash: 0.215, flick: 0.34, tilt: 0.15, irisFill: 0.92 }),
+  sharp:  Object.freeze({ round: 0.32, widen: 1.06, openU: 0.80, openL: 0.74, cornerDrop: 0.16, lowerDepth: 0.66, lash: 0.215, flick: 0.30, tilt: 0.11, irisFill: 0.96 }),
+  almond: Object.freeze({ round: 0.62, widen: 1.00, openU: 0.90, openL: 0.86, cornerDrop: 0.11, lowerDepth: 0.80, lash: 0.195, flick: 0.18, tilt: 0.05, irisFill: 1.00 }),
+  round:  Object.freeze({ round: 1.00, widen: 0.94, openU: 1.00, openL: 0.98, cornerDrop: 0.05, lowerDepth: 0.98, lash: 0.180, flick: 0.10, tilt: 0.01, irisFill: 1.04 }),
+});
+
+/**
+ * Brow families, keyed by `roster.proportions.brow`.
+ *
+ * ANIME_PIPELINE §1: "angle carries personality: down-inner = determined,
+ * up-inner = gentle, flat = cool". The roster's `browAngle` was already being
+ * read, but at unity gain a 0.26 rad brow moves its inner end by 2% of the face
+ * and the whole cast reads level. `gain` is the multiplier that makes the
+ * roster's authored intent actually visible, and thickness/arch/height separate
+ * a blunt determined brow from a fine arched one on three more channels.
+ *
+ *   `drop` is added *toward* the eye, so a hard brow sits low and crowds the lid.
+ */
+const BROW_STYLES = Object.freeze({
+  hard:   Object.freeze({ thick: 0.080, arch: 0.04, tilt: -0.10, drop: 0.014, gain: 1.9, mouth: -0.006, mouthW: 1.12 }),
+  level:  Object.freeze({ thick: 0.062, arch: 0.15, tilt: 0.00, drop: 0.000, gain: 1.7, mouth: 0.000, mouthW: 1.00 }),
+  gentle: Object.freeze({ thick: 0.046, arch: 0.32, tilt: 0.07, drop: -0.012, gain: 1.7, mouth: 0.008, mouthW: 0.92 }),
+});
+
+/** Roster key first; otherwise the nearest family to the derived roundness. */
+function pickEyeShape(name, round) {
+  const named = EYE_SHAPES[name];
+  if (named) return named;
+  if (round < 0.2) return EYE_SHAPES.narrow;
+  if (round < 0.48) return EYE_SHAPES.sharp;
+  if (round < 0.8) return EYE_SHAPES.almond;
+  return EYE_SHAPES.round;
+}
+
+/** Roster key first; otherwise the sign of the authored brow angle. */
+function pickBrowStyle(name, angle) {
+  return BROW_STYLES[name] ?? (angle < -0.04 ? BROW_STYLES.hard : angle > 0.04 ? BROW_STYLES.gentle : BROW_STYLES.level);
+}
 
 // ------------------------------------------------------------------ plumbing
 
@@ -160,6 +257,48 @@ function ensureDarkerThan(hex, against, ratio) {
   return out;
 }
 
+/**
+ * ANIME_PIPELINE §1's skin: "`#F7DCC4` warm pale as a base".
+ *
+ * The review sampled the lead's cheek at `#EE9070` — a saturated plastic orange
+ * — because the painter used the roster's `palette.skin` neat, and those values
+ * (`0xd9a882` for Auren, `0x8a5a44` for Kite) were authored as *body* tones for
+ * a lit surface, not as the flat albedo of a painted face. Under the toon
+ * shader's lit band they gain both value and chroma and land well outside the
+ * warm-pale family the spec names.
+ *
+ * So the spec value is the anchor and the roster tone survives as an offset from
+ * it: a heavy mix toward `#F7DCC4` plus a chroma trim. That keeps the cast's
+ * skin *relationships* — Seren still reads paler than Kite, who still reads
+ * darker than Auren — while putting every one of them inside the pipeline's
+ * envelope instead of only near it.
+ */
+const SPEC_SKIN = 0xf7dcc4;
+const SPEC_SKIN_SHADE = 0xe0a98f;
+
+function paintedSkin(hex) {
+  return saturate(mixHex(hex ?? SPEC_SKIN, SPEC_SKIN, 0.68), 0.87);
+}
+
+/**
+ * The face's painted shadow band, held inside §2's face clamp.
+ *
+ * §2 asks the face's shadow term to be clamped "to a minimum of ~0.75" — a
+ * *floor*, not a pin at 1.0, and the review found the face "a uniform orange
+ * disc with zero form" because it was effectively pinned. The shader's floor is
+ * not this module's to set; the painted band is, and a painted jaw shadow is how
+ * 2D animation has always given a flat face volume anyway. This forces the band
+ * colour into that same 0.75–0.90 luminance window relative to the base, so the
+ * face gains form without ever carving dark.
+ */
+function clampShadowBand(hex, skin, lo = 0.75, hi = 0.90) {
+  const base = lumOf(skin);
+  let out = hex;
+  for (let i = 0; i < 8 && lumOf(out) < base * lo; i++) out = mixHex(out, skin, 0.25);
+  for (let i = 0; i < 8 && lumOf(out) > base * hi; i++) out = darken(out, 0.10);
+  return out;
+}
+
 // ---------------------------------------------------------------- traits
 
 /**
@@ -183,11 +322,18 @@ export function faceTraits(def) {
   const p = def.proportions ?? {};
   const pal = def.palette ?? {};
   const eyeScale = clamp(p.eye ?? 1, 0.7, 1.4);
-  const browAngle = p.browAngle ?? 0;
-  const round = clamp01(0.5 + browAngle * 1.8 + (eyeScale - 1) * 1.6);
+  const authoredAngle = p.browAngle ?? 0;
+  const derivedRound = clamp01(0.5 + authoredAngle * 1.8 + (eyeScale - 1) * 1.6);
+  const shape = pickEyeShape(p.eyeShape, derivedRound);
+  const browStyle = pickBrowStyle(p.brow, authoredAngle);
+  // The family fixes the construction; the authored numbers still nudge it, so
+  // the two `sharp` characters (Auren at eye 0.96 / brow -0.10, Kite at 1.00 /
+  // -0.16) do not come out as the same drawing.
+  const round = clamp01(shape.round + (derivedRound - 0.5) * 0.24);
   const rng = new Rng(seedFor(def.id));
+  const browAngle = authoredAngle * browStyle.gain + browStyle.tilt;
 
-  const skin = pal.skin ?? 0xf7dcc4;
+  const skin = paintedSkin(pal.skin);
   // §1 wants the lash "tinted toward the hair colour rather than pure #000" —
   // but Seren's and Emrys's hair shade is a *light* grey, and the naive mix
   // lifts their lash to a mid-grey that stops being the heaviest black in the
@@ -197,6 +343,9 @@ export function faceTraits(def) {
     mixHex(pal.lash ?? 0x14181f, pal.hairShade ?? 0x241f1c, 0.22), skin, 0.055,
   );
 
+  const iris = pal.eye ?? 0x5fb8b0;
+  const skinShade = clampShadowBand(mixHex(pal.skinShade ?? SPEC_SKIN_SHADE, SPEC_SKIN_SHADE, 0.7), skin);
+
   return {
     round,
     eyeScale,
@@ -204,26 +353,49 @@ export function faceTraits(def) {
     browAngle,
 
     skin,
-    skinShade: pal.skinShade ?? 0xe0a98f,
+    skinShade,
     // §1 gives the sclera as a cool near-white ramp; the roster's per-character
-    // sclera only tints it, because a warm sclera kills the cool-white read
-    // that separates an anime eye from a plastic one.
-    scleraTop: mixHex(0xf4f7fa, pal.sclera ?? 0xf2ede2, 0.25),
-    scleraBottom: mixHex(0xe4eaf2, pal.sclera ?? 0xf2ede2, 0.25),
-    iris: pal.eye ?? 0x5fb8b0,
-    irisCore: pal.eyeCore ?? mixHex(pal.eye ?? 0x5fb8b0, 0xffffff, 0.6),
+    // sclera only tints it — at 0.12 rather than 0.25, because the review read
+    // the old mix as "a pinkish sclera" and a warm white kills the cool-white
+    // read that separates an anime eye from a plastic one.
+    scleraTop: mixHex(0xf4f7fa, pal.sclera ?? 0xf2ede2, 0.12),
+    scleraBottom: mixHex(0xe4eaf2, pal.sclera ?? 0xf2ede2, 0.12),
+    iris,
+    irisCore: pal.eyeCore ?? mixHex(iris, 0xffffff, 0.6),
+    // §1's "one detail that does most of the work". A *saturated* 45% darkening
+    // of the iris hue with only a trace of lash in it: mixing the ring most of
+    // the way to the lash colour (what this used to do) makes a black rim that
+    // merges with the lash bar under any downsample, and the eye loses the
+    // concentric read that says "anime iris" rather than "amber disc".
+    irisRing: mixHex(darken(saturate(iris, 1.3), 0.45), lash, 0.16),
+    // Near-black. The old pupil was 18% of the way back to the iris hue and the
+    // review found it "a warm brown pupil that barely separates".
+    pupil: mixHex(0x07090d, iris, 0.03),
     lash,
     brow: ensureDarkerThan(darken(pal.hair ?? 0x4a3d33, 0.25), skin, 0.32),
-    mouth: ensureDarkerThan(mixHex(pal.skinShade ?? 0xe0a98f, lash, 0.5), skin, 0.34),
+    mouth: ensureDarkerThan(mixHex(skinShade, lash, 0.5), skin, 0.34),
 
-    // Shape dials. Every one of these is a straight read of `roundness` except
-    // where noted; the small jitter keeps six faces from looking stamped.
-    cornerDrop: lerp(0.06, 0.17, round),     // outer corner sits below the inner
-    lowerDepth: lerp(0.55, 0.97, round),     // how deep the lower lid bows
-    lashWeight: lerp(0.18, 0.22, round),     // §1: 18–22% of eye height
-    lashFlick: lerp(0.08, 0.30, round),      // overshoot past the outer corner
-    browThick: lerp(0.072, 0.050, round),    // fraction of face height
-    browArch: lerp(0.10, 0.26, round) + rng.jitter(0.02),
+    // Shape dials, now sourced from the eye-shape and brow families rather than
+    // from one roundness scalar. The small jitter keeps two characters sharing
+    // a family from looking rubber-stamped.
+    widen: shape.widen,
+    openU: shape.openU,
+    openL: shape.openL,
+    irisFill: shape.irisFill,
+    eyeTilt: shape.tilt + rng.jitter(0.018),   // outer corner up
+    cornerDrop: shape.cornerDrop,              // outer corner sits below the inner
+    lowerDepth: shape.lowerDepth,              // how deep the lower lid bows
+    // §1: 18–22% of eye height. Measured against the *aperture* now, not the
+    // envelope, and split evenly across the lid line instead of dropping 82% of
+    // it into the white — the two errors that together made the review measure
+    // "roughly 45% of eye height" and call every character heavy-lidded.
+    lashWeight: shape.lash + rng.jitter(0.008),
+    lashFlick: shape.flick,
+    browThick: browStyle.thick,                // fraction of face height
+    browArch: browStyle.arch + rng.jitter(0.02),
+    browDrop: browStyle.drop,                  // toward the eye
+    mouthCurveBias: browStyle.mouth,
+    mouthWidthBias: browStyle.mouthW,
     highlightJitter: rng.jitter(0.04),
     // A nose dot is invisible at battle range and only ever reads in a portrait.
     // The two youngest faces go without: absence of a nose is a childhood cue.
@@ -355,14 +527,22 @@ function lashProfile(s, flick) {
  * that +x points at the outer corner.
  */
 function drawEye(ctx, t, x, S) {
-  const hw = (FACE_LAYOUT.eyeW * t.eyeScale * S) / 2;
+  // The whole eye rotates: outer corner up. Tilt is one of the strongest
+  // identity channels an anime face has and the previous build had none of it,
+  // which is half of why the review saw "the same eye shape" six times.
+  ctx.save();
+  ctx.rotate(-t.eyeTilt);
+
+  const hw = (FACE_LAYOUT.eyeW * t.eyeScale * t.widen * S) / 2;
   const hh = (FACE_LAYOUT.eyeH * t.eyeScale * S) / 2;
   // The 0.26 × 0.30 cell from the layout table is the eye's *envelope* — lash
-  // bar included. The wet aperture inside it is shorter, which is what §1 means
-  // by a sclera "slightly wider than tall": at full open this lands between
-  // 1.02 (Seren, round) and 1.3 (Bramm, narrow) times as wide as it is tall.
-  const hu = hh * 0.88 * x.open;
-  const hl = hh * 0.85 * (1 - x.lidRaise);
+  // bar included. The aperture inside it is set by the shape family: a narrow
+  // eye opens to 60% of the envelope and comes out well wider than tall, a
+  // round one opens to nearly all of it and comes out near-circular.
+  const hu0 = hh * t.openU;
+  const hl0 = hh * t.openL;
+  const hu = hu0 * x.open;
+  const hl = hl0 * (1 - x.lidRaise);
   const g = eyeGeometry(hw, hu, hl, t);
   const flickLen = hw * t.lashFlick * 2;
 
@@ -385,38 +565,41 @@ function drawEye(ctx, t, x, S) {
   ctx.fillStyle = sc;
   ctx.fillRect(-hw * 1.6, -hh * 1.8, hw * 3.2, hh * 3.6);
 
-  // 2 — iris: §1's "large circle filling ~85% of the eye height", measured
-  // against the *aperture* at full open. Measuring it against the envelope
-  // instead makes the iris as wide as the whole eye, and the sclera disappears
-  // — an eye with no visible white reads as a button, not an anime eye.
+  // 2 — iris. Sized against the aperture *width* and deliberately allowed to
+  // run past the lids, which the clip then cuts: that is how an anime iris gets
+  // to be enormous without turning into a floating disc with white all round
+  // it. The cap keeps a slit eye's circle from outgrowing its own aperture.
   // Deriving it from the full-open aperture rather than the current one is what
   // lets a squint occlude the iris instead of shrinking it.
-  const irisR = 0.425 * hh * (0.88 + 0.85 * t.lowerDepth);
+  const irisR = Math.min(hw * t.irisFill * 0.92, (hu0 + hl0) * 0.60);
   const ix = -hw * 0.03;
-  const iy = hh * 0.04;
+  const iy = hh * 0.02;
   const ig = ctx.createLinearGradient(0, iy - irisR, 0, iy + irisR);
-  // The dark top band is the lash's cast shadow. Kept short — run it further
-  // down and it merges with the pupil, and the pupil stops reading.
-  ig.addColorStop(0, cssHex(darken(mixHex(t.iris, t.lash, 0.30), 0.08)));
-  ig.addColorStop(0.30, cssHex(saturate(t.iris, 1.18)));
-  ig.addColorStop(0.58, cssHex(saturate(t.iris, 1.3)));
-  ig.addColorStop(1, cssHex(mixHex(t.iris, t.irisCore, 0.62)));
+  // The dark top band is the lash's cast shadow. Kept short and no longer
+  // near-black — run it deep and the eye reads heavy-lidded, which is the note
+  // the review wrote against every character in the party.
+  ig.addColorStop(0, cssHex(darken(mixHex(t.iris, t.lash, 0.34), 0.04)));
+  ig.addColorStop(0.34, cssHex(saturate(t.iris, 1.15)));
+  ig.addColorStop(0.62, cssHex(saturate(t.iris, 1.32)));
+  ig.addColorStop(1, cssHex(mixHex(t.iris, t.irisCore, 0.55)));
   ctx.fillStyle = ig;
   ctx.beginPath();
   ctx.arc(ix, iy, irisR, 0, Math.PI * 2);
   ctx.fill();
 
   // 3 — the darker iris ring. §1: "this one detail does most of the work".
-  const ringW = irisR * 0.13;
-  ctx.strokeStyle = cssHex(mixHex(t.iris, t.lash, 0.72));
+  // 12% of the iris radius with a texel floor, so it is still a ring and not a
+  // smudge at the mip level the battle camera samples.
+  const ringW = atLeast(irisR * 0.12, MIN_PX.ring);
+  ctx.strokeStyle = cssHex(t.irisRing);
   ctx.lineWidth = ringW;
   ctx.beginPath();
   ctx.arc(ix, iy, irisR - ringW * 0.5, 0, Math.PI * 2);
   ctx.stroke();
 
-  // 4 — pupil: 35% of the iris width and taller than wide.
-  const pupilR = irisR * 0.35 * x.pupil;
-  ctx.fillStyle = cssHex(mixHex(t.lash, t.iris, 0.18));
+  // 4 — pupil: 35% of the iris width, taller than wide, and near-black.
+  const pupilR = atLeast(irisR * 0.35 * x.pupil, MIN_PX.pupil);
+  ctx.fillStyle = cssHex(t.pupil);
   ctx.beginPath();
   ctx.ellipse(ix, iy, pupilR, pupilR * 1.28, 0, 0, Math.PI * 2);
   ctx.fill();
@@ -424,7 +607,7 @@ function drawEye(ctx, t, x, S) {
 
   // 5 — the upper lash bar. Deliberately *outside* the clip: it has to overhang
   // the outer corner, and it is the heaviest black in the face.
-  const lashTh = hh * 2 * t.lashWeight;
+  const lashTh = atLeast((hu0 + hl0) * t.lashWeight, MIN_PX.lash);
   const spine = samplePolyline((s, o) => lidPoint(g, s, flickLen, o), 0, 1 + t.lashFlick, 30);
   const top = [];
   const bot = [];
@@ -436,10 +619,13 @@ function drawEye(ctx, t, x, S) {
     const l = Math.hypot(nx, ny) || 1;
     nx /= l; ny /= l;
     const th = lashTh * lashProfile((i / (spine.length - 1)) * (1 + t.lashFlick), t.lashFlick);
-    // 18% of the weight above the lid line, 82% below: the bar sits *inside*
-    // the white, which is what makes it a lash rather than an eyeshadow smear.
-    top.push({ x: spine[i].x + nx * th * 0.18, y: spine[i].y + ny * th * 0.18 });
-    bot.push({ x: spine[i].x - nx * th * 0.82, y: spine[i].y - ny * th * 0.82 });
+    // Straddle the lid line, 45% above and 55% below. The old 18/82 split
+    // dropped nearly the whole bar into the aperture, so a lash specified at
+    // ~20% of eye height ate close to half the visible eye — the review's
+    // "every character reads heavy-lidded and sullen". Sitting on the line
+    // keeps the ink weight while giving the white back.
+    top.push({ x: spine[i].x + nx * th * 0.45, y: spine[i].y + ny * th * 0.45 });
+    bot.push({ x: spine[i].x - nx * th * 0.55, y: spine[i].y - ny * th * 0.55 });
   }
   ctx.fillStyle = cssHex(t.lash);
   ctx.beginPath();
@@ -456,21 +642,29 @@ function drawEye(ctx, t, x, S) {
   // 6 — lower lid: thin, soft, and only along the outer half. Any heavier and
   // it stops reading as a lid and starts reading as an eye bag.
   ctx.strokeStyle = cssRgba(mixHex(t.lash, t.skinShade, 0.42), 0.7);
-  ctx.lineWidth = hh * 2 * 0.035;
+  ctx.lineWidth = atLeast(hh * 2 * 0.035, MIN_PX.lid);
   ctx.lineCap = 'round';
   ctx.beginPath();
   smoothPath(ctx, samplePolyline((s, o) => lowerPoint(g, s, o), 0.03, 0.48, 10));
   ctx.stroke();
 
-  // 7 — highlights. Large upper-outer, small lower-inner, both opaque white.
-  // Drawn last so the lash can never eat them; without these the eye is dead.
+  // 7 — highlights. §1 puts the large one at 22% of the iris radius, fully
+  // opaque white, in the upper-*outer* quadrant, with a smaller lower-inner
+  // companion. Drawn dead last, with `globalAlpha` and the composite mode
+  // reset, so nothing above can tint them — the review measured them as pink,
+  // which is what a catch-light becomes once anything is allowed to blend over
+  // it or once a box-filtered mip averages it into the iris.
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
-  ctx.arc(ix + irisR * (0.38 + t.highlightJitter), iy - irisR * 0.40, irisR * 0.25, 0, Math.PI * 2);
+  ctx.arc(ix + irisR * (0.36 + t.highlightJitter), iy - irisR * 0.38, atLeast(irisR * 0.24, MIN_PX.highlight), 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.arc(ix - irisR * 0.36, iy + irisR * (0.46 - t.highlightJitter), irisR * 0.12, 0, Math.PI * 2);
+  ctx.arc(ix - irisR * 0.38, iy + irisR * (0.46 - t.highlightJitter), atLeast(irisR * 0.11, MIN_PX.highlightSmall), 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
+
   ctx.restore();
 }
 
@@ -482,8 +676,13 @@ function drawEye(ctx, t, x, S) {
  * Drawn in the same mirrored frame as the eye, so -x is the inner end.
  */
 function drawBrow(ctx, t, x, halfW, S) {
+  // The brow follows the eye's tilt at reduced gain: locking it level while the
+  // eye rakes reads as a mistake, matching it exactly reads as a decal.
+  ctx.save();
+  ctx.rotate(-t.eyeTilt * 0.6);
+
   const bw = halfW * 2 * FACE_LAYOUT.browW;
-  const th = t.browThick * S * x.browThick;
+  const th = atLeast(t.browThick * S * x.browThick, MIN_PX.brow);
   // Positive angle raises the inner end (see the sign note in `faceTraits`).
   const ang = t.browAngle + x.browTilt;
   const inX = -bw / 2;
@@ -514,6 +713,7 @@ function drawBrow(ctx, t, x, halfW, S) {
   ctx.quadraticCurveTo(cx - nMid.x * tMid, cy - nMid.y * tMid, inX - nIn.x * tIn, inY - nIn.y * tIn);
   ctx.closePath();
   ctx.fill();
+  ctx.restore();
 }
 
 /**
@@ -521,11 +721,14 @@ function drawBrow(ctx, t, x, halfW, S) {
  * lips, teeth, an outlined opening — breaks the style on sight.
  */
 function drawMouth(ctx, t, x, S) {
-  const w = FACE_LAYOUT.mouthW * S * x.mouthWidth;
+  // Width and curvature carry the same personality the brow does — a hard brow
+  // gets a wider, flatter, slightly downturned line, a gentle one a shorter and
+  // softly upturned arc — so the six mouths are not one stamp at six hues.
+  const w = FACE_LAYOUT.mouthW * S * x.mouthWidth * t.mouthWidthBias;
   const y = FACE_LAYOUT.mouthY * S;
-  const c = x.mouthCurve * S;
+  const c = (x.mouthCurve + t.mouthCurveBias) * S;
   ctx.strokeStyle = cssHex(t.mouth);
-  ctx.lineWidth = S * 0.014;
+  ctx.lineWidth = atLeast(S * 0.014, MIN_PX.mouth);
   ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(S * 0.5 - w / 2, y - c * 0.25);
@@ -554,11 +757,37 @@ export function drawFace(ctx, def, size = FACE_TEXTURE_SIZE, opts = {}) {
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  // Flat skin. ANIME_PIPELINE §1: the base is one value — the cel shader
-  // supplies the shadow band, and it must be a hue shift, not a texture.
+  // Flat skin, then **one painted cel band**. ANIME_PIPELINE §1 gives the base
+  // as a single warm-pale value and §2 clamps the face's *shader* shadow to a
+  // 0.75 floor — which left the face with no form at all, and the review read
+  // it as "a uniform orange disc". The band below is the painted half of that
+  // contract: a jaw-and-temple shadow in the spec's warm rose-tan, held inside
+  // the same 0.75–0.90 window by `clampShadowBand`, with a terminator 5% of the
+  // radius wide so it is a hard cel edge rather than a PBR gradient.
+  //
+  // Geometry is an ellipse centred above the eye line: it closes under the jaw
+  // and wraps the temples where the skull turns away, and stays inside 86% of
+  // the plate radius, past which `CharacterFactory`'s face plate is buried in
+  // the skull and nothing painted here would be visible anyway.
   if (opts.background !== false) {
     ctx.fillStyle = cssHex(t.skin);
     ctx.fillRect(0, 0, S, S);
+
+    // Half-axes 0.52 × 0.50 of the square about (0.50, 0.38): the terminator
+    // crosses the centre line at y ≈ 0.82 — below the mouth at 0.80, above the
+    // plate's buried rim — and grazes the temples just outside the eye cells.
+    const bandR = S * 0.52;
+    ctx.save();
+    ctx.translate(S * 0.5, S * 0.38);
+    ctx.scale(1, 1.04);
+    const band = ctx.createRadialGradient(0, 0, 0, 0, 0, bandR);
+    band.addColorStop(0, cssRgba(t.skinShade, 0));
+    band.addColorStop(0.88, cssRgba(t.skinShade, 0));
+    band.addColorStop(0.94, cssRgba(t.skinShade, 1));
+    band.addColorStop(1, cssRgba(t.skinShade, 1));
+    ctx.fillStyle = band;
+    ctx.fillRect(-S, -S, S * 2, S * 2);
+    ctx.restore();
   }
 
   // Cheek blush: a painted mark on the cheekbone, warm and tight. It sits
@@ -566,14 +795,14 @@ export function drawFace(ctx, def, size = FACE_TEXTURE_SIZE, opts = {}) {
   // under-eye shadow, which is the grubby, smudged look the brief forbids.
   // Pushed toward rose rather than using `skinShade` neat, because the shade
   // tone is a shadow colour and a shadow on a cheek is not a blush.
-  const blush = mixHex(t.skinShade, 0xff6a5e, 0.45);
+  const blush = mixHex(t.skinShade, 0xff6a5e, 0.38);
   const blushR = S * 0.085;
   for (const side of [-1, 1]) {
     const bx = S * (0.5 + side * 0.315);
     const by = S * 0.745;
     const bg = ctx.createRadialGradient(bx, by, 0, bx, by, blushR);
-    bg.addColorStop(0, cssRgba(blush, 0.17));
-    bg.addColorStop(0.6, cssRgba(blush, 0.08));
+    bg.addColorStop(0, cssRgba(blush, 0.13));
+    bg.addColorStop(0.6, cssRgba(blush, 0.06));
     bg.addColorStop(1, cssRgba(blush, 0));
     ctx.fillStyle = bg;
     ctx.beginPath();
@@ -582,10 +811,12 @@ export function drawFace(ctx, def, size = FACE_TEXTURE_SIZE, opts = {}) {
   }
 
   const halfSpanX = (0.5 - FACE_LAYOUT.eyeX) * t.spacing;
-  const halfW = (FACE_LAYOUT.eyeW * t.eyeScale * S) / 2;
+  const halfW = (FACE_LAYOUT.eyeW * t.eyeScale * t.widen * S) / 2;
   const halfH = (FACE_LAYOUT.eyeH * t.eyeScale * S) / 2;
   const eyeCy = FACE_LAYOUT.eyeY * S;
-  const browY = eyeCy - halfH - (FACE_LAYOUT.browGap + x.browLift) * S;
+  // `browDrop` is the family's own height offset — a hard brow crowds the lid,
+  // a gentle one sits high and clear of it.
+  const browY = eyeCy - halfH - (FACE_LAYOUT.browGap + x.browLift - t.browDrop) * S;
 
   for (const side of [-1, 1]) {
     const cx = S * (0.5 + side * halfSpanX);
@@ -625,14 +856,15 @@ export function drawFace(ctx, def, size = FACE_TEXTURE_SIZE, opts = {}) {
 export function faceMetrics(def, expression = 'neutral') {
   const t = faceTraits(def);
   const x = EXPRESSIONS[expression] ?? EXPRESSIONS.neutral;
-  const w = FACE_LAYOUT.eyeW * t.eyeScale;
+  const w = FACE_LAYOUT.eyeW * t.eyeScale * t.widen;
   const h = FACE_LAYOUT.eyeH * t.eyeScale;
   return {
     eyeCenterY: FACE_LAYOUT.eyeY,
     eyeHalfSpan: (0.5 - FACE_LAYOUT.eyeX) * t.spacing,
     eyeWidth: w,
     eyeHeight: h,
-    browY: FACE_LAYOUT.eyeY - h / 2 - (FACE_LAYOUT.browGap + x.browLift),
+    eyeTilt: t.eyeTilt,
+    browY: FACE_LAYOUT.eyeY - h / 2 - (FACE_LAYOUT.browGap + x.browLift - t.browDrop),
     mouthY: FACE_LAYOUT.mouthY,
     roundness: t.round,
     skin: t.skin,
@@ -651,6 +883,52 @@ const _cache = new Map();
 
 function cacheKey(def, expression, size, flipY) {
   return `${def.id}|${expression}|${size}|${flipY ? 1 : 0}`;
+}
+
+/**
+ * Below this edge the face is redrawn from vector art; at and under it, levels
+ * are box-filtered down from the one above. At 32 px the whole head is smaller
+ * than the lash bar's texel floor, so redrawing there would produce a face made
+ * of nothing but floors — a black smear. Those levels only ever serve extreme
+ * minification, where a blurred average is the correct answer.
+ */
+const MIP_VECTOR_FLOOR = 64;
+
+/**
+ * The full mip chain, **drawn** rather than filtered.
+ *
+ * This is the real fix for the review's "under-resolved for the closeup camera
+ * … the iris ring is entirely absent". Both notes were measured off a frame in
+ * which the face plate was minified, so the GPU was sampling a mip — and a
+ * box-filtered mip is precisely a machine for destroying a 12%-wide ring, a 22%
+ * catch-light and a hard lash edge, because averaging is what it does. Neither
+ * a bigger level 0 nor `LinearFilter` alone can help: level 0 is not the level
+ * being read.
+ *
+ * Redrawing every level from the same vector description, with each feature
+ * held above `MIN_PX` texels, means the 128² mip the battle camera actually
+ * samples is itself a crisp painted face — ring present, catch-light opaque,
+ * lash still the heaviest black — rather than an average of one. A complete
+ * chain down to 1×1 is emitted so the texture is mip-complete under both of
+ * three's upload paths (`texStorage2D` sizes its allocation from this length).
+ */
+function drawMipChain(def, expression, size) {
+  const levels = [];
+  let prev = null;
+  for (let s = size; s >= 1; s = Math.floor(s / 2)) {
+    const c = makeCanvas(s, s);
+    const cx = c.getContext('2d');
+    if (s >= MIP_VECTOR_FLOOR || prev === null) {
+      drawFace(cx, def, s, { expression });
+    } else {
+      cx.imageSmoothingEnabled = true;
+      cx.imageSmoothingQuality = 'high';
+      cx.drawImage(prev, 0, 0, s, s);
+    }
+    levels.push(c);
+    prev = c;
+  }
+  return levels;
 }
 
 /**
@@ -673,23 +951,24 @@ export function buildFaceTexture(def, opts = {}) {
     if (hit) return hit;
   }
 
-  const canvas = makeCanvas(size, size);
-  const ctx = canvas.getContext('2d');
-  drawFace(ctx, def, size, { expression });
+  const mipmaps = drawMipChain(def, expression, size);
 
-  const tex = new THREE.CanvasTexture(canvas);
+  const tex = new THREE.CanvasTexture(mipmaps[0]);
   tex.name = `face-${def.id}-${expression}`;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.flipY = flipY;
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.generateMipmaps = true;
+  // Hand-authored mips, uploaded level by level (three honours `mipmaps` for a
+  // canvas-backed texture and skips its own generation). See `drawMipChain`.
+  tex.mipmaps = mipmaps;
+  tex.generateMipmaps = false;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
   // The lash bar is a high-contrast near-black edge across a white field — the
   // exact case that aliases into a crawling grey line under minification, which
   // is what the battle camera does to it. Three clamps this to the device max.
-  tex.anisotropy = opts.anisotropy ?? 8;
+  tex.anisotropy = opts.anisotropy ?? 16;
   tex.needsUpdate = true;
 
   if (opts.cache !== false) _cache.set(key, tex);
@@ -774,6 +1053,12 @@ export function buildFaceSheetTexture(defs = ROSTER, opts = {}) {
 
 /** Release every cached face texture. Call on a full teardown, not a scene swap. */
 export function disposeFaceCache() {
-  for (const tex of _cache.values()) tex.dispose();
+  for (const tex of _cache.values()) {
+    tex.dispose();
+    // The mip chain is a dozen canvases per face and it is reachable only from
+    // here; dropping the references is what actually returns the memory, since
+    // `dispose()` only frees the GPU side.
+    tex.mipmaps = [];
+  }
   _cache.clear();
 }

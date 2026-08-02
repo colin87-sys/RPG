@@ -72,6 +72,7 @@ import { Rng } from '../core/GameState.js';
 import { LIGHT, luminance } from '../art/Palette.js';
 import {
   buildRig, computeMetrics, skinSegments, skullPoint, skullDepth, hairlinePhi,
+  CAST_LAYER,
 } from './Rig.js';
 import { Animator } from './Animation.js';
 import { ClothSim } from './Cloth.js';
@@ -97,6 +98,47 @@ const CLASSES = ['skin', 'face', 'hair', 'cloth', 'metal', 'glow'];
 
 /** Classes whose hull forms the read silhouette and therefore takes an ink line. */
 const OUTLINED = new Set(['skin', 'hair', 'cloth', 'metal']);
+
+/**
+ * Re-exported so consumers have one import for the cast; defined in `Rig.js`
+ * because `Cloth` needs it and cannot import this module.
+ *
+ * The review's "five of six party members are semi-transparent" is not a
+ * character-side defect: every material this file produces is opaque and writes
+ * depth (`sealOpaque`, and `auditCharacter` proves it without a renderer). The
+ * cast is being *composited over* by the scene's volumetric mist, which is
+ * alpha-blended and therefore always drawn after the opaque queue — a card
+ * standing between the lens and a figure veils it no matter what the figure's
+ * material says. Fixing that means either depth-aware mist or a cast pass that
+ * runs after the volumetrics, and both need the renderer to be able to name the
+ * cast, which is what this layer is for.
+ */
+export { CAST_LAYER };
+
+/**
+ * The opacity contract every character surface is held to, asserted rather than
+ * inherited.
+ *
+ * ANIME_PIPELINE has no transparent character surface: flat colour, a painted
+ * face and a highlight band. A blended one would also have to be sorted against
+ * the volumetric pass and against the inverted hull, neither of which has a
+ * stable answer. Writing the fields explicitly here — rather than trusting
+ * `createToonMaterial`'s defaults, a preset table this file does not own, or a
+ * caller's `spec` — is what makes "the cast is opaque" a property of the module
+ * instead of a property of five other files agreeing.
+ *
+ * The contact decal is the one deliberate exception and is built by hand.
+ */
+function sealOpaque(material) {
+  material.transparent = false;
+  material.opacity = 1;
+  material.alphaTest = 0;
+  material.blending = THREE.NormalBlending;
+  material.depthWrite = true;
+  material.depthTest = true;
+  material.premultipliedAlpha = false;
+  return material;
+}
 
 // =========================================================== geometry tools
 
@@ -642,6 +684,63 @@ function glowMaterial(name) {
 // ============================================================ body builders
 
 /**
+ * The silhouette block, resolved with defaults.
+ *
+ * REFERENCE_TARGET §1 makes "a clean, distinct black silhouette at 80 px" a
+ * hard requirement and the review found the party failing it on the *body*:
+ * identical box torso, straight untapered tube legs, the same egg head, with
+ * colour doing all the identification work. Costume and hair were already
+ * differentiated; the mass underneath them was not.
+ *
+ * These four numbers are the mass. `hip`/`waist`/`chest` reshape the trunk
+ * (see `buildTorso`) and `limbTaper` scales how hard a limb narrows from its
+ * root to its extremity, which is what turns a tube into a leg. Stance width
+ * lives in `proportions.stance` instead, because `Rig` has to place the joints
+ * before anything can be built against them.
+ *
+ * They are deliberately *shape* controls, not size controls. A scalar girth
+ * multiplier — which is all the roster had — changes a figure's area but leaves
+ * its outline the same rectangle, which is exactly the failure being fixed.
+ */
+const SILHOUETTE_DEFAULTS = Object.freeze({
+  hip: 0, waist: 0, chest: 0, limbTaper: 1,
+});
+
+function silhouetteOf(def) {
+  return { ...SILHOUETTE_DEFAULTS, ...(def.silhouette ?? {}) };
+}
+
+/**
+ * Limb radii at root, mid joint and extremity, per limb, in world units.
+ *
+ * REFERENCE §1: limbs are "short, **tapered**, no visible elbow/knee
+ * articulation detail". The previous numbers were `girth.thigh × 1.06 → knee →
+ * ankle`, a 1.38:1 taper over the whole leg — which at eighty pixels is a
+ * straight tube, and six straight tubes are six identical silhouettes. Just
+ * over 2:1 is what actually reads as a tapered chibi limb: a heavy thigh and
+ * upper arm, a narrow wrist and ankle disappearing into a cuff and a boot.
+ *
+ * The wrist and ankle values are returned rather than recomputed by each
+ * consumer because the mitten, the sleeve cuff and the boot shaft all have to
+ * *swallow* the tube's end. A taper tuned in one place and a hand sized in
+ * another is how a limb ends in a visible step, which is the defect
+ * `buildHand`'s stationing exists to prevent.
+ */
+function limbRadii(m, sil) {
+  const g = m.girth;
+  const k = sil.limbTaper;
+  const taper = (root, mid, tip) => ({
+    root: root * THREE.MathUtils.lerp(1, 1.22, k),
+    mid: mid * THREE.MathUtils.lerp(1, 0.94, k),
+    tip: tip * THREE.MathUtils.lerp(1, 0.80, k),
+  });
+  return {
+    arm: taper(g.arm, g.elbow, g.wrist),
+    leg: taper(g.thigh, g.knee, g.ankle),
+  };
+}
+
+/**
  * Torso: one continuous lathed mass from hip to neck, in three flat colour
  * zones.
  *
@@ -665,11 +764,39 @@ function glowMaterial(name) {
  * coincident so the quad between them has zero area and never rasterises, and
  * `mergeVertices` cannot weld them because they differ in the colour attribute.
  */
-function buildTorso(s, m, pal) {
+function buildTorso(s, m, pal, sil) {
   const g = m.girth;
   const hipY = m.joints.hips.y;
   const neckY = m.joints.neck.y;
   const span = neckY - hipY;
+
+  /**
+   * Three smooth bumps along the trunk — pelvis, waist, ribcage — that the
+   * roster's `silhouette` block pushes in or out independently.
+   *
+   * This is the answer to the review's "all six share an identical box torso".
+   * They did, literally: the profile table below was the *only* trunk in the
+   * game and the six differed by a scalar girth multiplier, which changes a
+   * figure's area but not its shape — flatten two of them to black at eighty
+   * pixels and they are the same rectangle. A per-character bump triple is the
+   * cheapest thing that changes the *outline*: Bramm's pelvis and ribs both push
+   * out while his waist pushes out further (a keg), Kite's waist pulls in hard
+   * against a flared pelvis (an hourglass), Emrys's coat swings out below the
+   * belt and in at the shoulders (a bell with a child on top). Same eleven
+   * rings, six genuinely different silhouettes.
+   *
+   * Each bump is a raised cosine so the shaping never introduces a crease of
+   * its own; the hard edges in the trunk are the *colour* zones, which is where
+   * ANIME_PIPELINE §5 wants them.
+   */
+  const bump = (t, centre, width) => {
+    const k = THREE.MathUtils.clamp(Math.abs(t - centre) / width, 0, 1);
+    return 0.5 + 0.5 * Math.cos(k * Math.PI);
+  };
+  const shapeAt = (t) => 1
+    + sil.hip * bump(t, -0.02, 0.42)
+    + sil.waist * bump(t, 0.34, 0.34)
+    + sil.chest * bump(t, 0.82, 0.42);
 
   // [t along hips→neck, xScale, zScale, zOffset, zone]
   // The waist pinch is deep on purpose (0.78 at t = 0.34): a 14% variation
@@ -700,8 +827,9 @@ function buildTorso(s, m, pal) {
     // Below the waist the hip girth dominates, above it the chest does; the
     // crossover is at t = 0.34, which is where a chibi's "waist" reads.
     const k = THREE.MathUtils.clamp((t - 0.10) / 0.45, 0, 1);
-    const rx = THREE.MathUtils.lerp(g.hipX, g.chestX, k) * sx;
-    const rz = THREE.MathUtils.lerp(g.hipZ, g.chestZ, k) * sz;
+    const shape = shapeAt(t);
+    const rx = THREE.MathUtils.lerp(g.hipX, g.chestX, k) * sx * shape;
+    const rz = THREE.MathUtils.lerp(g.hipZ, g.chestZ, k) * sz * shape;
     scales.push([rx, rz]);
     // Graded once per ring rather than once per vertex: `sweep` consults the
     // scale function for every column, and `gradeAlbedo` allocates.
@@ -805,7 +933,7 @@ function buildLimb(s, a, b, c, r0, r1, r2, seg = 12) {
  * relaxed at the side rather than a paddle — and it is the axis that shows in
  * the fixed side-view battle camera, so it is the one worth spending on.
  */
-function buildHand(s, m, side) {
+function buildHand(s, m, side, wristR) {
   const g = m.girth;
   const wrist = m.joints[side > 0 ? 'handL' : 'handR'];
   const elbow = m.joints[side > 0 ? 'forearmL' : 'forearmR'];
@@ -817,9 +945,15 @@ function buildHand(s, m, side) {
   // Stations along the forearm axis, measured from the wrist joint. The first is
   // negative — inside the sleeve — which is what makes the join continuous.
   // [distance, half-width across, half-depth front-to-back]
+  //
+  // The first two stations track the *tapered* wrist so the join stays
+  // stepless; the palm stations are sized off the anatomical `girth.wrist`, so
+  // narrowing the tube makes the mitten relatively larger — which is the chibi
+  // read REFERENCE §1 asks for ("hands are mitten-like simple masses"), not a
+  // side effect to be corrected.
   const stations = [
-    [-g.hand * 0.80, g.wrist * 0.94, g.wrist * 0.98],
-    [0, g.wrist * 1.00, g.wrist * 1.10],
+    [-g.hand * 0.80, wristR * 0.94, wristR * 0.98],
+    [0, wristR * 1.00, wristR * 1.12],
     [len * 0.42, g.wrist * 1.14, g.wrist * 1.46],
     [len * 0.78, g.wrist * 1.10, g.wrist * 1.44],
     [len, g.wrist * 0.62, g.wrist * 0.86],
@@ -857,7 +991,7 @@ function buildHand(s, m, side) {
  * boundary an intentional edge of tailoring, and it is the standard chibi
  * solution for the same reason.
  */
-function buildCuff(s, m, side) {
+function buildCuff(s, m, side, armR) {
   const g = m.girth;
   const wrist = m.joints[side > 0 ? 'handL' : 'handR'];
   const elbow = m.joints[side > 0 ? 'forearmL' : 'forearmR'];
@@ -866,9 +1000,18 @@ function buildCuff(s, m, side) {
   const dir = b.clone().sub(a).normalize();
   const p0 = b.clone().addScaledVector(dir, -g.hand * 0.85);
   const p1 = b.clone().addScaledVector(dir, g.hand * 0.12);
+  // **Closed at both ends.** It used to open at `p0` with `capStart: false` and
+  // a first ring wider than the sleeve underneath it, which leaves a bare
+  // boundary in mid-air: from the battle camera you look straight into the
+  // cuff's culled backfaces, and a one-sided ring lit by the mandatory rim
+  // reads as a thin bright sliver hanging off the wrist. That is the review's
+  // "white sliver shooting off character 3's hand" — not z-fighting, an open
+  // shell. Sealing the ring against the sleeve is the fix, and the first ring
+  // is pulled *inside* the tapered forearm so the cap can never be seen either.
+  const seal = Math.min(armR.mid, armR.tip * 1.35) * 0.90;
   sweep(s, [p0, p0.clone().lerp(p1, 0.55), p1], SECTIONS.circle(14),
-    (i) => { const r = g.wrist * [1.10, 1.30, 1.42][i]; return [r, r * 0.95]; },
-    { capStart: false, capEnd: true });
+    (i) => { const r = [seal, g.wrist * 1.34, g.wrist * 1.46][i]; return [r, r * 0.95]; },
+    { capStart: true, capEnd: true });
 }
 
 /**
@@ -1432,10 +1575,23 @@ function buildHair(parts, m, def, pal) {
 
   const cap = new Surface();
   const clumps = new Surface();
+  /**
+   * Facial hair — the fringe, and a beard's forks and moustache.
+   *
+   * Separated from the style mass because the two obey *opposite* rules about
+   * the hairline. A fringe is defined by hanging past it; a style mass bedded
+   * below it is a slab of hair glued to a bare cheek, which is what shipped as
+   * a black polygon void over Yshara's face. Keeping them in different surfaces
+   * is what lets `auditCharacter` enforce that distinction mechanically instead
+   * of a reviewer having to spot it in a render — the whole reason the previous
+   * defect survived to the client.
+   */
+  const facial = new Surface();
   const mass = new Surface();
   const cord = new Surface();
   zone(cap, pal.hair, 'hair');
   zone(clumps, pal.hair, 'hair');
+  zone(facial, pal.hair, 'hair');
   zone(mass, pal.hair, 'hair');
   // Graded on the `metal` band rather than `cloth`: a binding cord is §5's
   // small high-value accent, and the cloth band's floor would sink it into the
@@ -1487,6 +1643,36 @@ function buildHair(parts, m, def, pal) {
   };
 
   /**
+   * A per-clump radial shim, so no two clumps can be coplanar.
+   *
+   * `seat` is a pure function of `(theta, phi)`, which means two neighbouring
+   * clumps overlapping anywhere on the crown have their undersides on *exactly*
+   * the same surface. Coincident faces at equal depth are the classic
+   * z-fighting configuration, and under an inverted-hull pass the loser of the
+   * fight is not a dark pixel but the *hull* — which is how the review's "thin
+   * feathered white streaks along the hair clump edges at the crown" appear,
+   * and why they masquerade as the highlight band. Stepping successive clumps
+   * apart by a fraction of a millimetre each removes the tie entirely; it is
+   * three orders of magnitude below the shell's own 8% wall thickness, so
+   * nothing can surface through the scalp cover.
+   */
+  let clumpOrdinal = 0;
+  const SHIM = 0.0045;
+
+  /**
+   * Root latitude of every *style-mass* clump, against its own hairline.
+   *
+   * Recorded during construction rather than recovered from the finished vertex
+   * buffer, because after `clearSkull`, `clearFace` and a spline resample there
+   * is no way to tell a root from a tip. One number per clump is what makes the
+   * audit's `hair-mass-below-hairline` check exact: the defect it exists to
+   * catch — Yshara's gather rooted at the equator, which put two broad clumps
+   * flat on her cheek — is precisely a root in the wrong place, and every other
+   * invariant in `auditCharacter` passed it.
+   */
+  const massRoots = [];
+
+  /**
    * The radial scale of a clump's **first** spine sample — under the shell's
    * outer wall where there is one, just clear of the scalp where there is not.
    *
@@ -1527,7 +1713,14 @@ function buildHair(parts, m, def, pal) {
    * ring makes the end cap degenerate, the welder strips it, and what is left is
    * an actual point.
    */
-  const clump = (o) => {
+  const clump = (o, target = clumps) => {
+    const shim = (clumpOrdinal++ % 4) * SHIM;
+    if (target === clumps) {
+      massRoots.push({
+        theta: o.theta,
+        below: hairlinePhi(o.theta, frontPhi, backPhi, peak) - o.phi,
+      });
+    }
     const w = o.w;
     // Depth is 0.74 of width, not 0.60. A clump's wide axis is combed azimuthally
     // and its thin axis is the skull radial, so a shallow section presents an
@@ -1548,7 +1741,7 @@ function buildHair(parts, m, def, pal) {
       // lifts away.
       pts.push(P(theta, phi, i === 0
         ? rootScale(theta, phi)
-        : seat(theta, phi, th) + (o.lift ?? 0) * k * k));
+        : seat(theta, phi, th) + shim + (o.lift ?? 0) * k * k));
     }
     if (o.via) for (const v of o.via) pts.push(v);
     const path = smoothPath(pts, o.seg ?? 13);
@@ -1563,7 +1756,7 @@ function buildHair(parts, m, def, pal) {
       return Math.max((1 - k * (1 - tipR)) * (1 - Math.pow(t, 9)), 1e-6);
     };
     clumpSweep(
-      clumps, h, path, comb(o.theta + (o.runTheta ?? 0) * 0.5),
+      target, h, path, comb(o.theta + (o.runTheta ?? 0) * 0.5),
       (i) => w * prof(i), (i) => th * prof(i), SECTIONS.clump(10),
     );
   };
@@ -1632,7 +1825,7 @@ function buildHair(parts, m, def, pal) {
     clump({
       theta, phi: root, runTheta, runPhi: end - root,
       lift: 0.06, via: [flick], w, thick: th, tipRatio: 0.10, hold: 0.34,
-    });
+    }, facial);
   }
 
   // ---- style mass ---------------------------------------------------------
@@ -1703,7 +1896,7 @@ function buildHair(parts, m, def, pal) {
         theta, phi: frontPhi + 0.20, runPhi: end - frontPhi - 0.20, lift: 0.04,
         via: [new THREE.Vector3(base.x * 1.04, h.center.y - h.ry * (0.86 + lean * 0.4), base.z + h.rz * 0.06)],
         w: h.rx * 0.20, tipRatio: 0.10, hold: 0.36,
-      });
+      }, facial);
     }
   } else if (style === 'sheet' || style === 'drift') {
     // "a pale drifting mass twice the width of her body" (WORLD_BIBLE §3.2):
@@ -1741,7 +1934,7 @@ function buildHair(parts, m, def, pal) {
         theta, phi: frontPhi + 0.22, runPhi: end - frontPhi - 0.22, lift: 0.03,
         via: [new THREE.Vector3(base.x * 1.02, base.y - backLen * 0.52, base.z * 0.9)],
         w: h.rx * 0.22, tipRatio: 0.30, hold: 0.42,
-      });
+      }, facial);
     }
   } else if (style === 'beard') {
     // Almost nothing above the chin; the volume is below it. Inverting where the
@@ -1791,7 +1984,7 @@ function buildHair(parts, m, def, pal) {
         theta, phi: -0.55, runPhi: end + 0.55, lift: 0.02,
         via: [base.clone().lerp(tip, 0.42).setZ(h.rz * 0.74), tip],
         w: h.rx * 0.24 * bwd, tipRatio: 0.14, hold: 0.40,
-      });
+      }, facial);
     }
     // Moustache: two short bars over the lip, angled down and out. The latitude
     // is *solved* from the eye guard rather than authored — a moustache one
@@ -1807,7 +2000,7 @@ function buildHair(parts, m, def, pal) {
       clump({
         theta, phi: lipPhi, runTheta: sgn * 0.18, runPhi: -0.22, lift: 0.05,
         w: h.rx * 0.17 * bwd, thick: h.rx * 0.09, tipRatio: 0.18, hold: 0.30,
-      });
+      }, facial);
     }
   } else if (style === 'bob') {
     // A bell that is widest at the jaw — nobody else in the party carries mass
@@ -1907,12 +2100,40 @@ function buildHair(parts, m, def, pal) {
     const bindY = h.center.y + h.ry * 0.68;
     const bindZ = -h.rz * 0.30;
     const n = hp.backCount ?? 6;
+    // **Every gather clump roots on its own hairline, not on a fixed latitude.**
+    //
+    // This is the review's "hard-edged black polygon void punched into the right
+    // side of the hair". It was never a missing face or a flipped normal: the
+    // gather was rooted at `phi = -0.06` — the head's *equator* — for every
+    // azimuth in a fan that reached the front on both sides, so the two outer
+    // clumps were bedded onto bare cheek and temple, ran up across the eye guard
+    // (where `clearFace` shoved them backwards, which is the notch), and
+    // presented their broad unlit face to the lens as a black slab over the
+    // skin. A latitude that is correct at the nape is halfway down the jaw at
+    // the front, and no clump width or length fixes a root in the wrong place.
+    //
+    // Rooting at `hairlinePhi(theta) + margin` makes the failure unreachable
+    // from any azimuth or any head proportion, and the fan is re-centred on the
+    // nape so the gather sweeps up from behind the ears — which is what a
+    // gathered style actually does and what leaves the temples to the fringe.
+    const gatherSpan = 1.75;
     for (let i = 0; i < n; i++) {
       const t = (i + 0.5) / n;
-      const theta = 0.45 - (Math.PI + 0.90) * t;
+      const theta = -Math.PI * 0.5 + gatherSpan * (1 - 2 * t);
+      const root = hairlinePhi(theta, frontPhi, backPhi, peak) + 0.16;
+      // The six converge onto a *ring* about the binding axis rather than onto
+      // one point. Six spines meeting at a single control point put six clump
+      // bodies through each other for the last third of their length, which is
+      // a solid knot of interpenetrating shells with no internal form — and it
+      // is coincident geometry, which is the other half of the crown slivers.
+      const gatherA = new THREE.Vector3(
+        Math.cos(theta) * h.rx * 0.16,
+        bindY - h.ry * 0.10,
+        bindZ * 0.8 + Math.sin(theta) * h.rz * 0.16,
+      );
       clump({
-        theta, phi: -0.06, runPhi: 0.66, lift: 0.02,
-        via: [new THREE.Vector3(0, bindY - h.ry * 0.12, bindZ * 0.8)],
+        theta, phi: root, runPhi: Math.max(0.26, 1.20 - root), lift: 0.02,
+        via: [gatherA],
         w: h.rx * 0.24, tipRatio: 0.34, hold: 0.58,
       });
     }
@@ -1946,16 +2167,24 @@ function buildHair(parts, m, def, pal) {
   // face guard is absolute — a mass in front of the eyes is a character with no
   // face, which is what shipped once already.
   clearSkull(clumps, m);
+  clearSkull(facial, m);
   clearSkull(mass, m);
   clearSkull(cord, m);
   clearFace(clumps, m);
+  clearFace(facial, m);
   clearFace(mass, m);
 
   if (!cap.empty) parts.push({ surface: cap, cls: 'hair', bind: ['neck', 'head'], painted: true });
   // `crease: 0.7` rather than a smooth normal pass: the clump section is a
   // ten-sided superellipse whose squared sides meet at well over that angle, so
   // the facets survive and the hair reads as carved (§3) instead of as rope.
-  if (!clumps.empty) parts.push({ surface: clumps, cls: 'hair', bind: ['neck', 'head'], crease: 0.7, painted: true });
+  if (!clumps.empty) {
+    parts.push({
+      surface: clumps, cls: 'hair', bind: ['neck', 'head'], crease: 0.7,
+      painted: true, roots: massRoots,
+    });
+  }
+  if (!facial.empty) parts.push({ surface: facial, cls: 'hair', bind: ['neck', 'head'], crease: 0.7, painted: true });
   // The bound column keeps a softer crease: it is one large form and hard facets
   // across it read as a low-poly artefact rather than as carving.
   if (!mass.empty) parts.push({ surface: mass, cls: 'hair', bind: ['neck', 'head'], crease: 1.05, painted: true });
@@ -2319,21 +2548,50 @@ function buildAccessories(parts, m, def, pal) {
       // rooted near the front of the collar points straight at the lens on the
       // side-view stage, so it crosses the throat and the jaw however short it
       // is — length alone cannot save a direction that is wrong.
-      for (let i = 0; i < n; i++) {
-        const a = Math.PI * (0.42 + (i / (n - 1)) * 1.16);
+      // **Closed plates rooted inside the shell, not open blades in mid-air.**
+      //
+      // Each quill was a two-point sweep with `capStart: false`, and its first
+      // ring stood proud of the torso — an open boundary hanging in the air.
+      // From any angle you look straight through it into the material's culled
+      // backfaces, and with the mandatory rim running round that boundary the
+      // result is a thin, feathered, bright streak: the review's "white slivers
+      // shooting off character 3's shoulder and hand", read (correctly) as
+      // exposed backfaces rather than as a designed highlight. Eleven of them
+      // fanned across a chibi shoulder is why they looked like cutlery.
+      //
+      // The rebuild fixes the cause three ways: the root ring is pulled *inside*
+      // the chest mass and capped, so there is no boundary to see through; the
+      // tip ring collapses below the weld tolerance so the plate ends in a point
+      // rather than a lid; and the count is cut roughly in half with the width
+      // more than doubled, which is what turns a row of needles into a mantle.
+      // Silhouette value at this size is carried by mass, never by line count.
+      const plates = THREE.MathUtils.clamp(Math.round(n * 0.55), 4, 7);
+      for (let i = 0; i < plates; i++) {
+        const a = Math.PI * (0.42 + (i / (plates - 1)) * 1.16);
         const out = new THREE.Vector3(Math.sin(a), 0, Math.cos(a));
-        const base = new THREE.Vector3(out.x * g.chestX * 0.95, m.joints.chest.y + g.chestZ * 0.5, out.z * g.chestZ * 0.95);
+        const ringY = m.joints.chest.y + g.chestZ * 0.5;
+        // Buried: 0.62 of the chest half-girth is comfortably inside the trunk
+        // sweep, so the cap disc is never on screen from any camera.
+        const base = new THREE.Vector3(out.x * g.chestX * 0.62, ringY, out.z * g.chestZ * 0.62);
         // Longest at the back of the ring, shortest at the shoulder points, so
         // the fan reads as a mantle gathered behind the neck.
-        const len = fl * (0.40 + 0.34 * Math.max(0, -Math.cos(a)));
-        const rise = Math.min(len * 0.30, Math.max(0, jaw - base.y));
-        const tip = base.clone().add(new THREE.Vector3(out.x * len, rise, out.z * len - g.chestZ * 0.22));
-        // Broad at the root and blunt at the tip: a quill, not a needle. The
-        // narrow profile turned each feather into a pale hairline against the
-        // fog, and eleven hairlines fanned across a shoulder read as cutlery.
-        sweep(cloth, [base, tip], SECTIONS.lens(8, 0.55),
-          (i2) => { const s = H * (i2 === 0 ? 0.028 : 0.009); return [s, s * 0.8]; },
-          { capStart: false, capEnd: true });
+        const len = fl * (0.44 + 0.38 * Math.max(0, -Math.cos(a)));
+        const rise = Math.min(len * 0.30, Math.max(0, jaw - ringY));
+        const tip = new THREE.Vector3(
+          out.x * (g.chestX * 0.62 + len), ringY + rise, out.z * (g.chestZ * 0.62 + len) - g.chestZ * 0.22,
+        );
+        const mid = base.clone().lerp(tip, 0.55);
+        mid.y += len * 0.10;
+        sweep(cloth, smoothPath([base, mid, tip], 6), SECTIONS.clump(10, 0.70, 0.48),
+          (i2) => {
+            const t2 = i2 / 5;
+            // Widest a third of the way out — a feather's vane, not a spike —
+            // and driven to zero at the tip so the end cap welds away.
+            const s = H * (0.030 + 0.016 * Math.sin(Math.PI * Math.min(1, t2 * 1.15)))
+              * Math.max(1e-6, 1 - Math.pow(t2, 6));
+            return [s, s * 0.34];
+          },
+          { capStart: true, capEnd: true });
       }
     }
   }
@@ -2439,8 +2697,13 @@ function buildAccessories(parts, m, def, pal) {
         const off = (k - 0.5) * g.arm * 0.9;
         const p0 = new THREE.Vector3(a.x + off * 0.5, a.y, a.z + g.arm * 0.75);
         const p1 = new THREE.Vector3(c.x + off * 0.5, c.y, c.z + g.wrist * 0.85);
+        // Capped at both ends. An open tube is a one-sided surface: you see
+        // through its rim into the far inner wall, which on an *unlit* emissive
+        // material renders at full brightness and prints two hard bright dots at
+        // the ends of every strip. Two fan caps on a five-sided section is six
+        // triangles a strip and removes the whole class of artefact.
         sweep(glow, smoothPath([p0, p0.clone().lerp(p1, 0.5), p1], 6), SECTIONS.circle(5),
-          () => [H * 0.0035, H * 0.0035], { capStart: false, capEnd: false });
+          () => [H * 0.0035, H * 0.0035], { capStart: true, capEnd: true });
       }
     }
   }
@@ -2597,6 +2860,9 @@ function buildContactShadow(rig, metrics) {
   body.renderOrder = 2;
   body.castShadow = false;
   body.receiveShadow = false;
+  // `Layers` is per-object in three — a group's bits do not propagate — so the
+  // decals opt in individually.
+  body.layers.enable(CAST_LAYER);
   group.add(body);
 
   const feet = [];
@@ -2608,6 +2874,7 @@ function buildContactShadow(rig, metrics) {
     mesh.renderOrder = 3;
     mesh.castShadow = false;
     mesh.receiveShadow = false;
+    mesh.layers.enable(CAST_LAYER);
     group.add(mesh);
     feet.push({ mesh, bone, base: Math.max(metrics.foot.width, metrics.foot.length) * 1.9 });
   }
@@ -2688,8 +2955,11 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
 
   // The trunk carries its own three zones (see `buildTorso`), so it is pushed
   // `painted` — the assembly pass must not flatten it back to one colour.
+  const sil = silhouetteOf(def);
+  const radii = limbRadii(metrics, sil);
+
   const torso = new Surface();
-  buildTorso(torso, metrics, pal);
+  buildTorso(torso, metrics, pal, sil);
   parts.push({ surface: torso, cls: 'cloth', bind: ['hips', 'spine', 'chest', 'neck'], painted: true });
 
   const skin = new Surface();
@@ -2699,7 +2969,6 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
 
   for (const side of [1, -1]) {
     const sfx = side > 0 ? 'L' : 'R';
-    const g = metrics.girth;
     const arm = new Surface();
     const bare = def.accessories?.bareShoulder === sfx || def.accessories?.prosthetic === sfx;
     buildLimb(
@@ -2707,7 +2976,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
       new THREE.Vector3(metrics.joints[`shoulder${sfx}`].x, metrics.joints[`shoulder${sfx}`].y, 0),
       new THREE.Vector3(metrics.joints[`forearm${sfx}`].x, metrics.joints[`forearm${sfx}`].y, 0),
       new THREE.Vector3(metrics.joints[`hand${sfx}`].x, metrics.joints[`hand${sfx}`].y, 0),
-      g.arm * 1.10, g.elbow, g.wrist, 12,
+      radii.arm.root, radii.arm.mid, radii.arm.tip, 12,
     );
     parts.push({
       surface: arm,
@@ -2717,7 +2986,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     });
 
     const hand = new Surface();
-    buildHand(hand, metrics, side);
+    buildHand(hand, metrics, side, radii.arm.tip);
     parts.push({
       surface: hand,
       cls: def.accessories?.prosthetic === sfx ? 'metal' : 'skin',
@@ -2730,7 +2999,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     // already terminates the limb).
     if (!bare && def.accessories?.prosthetic !== sfx) {
       const cuff = new Surface();
-      buildCuff(cuff, metrics, side);
+      buildCuff(cuff, metrics, side, radii.arm);
       parts.push({
         surface: cuff, cls: 'cloth', color: pal.trim, crease: 0.9,
         bind: [`forearm${sfx}`, `hand${sfx}`],
@@ -2743,7 +3012,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
       new THREE.Vector3(metrics.joints[`thigh${sfx}`].x, metrics.joints[`thigh${sfx}`].y, 0),
       new THREE.Vector3(metrics.joints[`shin${sfx}`].x, metrics.joints[`shin${sfx}`].y, 0),
       new THREE.Vector3(metrics.joints[`foot${sfx}`].x, metrics.joints[`foot${sfx}`].y, 0),
-      g.thigh * 1.06, g.knee, g.ankle, 12,
+      radii.leg.root, radii.leg.mid, radii.leg.tip, 12,
     );
     const bareLeg = Boolean(def.accessories?.barefoot);
     parts.push({
@@ -2907,6 +3176,13 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
   setOutlineSkip(materials.face);
   setOutlineSkip(materials.glow);
 
+  // Every character surface is opaque and writes depth, stated here rather than
+  // assumed. See `sealOpaque`: the review's ghosted party is the scene's
+  // volumetric pass compositing over the cast, and the only way to say that
+  // with confidence is for the cast's own side of the contract to be asserted
+  // instead of inherited from a preset table this module does not own.
+  for (const key of Object.keys(materials)) sealOpaque(materials[key]);
+
   // ---- skinned meshes ----------------------------------------------------
   const meshes = [];
   const outlines = [];
@@ -2935,6 +3211,10 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     mesh.castShadow = cls !== 'face' && cls !== 'glow';
     mesh.receiveShadow = cls !== 'face' && cls !== 'glow';
     mesh.frustumCulled = true;
+    // Layer 0 stays on, so this is invisible to any scene that does not look
+    // for it; a scene that does can render the cast as its own pass after the
+    // volumetrics without knowing how a character is put together.
+    mesh.layers.enable(CAST_LAYER);
     root.add(mesh);
     // Bound with the rig at the origin: `AttachedBindMode` (the default)
     // refreshes `bindMatrixInverse` from the mesh's world matrix every frame,
@@ -2949,7 +3229,10 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     // dark-cool on cloth" happens on a single merged mesh.
     if (outline && OUTLINED.has(cls)) {
       const hull = buildOutline(mesh, { width: outlineWidth });
-      if (hull) outlines.push(hull);
+      if (hull) {
+        hull.layers.enable(CAST_LAYER);
+        outlines.push(hull);
+      }
     }
   }
 
@@ -3282,9 +3565,16 @@ function buildCloth(root, rig, metrics, def, pal, materials) {
  *  - `hair-in-skull` — no hair vertex inside the scalp. Below 1.0 is a lock
  *    driven through the head; this is what produced the mottling.
  *  - `hair-over-eyes` — no hair vertex in front of the painted eye block.
+ *  - `hair-mass-below-hairline` — no style-mass clump may root on bare skin.
+ *    This is the one that would have caught the black slab over Yshara's cheek:
+ *    it was outside the skull, clear of the eye block and inside the heads-tall
+ *    band, so every other check here passed it.
  *  - `heads-tall` — REFERENCE_TARGET §1's 3.0–3.5 band, measured against the
  *    silhouette head mass (skull plus hair) rather than the skull alone,
  *    because that is what a critic measures.
+ *  - `silhouette-spread` — the trunk shaping and limb taper actually differ
+ *    across the roster. Reported per character; `auditRoster` is where the
+ *    six-way comparison is worth reading.
  *
  * @param {object|string} defOrId roster entry or id
  * @returns {{id: string, headsTall: number, faceUvSpan: number,
@@ -3342,6 +3632,25 @@ export function auditCharacter(defOrId) {
   let deepestAt = '';
   let crown = m.head.crownY;
   let hairWidth = m.head.rx * 2;
+  // How far below its own hairline the worst *style-mass* clump is rooted.
+  //
+  // A fringe, a beard and a face-framing lock are all authored to hang past the
+  // hairline — that is what they are — so they live in their own surface and
+  // are not scored. A back fan, a bell, a starburst or a gather rooted below it
+  // is hair bedded onto bare cheek, which is what rendered as a black polygon
+  // slab over Yshara's face. Every other invariant here passed that geometry: it
+  // never entered the skull, never crossed the eye block, and did not move the
+  // heads-tall ratio.
+  let rootBelowHairline = 0;
+  let rootAt = '';
+  for (const part of parts) {
+    for (const r of part.roots ?? []) {
+      if (r.below > rootBelowHairline) {
+        rootBelowHairline = r.below;
+        rootAt = `θ=${r.theta.toFixed(2)}`;
+      }
+    }
+  }
   for (let p = 0; p < parts.length; p++) {
     const pos = parts[p].surface.pos;
     for (let i = 0; i < pos.length; i += 3) {
@@ -3365,6 +3674,11 @@ export function auditCharacter(defOrId) {
   if (hairFaceIntrusion > 0) {
     issues.push(`hair-over-eyes: ${(hairFaceIntrusion / m.head.ry).toFixed(3)} ry in front of the plate`);
   }
+  // Zero tolerance, because there is no style in the roster that wants one: a
+  // mass clump's root either sits on the hair shell or it sits on skin.
+  if (rootBelowHairline > 0) {
+    issues.push(`hair-mass-below-hairline: ${rootBelowHairline.toFixed(2)} rad at ${rootAt}`);
+  }
 
   // ---- proportion ---------------------------------------------------------
   const headMass = crown - m.head.chinY;
@@ -3372,6 +3686,24 @@ export function auditCharacter(defOrId) {
   if (headsTall < 3.0 || headsTall > 3.5) {
     issues.push(`heads-tall: ${headsTall.toFixed(2)} outside REFERENCE §1's 3.0–3.5`);
   }
+
+  // ---- silhouette ---------------------------------------------------------
+  //
+  // The two body-mass channels the review found flat across the whole party,
+  // reported as numbers so "the six all share one torso and one tube leg" is a
+  // measurement rather than an opinion. `trunkRatio` is the widest ring of the
+  // trunk over its narrowest — a box is 1.0 and an hourglass is well above it —
+  // and `limbTaper` is the leg's root radius over its ankle.
+  const sil = silhouetteOf(def);
+  const radii = limbRadii(m, sil);
+  const trunk = [-0.02, 0.34, 0.82].map((t) => {
+    const bump = (c, w) => {
+      const k = THREE.MathUtils.clamp(Math.abs(t - c) / w, 0, 1);
+      return 0.5 + 0.5 * Math.cos(k * Math.PI);
+    };
+    return 1 + sil.hip * bump(-0.02, 0.42) + sil.waist * bump(0.34, 0.34)
+      + sil.chest * bump(0.82, 0.42);
+  });
 
   return {
     id: def.id,
@@ -3381,6 +3713,9 @@ export function auditCharacter(defOrId) {
     faceNormalDeg,
     hairMinDepth,
     hairFaceIntrusion: hairFaceIntrusion / m.head.ry,
+    rootBelowHairline,
+    trunkRatio: Math.max(...trunk) / Math.min(...trunk),
+    limbTaper: radii.leg.root / radii.leg.tip,
     issues,
   };
 }

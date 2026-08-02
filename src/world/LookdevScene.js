@@ -194,30 +194,46 @@ function stagePlacement(slot) {
 /**
  * The staggered diagonal, solved in screen space and converted back to world.
  *
- * `ndc` climbs monotonically while `depth` zig-zags, which is what turns a
- * straight rank into the loose diagonal REFERENCE §2 describes: no two
- * characters share a screen column, and the rear ranks read *higher* in frame
- * because the camera looks down. The depth band 4.40–5.15 m is not taste — it
- * is what puts every silhouette between 23% and 30% of frame height, which is
- * the size the reference stages a party at. Order is front-line first, exactly
- * like `gameState.party`.
+ * Both channels now climb **monotonically**, and that is the whole correction.
+ * The previous table held the party inside a 0.75 m depth band and zig-zagged
+ * across it, on the theory that alternating depth is what breaks up a rank. It
+ * is not: at a fixed depth every figure subtends the same screen width, so the
+ * only thing separating them is `ndc` pitch, and 0.134 of pitch against a
+ * silhouette 0.17–0.19 wide guarantees that each one eats a third of its
+ * neighbour. The staged captures show exactly that — six figures shoulder to
+ * shoulder with the rear three substantially buried, which is a rank with
+ * jitter on it, not a diagonal.
  *
- * The band tops out at 0.84 rather than 0.90, and that ceiling is measured, not
- * chosen: `ndc` positions a figure's *root*, and at these depths a chibi plus
- * its weapon and cape spans about ±0.11 either side of it. The previous 0.90
- * therefore put the rear-rank silhouette's outer edge past 1.0 and the last
- * character in the diagonal shipped with its shoulder sliced off by the frame
- * edge in every stage capture. 0.84 leaves a ~0.05 margin, which survives the
- * widest cape in the roster.
+ * A diagonal is a *depth* structure. Stepping ~0.58 m further from the lens per
+ * member does three things at once, none of which the pitch alone can do:
  *
- * The **spacing** was then opened from 0.115 to 0.134 against that same ceiling,
- * by starting the run at 0.17 instead of 0.26. That is not aesthetics either: at
- * 4.6 m the battle frustum is 3.64 m of half-width, so a 0.6 m chibi-plus-hair
- * is 0.165 of `ndc` wide and the old pitch guaranteed every neighbour overlapped.
- * The staged captures show the consequence — the rear three fused into one mass
- * and three of the six faces were behind someone else's hair. At 0.134 the
- * overlap is a shoulder rather than a head, which is what a staggered diagonal
- * is supposed to look like.
+ *  - it shrinks each successive silhouette (30.0% of frame height down to
+ *    17.9%), so the `ndc` pitch each one needs shrinks with it and the whole
+ *    party fits the right half of frame with real air between the figures;
+ *  - it lifts each successive figure in frame, because the camera looks down —
+ *    which is what makes the arrangement read as *receding* rather than as a
+ *    line of different-sized people;
+ *  - it puts a clear front-to-back order on the overlaps, so where two do
+ *    overlap it reads as one standing behind another instead of as two bodies
+ *    sharing a volume.
+ *
+ * The `ndc` column is then solved, not chosen: at depth `d` a 0.66 m chibi
+ * spans `0.66 / (TAN_HALF_H * d)` of `ndc`, and each gap is 85% of the mean of
+ * the two silhouettes it separates — a deliberate 15% shoulder overlap, which
+ * is what "loose" means in REFERENCE §2's "loose staggered diagonal". The run
+ * lands at 0.826, inside the 0.84 ceiling the frame edge imposes (a chibi plus
+ * weapon and cape spans about ±0.11 of `ndc` either side of its root, so past
+ * 0.84 the rear figure ships with its shoulder sliced off).
+ *
+ * World separation comes out at 0.91–1.14 m between neighbours, against a
+ * ~0.25 m personal radius each — so limb interpenetration is designed out
+ * rather than tuned out. `separateStagePlaces` then enforces it at spawn
+ * against the rig's own measurements, so a later edit to this table cannot
+ * silently reintroduce an arm through a torso.
+ *
+ * The depth step alternates 0.62 / 0.52 rather than running uniform, because a
+ * perfectly regular recession reads as a queue. Order is front-line first,
+ * exactly like `gameState.party`.
  *
  * `turn` is how far the figure rotates **back toward the lens** from the axis
  * it would face if it squared up to the threat, and it is the single control
@@ -231,12 +247,12 @@ function stagePlacement(slot) {
  * cheat a stage director uses to keep an actor open to the house.
  */
 const PARTY = [
-  { id: 'auren',  ndc: 0.17, depth: 4.40, turn: 0.40 },
-  { id: 'kite',   ndc: 0.31, depth: 4.92, turn: 0.52 },
-  { id: 'yshara', ndc: 0.45, depth: 4.52, turn: 0.36 },
-  { id: 'bramm',  ndc: 0.58, depth: 5.12, turn: 0.48 },
-  { id: 'seren',  ndc: 0.71, depth: 4.62, turn: 0.34 },
-  { id: 'emrys',  ndc: 0.84, depth: 5.20, turn: 0.50 },
+  { id: 'auren',  ndc: 0.195, depth: 4.30, turn: 0.40 },
+  { id: 'kite',   ndc: 0.349, depth: 4.92, turn: 0.52 },
+  { id: 'yshara', ndc: 0.487, depth: 5.44, turn: 0.36 },
+  { id: 'bramm',  ndc: 0.610, depth: 6.06, turn: 0.48 },
+  { id: 'seren',  ndc: 0.723, depth: 6.58, turn: 0.34 },
+  { id: 'emrys',  ndc: 0.826, depth: 7.20, turn: 0.50 },
 ];
 
 /**
@@ -270,6 +286,66 @@ const ENEMIES = [
 /** Ground positions of every staged figure, solved once against the frame. */
 const PARTY_PLACES = PARTY.map(stagePlacement);
 const ENEMY_PLACES = ENEMIES.map(stagePlacement);
+
+/**
+ * Horizontal half-width a standing figure actually occupies.
+ *
+ * Shoulder joint out to the outside of a hanging hand — i.e. the widest thing
+ * the idle pose swings through, which is what "limbs interpenetrate" is about.
+ * Read from the rig's solved metrics rather than assumed, so a roster entry
+ * with a `shoulder` or `limb` proportion multiplier is measured, not guessed.
+ */
+function personalRadius(character) {
+  const m = character.metrics;
+  return Math.abs(m.joints.shoulderL.x) + m.girth.arm * 2 + m.girth.hand;
+}
+
+/**
+ * Spawn-time capsule separation for the staged party.
+ *
+ * The authored diagonal above already clears this by 30–40 cm, so on a healthy
+ * table it is a no-op that runs once at mount. It exists because the table is
+ * the thing people edit: a slot nudged for composition has no way to know how
+ * wide the rig it is positioning turned out to be, and the failure mode is
+ * silent and only visible as an arm passing through a torso in a capture.
+ *
+ * Symmetric push along the separation axis, relaxed rather than solved in one
+ * step so a three-way pile-up resolves instead of ping-ponging between two of
+ * its members. Positions are in the ground plane; the camera looks down -Z
+ * with no yaw, so a push is spread across screen-x and depth in the ratio the
+ * overlap itself dictates, which keeps the recession order intact.
+ *
+ * @param {Array<{x:number,z:number}>} places authored ground positions
+ * @param {number[]} radii per-figure {@link personalRadius}
+ * @param {number} [clearance] extra metres demanded between two silhouettes
+ */
+function separateStagePlaces(places, radii, clearance = 0.10, iterations = 12) {
+  const out = places.map((p) => ({ x: p.x, z: p.z }));
+  for (let pass = 0; pass < iterations; pass++) {
+    let moved = false;
+    for (let i = 0; i < out.length; i++) {
+      for (let j = i + 1; j < out.length; j++) {
+        const want = radii[i] + radii[j] + clearance;
+        let dx = out[j].x - out[i].x;
+        let dz = out[j].z - out[i].z;
+        let d = Math.hypot(dx, dz);
+        if (d >= want) continue;
+        // Two figures authored on the same spot have no separation axis to
+        // resolve along. Screen-right is the axis this staging is composed in,
+        // so it is the deterministic fallback rather than a random one.
+        if (d < 1e-4) { dx = 1; dz = 0; d = 1; }
+        const push = (want - d) * 0.5;
+        out[i].x -= (dx / d) * push;
+        out[i].z -= (dz / d) * push;
+        out[j].x += (dx / d) * push;
+        out[j].z += (dz / d) * push;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  return out;
+}
 
 /** Centre of mass of the line, which is what the enemy pack squares up to. */
 const PARTY_CENTROID = {
@@ -325,15 +401,16 @@ const CAMERA_POSES = {
    *
    * Party right at 23–30% of frame height in a three-quarter front address,
    * enemy mass left with the boss at 46% and the vanguard husk cropped into the
-   * near-left corner, horizon on the upper third at 74%. Focus sits at 4.8 m,
-   * on the party's 4.4–5.2 m band rather than split between it and the boss:
-   * the faces are the subject of this frame, and f/5.6 still leaves the boss at
-   * 8.6 m legible — the reference's backgrounds are soft, its combatants are
-   * not.
+   * near-left corner, horizon on the upper third at 74%. Focus sits at 5.7 m —
+   * the middle of the diagonal's 4.30–7.20 m depth run, not its front, because
+   * the recession is now the staging's whole structure and a plane pinned to
+   * the lead would throw the rear half of the party out of focus. f/5.6 still
+   * leaves the boss at 8.6 m legible: the reference's backgrounds are soft, its
+   * combatants are not.
    */
   battle: {
     pos: [STAGE.camX, STAGE.camY, STAGE.camZ], look: STAGE_LOOK,
-    fov: STAGE.fov, focus: 4.8, aperture: 5.6, grade: 'battle',
+    fov: STAGE.fov, focus: 5.7, aperture: 5.6, grade: 'battle',
   },
   /**
    * Command framing: the same axis pushed in one lens stop.
@@ -344,7 +421,11 @@ const CAMERA_POSES = {
    */
   lineup: {
     pos: [2.05, 1.82, 7.45], look: [3.05, 0.80, 3.30],
-    fov: 44, focus: 3.9, aperture: 4.0, grade: 'battle',
+    // Focus and stop both opened up with the diagonal: from this station the
+    // party runs 3.6–7.4 m, and f/4 on the old 3.9 m plane left the back three
+    // as mush. f/6.3 at 5.2 m holds the whole run while the treeline stays as
+    // soft as REFERENCE §3 wants it.
+    fov: 44, focus: 5.2, aperture: 6.3, grade: 'battle',
   },
   /** Battle station, battle lens, values flattened. The silhouette check has
    *  to be run on the shipped composition or it is checking nothing. */
@@ -476,6 +557,33 @@ const CAMERA_POSES = {
 const MIST_SPAN = { west: -24, east: 26 };
 const MIST_WRAP = MIST_SPAN.east - MIST_SPAN.west;
 
+/**
+ * The low mist bank, authored as a **height in metres** rather than as a
+ * fraction of each card's width.
+ *
+ * This is the correction that gives the shipped battle frame its cast back. The
+ * bank used to take its height from its width (`w × 0.18–0.30` on cards 6–17 m
+ * across), so the widest card stood **5.1 m tall** — and the low bank is seeded
+ * across z −16…11, i.e. squarely *between the party and the lens*. A billboarded
+ * 5 m card two metres in front of a 1.15 m chibi is not mist pooling on the
+ * ground, it is a scrim hung across the subject: measured off the previous
+ * capture it veiled four of the six party members to the point where their
+ * garment colours no longer separated, which fails REFERENCE §1's silhouette
+ * rule and §3's "environment saturation sits below character saturation" in the
+ * same stroke. Coupling height to width is the whole defect — width is a
+ * composition choice about how far a bank runs, height is an anatomical one
+ * about how deep it pools, and they are not the same number.
+ *
+ * The numbers are solved against the cast rather than picked. The card's radial
+ * mask is opaque inside 0.18 of its uv radius and gone by 0.50, so a card of
+ * height `h` centred at `y` is at full density up to `y + 0.18h` and clear above
+ * `y + 0.50h`. At the ceiling of this table — `y = 0.20`, `h = 1.10` — that is
+ * full to 0.40 m and *clear by 0.75 m*, which is the chin line of a 1.15 m
+ * chibi. So no card can reach a face, at any seed, while the pool still runs
+ * boot-to-knee where the reference frames put it.
+ */
+const MIST_LOW = { height: [0.70, 1.10], centre: [0.05, 0.20] };
+
 /** Outer radius and rim rise of the fogged horizon skirt, in metres. */
 const SKIRT_RADIUS = 9000;
 const SKIRT_RISE = 62;
@@ -500,6 +608,87 @@ const SILHOUETTE_FILL = 0.015;
  * portrait range.
  */
 const OUTLINE_PIXELS = 2.5;
+
+/**
+ * Contact shadows — a top-down occlusion projector, not a decal.
+ *
+ * REFERENCE §2 requires "visible ground with soft contact shadows" and the
+ * shipped frame had none: six pairs of boots met the terrain with no occlusion
+ * darkening at all, and the husks' paws floated.
+ *
+ * The cascades cannot supply it. At the dusk key the sun is ~6° up, so a cast
+ * shadow lands two metres downwind of the figure that threw it and there is
+ * nothing whatsoever under the feet. The previous answer was a radial decal
+ * sprite per character, and it failed for a reason no amount of tuning reaches:
+ * a decal is a *transparent overlay*, drawn after the ground and therefore
+ * after the ground's own shading, so it competes with — and loses to — the
+ * low mist bank that composites over the same pixels a moment later. Measured
+ * on the shipped frame it moved the floor under the party by 16%, which is
+ * below the threshold at which an eye reads contact at all.
+ *
+ * So the technique is replaced rather than tuned. Occlusion is now *rendered*:
+ *
+ *  1. every staged figure is drawn from an orthographic station directly above
+ *     the stage into a small depth buffer (`MeshDepthMaterial`, so the skinned
+ *     party comes through posed, not in bind pose);
+ *  2. a resolve pass turns depth into occlusion, weighting each occluder by how
+ *     close to the floor it is — boots contribute fully, hips a third, heads
+ *     almost nothing — and blurs it into a penumbra;
+ *  3. the ground material multiplies its own outgoing light by the result.
+ *
+ * Because it lands *inside* the ground's shading it is darkened by nothing and
+ * washed out by nothing: fog and mist then sit over it exactly as they sit over
+ * the rest of the floor, which is what depth is supposed to do to a shadow. It
+ * also cannot z-fight, cannot be buried by terrain tessellation, follows the
+ * animation for free, and grounds the husks — whose paws have no rig to hang a
+ * decal off — on the same pass as the party.
+ */
+const CONTACT = {
+  /** Occlusion buffer edge. 384 over ~11 m of stage is ~2.9 cm per texel —
+   *  finer than a chibi's boot, which is the smallest thing that must read. */
+  size: 384,
+  /** Metres of slack around the staged figures, so a boss leaning out of the
+   *  formation still projects and no figure sits on the buffer's clamp edge. */
+  margin: 2.2,
+  /** Ortho station height. Must clear the tallest occluder — the boss husk is
+   *  3.5 m — or its crown clips and the pass reports it as absent. */
+  camHeight: 5.6,
+  /** Lowest world y the projector can see. The plateau is level at 0; the
+   *  slack keeps the 8-bit depth range off the floor value itself. */
+  floor: -0.8,
+  /** Metres over which an occluder's contribution halves as it rises. 0.22 is
+   *  ankle height on a chibi, which is what makes this a *contact* shadow and
+   *  not a blob: the tight dark core comes from boots and paws alone. */
+  falloff: 0.22,
+  /** Floor contribution from anything overhead at any height, so a body still
+   *  casts the broad faint pool that sells the figure as standing in air. Kept
+   *  low: a chibi's top-down silhouette is mostly *head*, and any generous
+   *  floor here lets that large pale area dilute the small dark one under the
+   *  boots once the blur runs. */
+  ambient: 0.15,
+  /** Peak fraction of the way to `tint` the ground is driven. */
+  strength: 1.0,
+  /** Blur ring radii in texels — ~5 cm and ~12 cm of penumbra at this scale.
+   *  A boot is ~20 cm across, i.e. seven texels, so the dark core survives the
+   *  blur instead of being averaged away by the pale ground around it. */
+  blurInner: 1.8,
+  blurOuter: 4.2,
+  /** Gamma on the resolved occlusion. Below 1 it lifts the penumbra's midtones,
+   *  which is what turns a mathematically-correct-but-invisible gradient into a
+   *  pool with a readable edge. */
+  gain: 0.55,
+};
+
+/**
+ * Render layer the occlusion pass draws.
+ *
+ * A layer rather than a second scene: the party and the husks have to stay in
+ * the main graph to be lit, shadowed and posed, and a parallel graph holding
+ * the same meshes is the kind of duplication that goes stale the first time
+ * someone adds a prop. The projector camera is set to *only* this layer, so
+ * the sky dome, terrain, treeline and mist are excluded without touching them.
+ */
+const CONTACT_LAYER = 5;
 
 export class LookdevScene extends Scene {
   /**
@@ -558,11 +747,22 @@ export class LookdevScene extends Scene {
     // Silhouette mode has to overwrite the rig *after* it has run, and the rig
     // ticks as a service — i.e. after `Scene.update`. Registering the override
     // as a service immediately behind `lighting` is the only ordering that
-    // survives without reaching into Lighting's internals.
-    engine.register('lookdev-stage', { update: () => this._afterRig() });
+    // survives without reaching into Lighting's internals. The occlusion
+    // projector rides the same slot for the same reason: it has to draw the
+    // cast *after* `Scene.update` has posed it and *before* the frame renders.
+    engine.register('lookdev-stage', {
+      update: () => {
+        this._afterRig();
+        this._renderContactShadows();
+      },
+    });
 
     this._refreshEnvironment(forge);
 
+    // Before the ground: `_buildGround` splices the occlusion buffer into the
+    // terrain shader, so the render target and its uniform block have to exist
+    // by the time that material is authored.
+    this._buildContactShadows();
     this._buildGround(forge);
     this._buildTreeline(forge);
     this._buildForeground(forge);
@@ -648,13 +848,35 @@ export class LookdevScene extends Scene {
     // body heights — fine enough that the near ground carries detail, coarse
     // enough that the tiling period never lands inside a single frame.
     // Cloned so the tint stays local; the clone shares the forge's textures and
-    // the forge guards those against `disposeTree`. ART_BIBLE §2.3 wants ~15%
-    // of the frame below 0.08 — a ground plane returned at full albedo under a
-    // 2.4-intensity dusk key lands the entire lower half in the midtones and
-    // the shot goes flat, so the stage floor is pulled down and cooled.
+    // the forge guards those against `disposeTree`.
+    //
+    // The tint was 0.52/0.58/0.60, on the reading that ART_BIBLE §2.3's "~15%
+    // of the frame below 0.08" is the floor's job. It is not, and pushing it
+    // there is what made contact shadows impossible: measured off the shipped
+    // frame the ground the party stands on sat at L≈18–20, which is a surface
+    // with no value left to lose. Every grounding attempt against it — the
+    // factory's decal, then this scene's own — was arithmetically correct and
+    // visually absent, because a shadow is a *ratio* and there is no ratio to
+    // be had on black. §2.3's dark 15% is delivered by the near grass bank, the
+    // husk mass and the vignette, all of which are genuinely foreground; the
+    // stage floor is mid-ground and has to read as lit ground with figures
+    // standing on it. At 1.27× the contact patch lands around L≈30 and the pool
+    // under a boot takes it to L≈8 — a shadow a viewer can see. The lift is
+    // deliberately modest: the *foreground* is the near grass bank and the
+    // bottom of frame, and those still carry §2.3's dark end.
     this.groundMaterial = forge.material('grass', { repeat: 400 }).clone();
-    this.groundMaterial.color.setRGB(0.52, 0.58, 0.60);
+    this.groundMaterial.color.setRGB(0.66, 0.73, 0.75);
     this.groundMaterial.envMapIntensity = 0.35;
+    // The contact projector lands here, in the terrain's own shading. Installed
+    // as an *own* hook, which is also what makes it survive: `Lighting` chains
+    // whatever own `onBeforeCompile` a material arrived with behind the cascade
+    // hook, and reads nothing off the prototype.
+    this.groundMaterial.onBeforeCompile = (shader) => this._injectContactShadow(shader);
+    // The forge's ground materials all answer `aw-ground-1`, which is correct
+    // for them and wrong for this one: three keys the program cache on that
+    // string, so sharing it would hand a field-scene ground this shader or
+    // vice versa.
+    this.groundMaterial.customProgramCacheKey = () => 'aw-lookdev-ground-contact';
     this.track(this.groundMaterial);
     const ground = new THREE.Mesh(geo, this.groundMaterial);
     ground.receiveShadow = true;
@@ -960,11 +1182,16 @@ export class LookdevScene extends Scene {
       // opening at 1.2 m, well outside the 0.08 m near plane so no card is ever
       // clipped part-way through its fade.
       shader.uniforms.uMistNearFade = { value: new THREE.Vector2(1.2, 5.0) };
-      // The stage plateau is level at y = 0, so -0.20 is comfortably under the
-      // floor and 0.38 m is ankle height on a 1.15 m chibi — high enough to
-      // hide the depth cut, low enough that the bank still reads as pooling on
-      // the ground rather than as a band floating over it.
-      shader.uniforms.uMistGroundFade = { value: new THREE.Vector2(-0.20, 0.38) };
+      // The stage plateau is level at y = 0, so -0.12 is under the floor by
+      // more than the height field's residual ripple (±0.09 m) and the fade is
+      // fully open by 0.14 m — bootlace height on a 1.15 m chibi. It used to
+      // open at 0.38, which is knee height, and that pushed the *whole* visible
+      // band of every card upward: the shader can only ever subtract, so a fade
+      // that only opens at the knee guarantees the bank's densest region sits at
+      // the knee and everything below it is clear. Retiring the card by 0.14
+      // still hides the plane/ground depth cut — which is what this fade exists
+      // for — and lets `MIST_LOW` put the pool where REFERENCE §3 puts it.
+      shader.uniforms.uMistGroundFade = { value: new THREE.Vector2(-0.12, 0.14) };
       shader.vertexShader = `varying float vMistDepth;\nvarying float vMistY;\nvarying vec2 vMistUv;\n${shader.vertexShader}`.replace(
         '#include <project_vertex>',
         `#include <project_vertex>
@@ -994,15 +1221,20 @@ export class LookdevScene extends Scene {
     group.name = 'mist';
     const rng = this.rng;
     this._mistCards = [];
-    // Two populations. The low bank pools at ankle height across the whole
-    // stage — REFERENCE §3's mist "pooling low to the ground". The tall bank
-    // sits behind the party and in front of the treeline, which is what gives
-    // the cast a bright field to silhouette against instead of tree trunks.
+    // Two populations, and they are sized by different rules on purpose. The
+    // low bank pools boot-to-knee across the whole stage — REFERENCE §3's mist
+    // "pooling low to the ground" — so its height is authored in metres against
+    // the cast (see `MIST_LOW`) and is deliberately *not* a function of how wide
+    // the card runs. The tall bank sits behind the party and in front of the
+    // treeline, where nothing it can cover is a subject, so there it is free to
+    // scale with its width and give the cast the bright field to silhouette
+    // against that tree trunks cannot.
     for (let i = 0; i < 46; i++) {
       const tall = i >= 30;
       const card = new THREE.Mesh(geo, mat);
       const w = tall ? rng.range(16, 34) : rng.range(6, 17);
-      card.scale.set(w, w * (tall ? rng.range(0.28, 0.45) : rng.range(0.18, 0.30)), 1);
+      const h = tall ? w * rng.range(0.28, 0.45) : rng.range(...MIST_LOW.height);
+      card.scale.set(w, h, 1);
       // Spans the whole stage including the enemy half. An earlier layout
       // folded everything west of -12 back east to keep haze off the
       // calibration bay; with the bay moved south that fold only served to
@@ -1011,12 +1243,21 @@ export class LookdevScene extends Scene {
       // standing on clean grass reads as a prop.
       card.position.set(
         rng.range(MIST_SPAN.west, MIST_SPAN.east),
-        tall ? rng.range(1.4, 3.4) : rng.range(0.18, 0.85),
+        tall ? rng.range(1.4, 3.4) : rng.range(...MIST_LOW.centre),
         tall ? rng.range(-26, -6) : rng.range(-16, 11),
       );
       card.renderOrder = 6;
       group.add(card);
-      this._mistCards.push({ mesh: card, drift: rng.range(0.05, 0.16), phase: rng.range(0, 6.28) });
+      // `baseY` is kept so the breath below is an oscillation *about* the
+      // seeded height rather than an integration of one. Adding a sine to
+      // `position.y` every frame is a random walk, not a bob: sampled at 60 Hz
+      // it drifts by tens of centimetres over a capture, which on a bank whose
+      // whole job is to stay under the cast's chin is the difference between
+      // mist and a veil.
+      this._mistCards.push({
+        mesh: card, baseY: card.position.y,
+        drift: rng.range(0.05, 0.16), phase: rng.range(0, 6.28),
+      });
     }
     this.scene.add(group);
     this.mist = group;
@@ -1081,7 +1322,27 @@ export class LookdevScene extends Scene {
     // additive term inside `RE_Direct`, so it scales with *every* light in the
     // scene including this one — drive the backlight hard and the party stops
     // being black and starts being navy, which defeats the whole check.
-    const light = new THREE.DirectionalLight(0xdfe8ff, 1.9);
+    //
+    // 0.45, down from 1.9, and the reduction is measured rather than guessed. A
+    // runtime probe of the silhouette pose confirms the rig itself zeroes
+    // cleanly — all four cascade lights, the rim, `uKeyColor`, `uRimColor` and
+    // `uRimStrength` all read exactly 0, `uFillSky` reads 0.002 and the probe is
+    // detached — so this lamp is the only light the cast has in that pass, and
+    // at 1.9 it was carrying the party to very nearly full albedo. Six fully
+    // coloured, fully readable figures is a value check that has stopped
+    // checking values. The toon shadow gradient is why the gain is so sensitive:
+    // it lifts the *unlit* hemisphere in proportion to every light in the scene,
+    // so a back-key bright enough to rake an edge also fills the face it is
+    // meant to leave black.
+    //
+    // Honest about what this does and does not buy: at 0.45 the cast drops
+    // roughly a stop and a half and the rake still separates the overlapping
+    // silhouettes, but the party does not reach black. The residue is a floor
+    // inside the toon surface itself — a shadow term that survives a scene with
+    // no light in it — and that belongs to `render/ToonMaterial.js`, not here.
+    // Driving this lamp lower only costs the edge separation the pose exists for
+    // without moving the floor, so it stops at the point of diminishing return.
+    const light = new THREE.DirectionalLight(0xdfe8ff, 0.45);
     light.position.set(6.5, 5.0, -22);
     light.target.position.set(4.0, 0.6, 1.0);
     light.castShadow = false;
@@ -1090,62 +1351,280 @@ export class LookdevScene extends Scene {
     this.backLight = light;
   }
 
-  /* --------------------------------------------------------------- staging */
+  /* ----------------------------------------------------- contact occlusion */
 
   /**
-   * Contact-shadow decal for the figures that have no rig of their own.
+   * Allocate the occlusion projector described on {@link CONTACT}.
    *
-   * The cascades give the stage a real cast shadow, but at the dusk key the sun
-   * is 6° above the horizon, so that shadow lands several metres downwind and
-   * nothing anchors the feet — a figure reads as a sticker layer pasted onto
-   * the terrain. A radial decal under it is the grounding the reference frames
-   * show, and because it is authored rather than derived it survives any change
-   * of hour.
-   *
-   * **Multiplicative, not blended.** A decal that lerps the destination toward
-   * a fixed tint is only a shadow where the ground is brighter than the tint;
-   * on the crushed stage floor (§2.3 puts ~15% of the frame under 0.08) a
-   * SHADOW_TINT decal is *brighter* than what it lands on, so each figure got a
-   * teal puddle glowing under its boots. `MultiplyBlending` over a
-   * premultiplied fragment resolves to `dst * mix(1, tint, coverage)` — a true
-   * attenuation that can only ever darken, at any hour and over any ground
-   * albedo. (three refuses `MultiplyBlending` without `premultipliedAlpha`,
-   * because the operator is only correct on a premultiplied source.)
-   *
-   * @param {number} x @param {number} z ground position
-   * @param {number} radius footprint radius in metres
+   * Two render targets and one orthographic station, all sized from the staged
+   * placements rather than from constants, so moving the diagonal or the enemy
+   * pack cannot walk a figure off the edge of its own shadow.
    */
-  _contactDecal(forge, x, z, radius) {
-    if (!this._decalGeo) {
-      const geo = new THREE.PlaneGeometry(1, 1);
-      geo.rotateX(-Math.PI / 2);
-      this._decalGeo = this.track(geo);
-      this._decalMat = this.track(new THREE.MeshBasicMaterial({
-        alphaMap: forge.texture('glow'),
-        // The multiplier the ground is driven to at full coverage. Teal rather
-        // than neutral because §2.1 forbids a zero-saturation shadow term, and
-        // this one is literally a shadow.
-        color: new THREE.Color(LIGHT.SHADOW_TINT).multiplyScalar(1.35),
-        transparent: true,
-        opacity: 0.78,
-        premultipliedAlpha: true,
-        blending: THREE.MultiplyBlending,
-        depthWrite: false,
-        // Unfogged and untonemapped: this is a *modulation* of pixels that have
-        // already been fogged and graded, so putting it through either stage a
-        // second time would double-apply them.
-        fog: false,
-        toneMapped: false,
-      }));
+  _buildContactShadows() {
+    let minX = Infinity; let maxX = -Infinity;
+    let minZ = Infinity; let maxZ = -Infinity;
+    for (const p of [...PARTY_PLACES, ...ENEMY_PLACES]) {
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
     }
-    const blob = new THREE.Mesh(this._decalGeo, this._decalMat);
-    // Squashed along Z because the key rakes almost horizontally: a circular
-    // pool under a 6° sun is the one shape it cannot be.
-    blob.scale.set(radius, 1, radius * 0.86);
-    blob.position.set(x, groundHeight(x, z) + 0.012, z);
-    blob.renderOrder = 2;
-    return blob;
+    // Square, because the buffer is square: a non-square footprint would give
+    // the two axes different texel densities and the penumbra would be an
+    // ellipse everywhere.
+    const half = Math.max(maxX - minX, maxZ - minZ) * 0.5 + CONTACT.margin;
+    const cx = (minX + maxX) * 0.5;
+    const cz = (minZ + maxZ) * 0.5;
+    const span = half * 2;
+
+    const camera = new THREE.OrthographicCamera(-half, half, half, -half,
+      0.02, CONTACT.camHeight - CONTACT.floor);
+    camera.position.set(cx, CONTACT.camHeight, cz);
+    // `up` = -Z, so the camera's right axis is world +X and its up axis is
+    // world -Z. That makes the buffer's uv a plain affine function of world xz
+    // — see the ground injection — instead of something that has to be derived
+    // from the view matrix at every fragment.
+    camera.up.set(0, 0, -1);
+    camera.lookAt(cx, 0, cz);
+    camera.layers.set(CONTACT_LAYER);
+    camera.updateMatrixWorld(true);
+
+    const targetOpts = {
+      depthBuffer: true,
+      stencilBuffer: false,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      generateMipmaps: false,
+      // Clamped so the resolve pass's blur taps at the border repeat the edge
+      // instead of wrapping the far side of the stage into frame.
+      wrapS: THREE.ClampToEdgeWrapping,
+      wrapT: THREE.ClampToEdgeWrapping,
+    };
+    const depth = this.track(new THREE.WebGLRenderTarget(CONTACT.size, CONTACT.size, targetOpts));
+    depth.texture.name = 'contact-depth';
+    const occlusion = this.track(new THREE.WebGLRenderTarget(CONTACT.size, CONTACT.size, {
+      ...targetOpts, depthBuffer: false,
+    }));
+    occlusion.texture.name = 'contact-occlusion';
+
+    // `BasicDepthPacking` writes `1 - depth` straight into the red channel, so
+    // the resolve pass reads a linear height with no unpacking. RGBA packing
+    // would buy 24-bit precision this does not need: the range is 6.4 m and the
+    // falloff is 0.22 m, so an 8-bit step of 2.5 cm is a ninth of the smallest
+    // feature the shadow has.
+    //
+    // `GreaterDepth` — with the depth buffer cleared to 0 — is the part that
+    // makes this a contact shadow at all. The default test keeps the surface
+    // *nearest* the projector, which looking straight down at a chibi is its
+    // head: the buffer then reports "occluder at 0.95 m" across the whole
+    // footprint, the height weighting all but erases it, and the result is the
+    // faint even smudge the first pass of this produced. Keeping the *farthest*
+    // surface instead reports the sole under a boot, the underside of the hem
+    // under a skirt and the paw under a husk — which is the geometry that is
+    // actually in contact with the ground.
+    const depthMaterial = this.track(new THREE.MeshDepthMaterial({
+      depthPacking: THREE.BasicDepthPacking,
+      depthFunc: THREE.GreaterDepth,
+    }));
+
+    const range = camera.far - camera.near;
+    const resolve = this.track(new THREE.ShaderMaterial({
+      name: 'contact-resolve',
+      uniforms: {
+        uDepth: { value: depth.texture },
+        uTexel: { value: new THREE.Vector2(1 / CONTACT.size, 1 / CONTACT.size) },
+        // Station height, near plane and depth range, so the shader can turn
+        // the red channel back into a world height.
+        uProjector: { value: new THREE.Vector3(CONTACT.camHeight, camera.near, range) },
+        uShape: { value: new THREE.Vector3(CONTACT.falloff, CONTACT.ambient, CONTACT.gain) },
+        uBlur: { value: new THREE.Vector2(CONTACT.blurInner, CONTACT.blurOuter) },
+      },
+      vertexShader: /* glsl */`
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4( position.xy, 0.0, 1.0 );
+        }`,
+      fragmentShader: /* glsl */`
+        uniform sampler2D uDepth;
+        uniform vec2 uTexel;
+        uniform vec3 uProjector;
+        uniform vec3 uShape;
+        uniform vec2 uBlur;
+        varying vec2 vUv;
+
+        // One tap: depth back to a world height, height to an occlusion weight.
+        float occAt( vec2 uv ) {
+          float r = texture2D( uDepth, uv ).r;
+          // The buffer is cleared to black, and an occluder standing on the
+          // floor still reads ~0.13 here, so this rejects *empty* texels rather
+          // than merely low ones.
+          if ( r < 0.02 ) return 0.0;
+          float y = uProjector.x - uProjector.y - ( 1.0 - r ) * uProjector.z;
+          return uShape.y + ( 1.0 - uShape.y ) * exp2( - max( y, 0.0 ) / uShape.x );
+        }
+
+        void main() {
+          vec2 ri = uBlur.x * uTexel;
+          vec2 ro = uBlur.y * uTexel;
+          // Two hexagonal rings, the outer one rotated 30°, which is the
+          // cheapest tap set that produces a round penumbra rather than a
+          // visibly square or star-shaped one.
+          float total = occAt( vUv ) * 1.0;
+          float wsum = 1.0;
+          total += ( occAt( vUv + vec2(  1.000,  0.000 ) * ri )
+                   + occAt( vUv + vec2(  0.500,  0.866 ) * ri )
+                   + occAt( vUv + vec2( -0.500,  0.866 ) * ri )
+                   + occAt( vUv + vec2( -1.000,  0.000 ) * ri )
+                   + occAt( vUv + vec2( -0.500, -0.866 ) * ri )
+                   + occAt( vUv + vec2(  0.500, -0.866 ) * ri ) ) * 0.62;
+          wsum += 6.0 * 0.62;
+          total += ( occAt( vUv + vec2(  0.866,  0.500 ) * ro )
+                   + occAt( vUv + vec2(  0.000,  1.000 ) * ro )
+                   + occAt( vUv + vec2( -0.866,  0.500 ) * ro )
+                   + occAt( vUv + vec2( -0.866, -0.500 ) * ro )
+                   + occAt( vUv + vec2(  0.000, -1.000 ) * ro )
+                   + occAt( vUv + vec2(  0.866, -0.500 ) * ro ) ) * 0.30;
+          wsum += 6.0 * 0.30;
+          gl_FragColor = vec4( vec3( pow( total / wsum, uShape.z ) ), 1.0 );
+        }`,
+      depthTest: false,
+      depthWrite: false,
+    }));
+
+    const quadGeo = this.track(new THREE.PlaneGeometry(2, 2));
+    const quadScene = new THREE.Scene();
+    const quad = new THREE.Mesh(quadGeo, resolve);
+    quad.frustumCulled = false;
+    quadScene.add(quad);
+
+    this._contact = {
+      camera, depth, occlusion, depthMaterial, quadScene,
+      quadCamera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1),
+      clear: new THREE.Color(),
+    };
+
+    /**
+     * The uniform block the ground shader reads. `uContactArea` carries the
+     * buffer's world origin as (minX, maxZ, 1/span) — maxZ rather than minZ
+     * because the projector's up axis is -Z, so v runs the other way.
+     */
+    this._contactUniforms = {
+      uContactMap: { value: occlusion.texture },
+      uContactArea: { value: new THREE.Vector3(cx - half, cz + half, 1 / span) },
+      // A *transmission* colour, not a paint colour: the factor the ground's
+      // own outgoing light is multiplied by where the shadow is fully closed.
+      // Deep, because the stage floor is already a low-value surface and a pool
+      // has to survive the low mist bank that composites over it. Tinted rather
+      // than neutral per ART_BIBLE §2.1, and the tint does real work here —
+      // SHADOW_TINT attenuates red about four times harder than blue, so the
+      // pool cools as it darkens instead of going grey.
+      uContactTint: { value: new THREE.Color(LIGHT.SHADOW_TINT).multiplyScalar(0.70) },
+      uContactStrength: { value: CONTACT.strength },
+    };
   }
+
+  /**
+   * Enrol a staged figure with the projector.
+   *
+   * Outline hulls are skipped: an inverted hull is a copy of the mesh pushed
+   * out along its own normals, so enrolling it would fatten every shadow by the
+   * line weight and — worse — do it in *screen* pixels, which is a quantity the
+   * projector's orthographic view has no meaning for.
+   */
+  static _markContactCasters(root) {
+    root.traverse((o) => {
+      if (!o.isMesh || o.userData?.isOutlineHull) return;
+      o.layers.enable(CONTACT_LAYER);
+    });
+  }
+
+  /**
+   * Draw this frame's occlusion, as a service tick ahead of the main render.
+   *
+   * Every piece of renderer state this touches is stashed and restored: the
+   * composer runs immediately afterwards against the same renderer, and a
+   * leaked override material or clear colour would take the whole frame with
+   * it. Shadow-map auto-update is suppressed for the pass because `render`
+   * would otherwise re-run all four cascades for a camera that has no lights
+   * in its layer at all.
+   */
+  _renderContactShadows() {
+    const c = this._contact;
+    if (!c || this._silhouette) return;
+    const renderer = this.engine.renderer;
+    const scene = this.scene;
+
+    const prevTarget = renderer.getRenderTarget();
+    const prevOverride = scene.overrideMaterial;
+    const prevBackground = scene.background;
+    const prevShadowAuto = renderer.shadowMap.autoUpdate;
+    const prevAutoClear = renderer.autoClear;
+    renderer.getClearColor(c.clear);
+    const prevClearAlpha = renderer.getClearAlpha();
+
+    scene.overrideMaterial = c.depthMaterial;
+    scene.background = null;
+    renderer.shadowMap.autoUpdate = false;
+    // Black is "nothing overhead": `BasicDepthPacking` writes `1 - depth`, so a
+    // cleared texel decodes as the far plane and `occAt` rejects it outright.
+    renderer.setClearColor(0x000000, 1);
+    renderer.setRenderTarget(c.depth);
+    // Cleared to 0 rather than 1, to pair with the material's `GreaterDepth`.
+    // Done by hand because `render`'s own auto-clear would use the renderer's
+    // standing clear depth and quietly undo it.
+    renderer.state.buffers.depth.setClear(0);
+    renderer.clear(true, true, false);
+    renderer.autoClear = false;
+    renderer.render(scene, c.camera);
+    renderer.autoClear = prevAutoClear;
+    renderer.state.buffers.depth.setClear(1);
+
+    scene.overrideMaterial = prevOverride;
+    scene.background = prevBackground;
+
+    renderer.setRenderTarget(c.occlusion);
+    renderer.render(c.quadScene, c.quadCamera);
+
+    renderer.setRenderTarget(prevTarget);
+    renderer.setClearColor(c.clear, prevClearAlpha);
+    renderer.shadowMap.autoUpdate = prevShadowAuto;
+  }
+
+  /**
+   * Splice the occlusion buffer into a ground material's own shading.
+   *
+   * Applied to `outgoingLight` immediately before `<opaque_fragment>`, which is
+   * after every light has been summed and *before* fog — so the shadow is a
+   * real reduction in the light leaving the surface and the atmosphere then
+   * washes it with distance exactly as it washes everything else. That ordering
+   * is the entire reason this reads where a blended decal did not.
+   */
+  _injectContactShadow(shader) {
+    Object.assign(shader.uniforms, this._contactUniforms);
+    shader.vertexShader = `varying vec3 vAwGround;\n${shader.vertexShader}`.replace(
+      '#include <project_vertex>',
+      `#include <project_vertex>
+	vAwGround = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;`,
+    );
+    shader.fragmentShader = `uniform sampler2D uContactMap;
+uniform vec3 uContactArea;
+uniform vec3 uContactTint;
+uniform float uContactStrength;
+varying vec3 vAwGround;
+${shader.fragmentShader}`.replace(
+      '#include <opaque_fragment>',
+      `{
+	vec2 cUv = vec2( vAwGround.x - uContactArea.x, uContactArea.y - vAwGround.z ) * uContactArea.z;
+	// The buffer covers the stage, not the 900 m field, so everything outside
+	// it has to resolve to *no* occlusion rather than to the clamped border.
+	vec2 inside = step( vec2( 0.0 ), cUv ) * step( cUv, vec2( 1.0 ) );
+	float occ = texture2D( uContactMap, cUv ).r * inside.x * inside.y * uContactStrength;
+	outgoingLight *= mix( vec3( 1.0 ), uContactTint, occ );
+}
+#include <opaque_fragment>`,
+    );
+  }
+
+  /* --------------------------------------------------------------- staging */
 
   /**
    * Build the six roster characters and stage them on the right of the battle
@@ -1159,11 +1638,22 @@ export class LookdevScene extends Scene {
   _buildCast(forge) {
     const group = new THREE.Group();
     group.name = 'cast';
+
+    // Built before they are placed, because the separation pass needs each
+    // rig's solved reach and that only exists once the character does.
+    const built = PARTY.map((slot) => buildCharacter(slot.id, forge, {
+      lighting: this.lighting, outline: true, outlineWidth: OUTLINE_PIXELS,
+      // The stage owns grounding now — see `_buildContactShadows`. The
+      // factory's per-character decal is a second, weaker copy of the same
+      // idea, and stacking the two only double-darkens the floor with the
+      // wrong shape.
+      contactShadow: false,
+    }));
+    const places = separateStagePlaces(PARTY_PLACES, built.map(personalRadius));
+
     PARTY.forEach((slot, i) => {
-      const place = PARTY_PLACES[i];
-      const character = buildCharacter(slot.id, forge, {
-        lighting: this.lighting, outline: true, outlineWidth: OUTLINE_PIXELS,
-      });
+      const place = places[i];
+      const character = built[i];
       character.root.position.set(place.x, groundHeight(place.x, place.z), place.z);
       // Square up to the vanguard husk, then open `turn` radians back toward the
       // lens. Deriving the base heading from the threat's actual position rather
@@ -1185,12 +1675,7 @@ export class LookdevScene extends Scene {
       // undoing `turn` — see GAZE_WEIGHT.
       character.animator.lookAt?.(GAZE_ANCHOR, GAZE_WEIGHT);
       group.add(character.root);
-      // No stage decal here. `buildCharacter` now ships its own contact shadow —
-      // a body blob plus two foot blobs that track the feet and fade as they
-      // lift, which is strictly better than a static disc because it survives
-      // animation. Adding a second one on top was double-darkening the ground
-      // and, at 1.35 × height, drawing a pool wider than the figure standing in
-      // it. The husks keep `_contactDecal` because they have no rig to carry one.
+      LookdevScene._markContactCasters(character.root);
       this.cast.push(character);
     });
     this.scene.add(group);
@@ -1331,7 +1816,7 @@ export class LookdevScene extends Scene {
       }
 
       group.add(root);
-      group.add(this._contactDecal(forge, place.x, place.z, spec.height * 0.62));
+      LookdevScene._markContactCasters(root);
       // Phase offsets are drawn from the scene stream so the three husks never
       // breathe in lockstep, and never differ between two captures.
       this.enemies.push({
@@ -1484,53 +1969,176 @@ export class LookdevScene extends Scene {
     skin.setIndex(idx);
     parts.push(skin);
 
-    /**
-     * Tapered limb segment between two points.
-     *
-     * Capped, not open-ended, even though both ends are buried inside the body
-     * or a paw. An inverted-hull outline renders the *back* faces of whatever
-     * it wraps, so an open tube hands it a clear view straight down the bore
-     * and the hull paints the far wall as a flat plate hanging in mid-air —
-     * which is exactly what the first render of this creature showed.
-     */
-    const bone = (a, b, ra, rb) => {
-      const d = new THREE.Vector3().subVectors(b, a);
-      const len = d.length();
-      const g = new THREE.CylinderGeometry(rb, ra, len, 10, 1, false);
-      g.translate(0, len * 0.5, 0);
-      g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0), d.normalize(),
-      ));
-      g.translate(a.x, a.y, a.z);
-      parts.push(g);
-    };
-    const paw = (x, y, z, r) => {
-      const g = new THREE.SphereGeometry(r, 14, 10);
-      g.scale(1.0, 0.86, 1.25);
-      g.translate(x, y, z);
-      parts.push(g);
-    };
-
+    // Limbs. Each one is a **single swept tube that ends in its own paw**, and
+    // that is a correction rather than a refactor. They used to be two tapered
+    // cylinders with a squashed sphere dropped over the ankle: geometrically
+    // the sphere did contain the shank's end, but three separate closed
+    // surfaces means three separate silhouettes, and every one of them gets its
+    // own rim light and its own inverted hull. What the frame showed was a boot
+    // hovering under a cut-off tube with a bright line in the gap — the review's
+    // "ball feet float with visible gaps above their leg tubes". One surface has
+    // one contour, so the paw cannot come off the leg at any angle or under any
+    // light. It is the same argument `_huskSpine` makes for the body.
     for (const s of [1, -1]) {
       // Forelimbs are straighter and planted well forward of the shoulder, so
       // the whole mass leans into the party's half of the stage.
-      bone(new THREE.Vector3(s * 0.190, 0.500, 0.235),
-        new THREE.Vector3(s * 0.245, 0.280, 0.358), 0.100, 0.076);
-      bone(new THREE.Vector3(s * 0.245, 0.280, 0.358),
-        new THREE.Vector3(s * 0.250, 0.095, 0.382), 0.076, 0.058);
-      paw(s * 0.250, 0.078, 0.400, 0.086);
-      // Hind legs fold under the haunch — a crouch loaded to spring.
-      bone(new THREE.Vector3(s * 0.185, 0.340, -0.100),
-        new THREE.Vector3(s * 0.215, 0.170, -0.205), 0.104, 0.076);
-      bone(new THREE.Vector3(s * 0.215, 0.170, -0.205),
-        new THREE.Vector3(s * 0.202, 0.090, -0.060), 0.076, 0.062);
-      paw(s * 0.200, 0.076, -0.038, 0.084);
+      parts.push(this._makeHuskLimbGeometry([
+        { x: s * 0.196, y: 0.510, z: 0.225, r: 0.102 },
+        { x: s * 0.248, y: 0.300, z: 0.348, r: 0.078 },
+        { x: s * 0.258, y: 0.135, z: 0.386, r: 0.062 },
+        { x: s * 0.262, y: 0.062, z: 0.428, r: 0.086 },
+      ]));
+      // Hind legs fold under the haunch — a crouch loaded to spring. Carried
+      // wider and dropped lower than the forelimbs so a good half-metre of
+      // shank clears the flank: tucked tight under a 3.5 m body they were
+      // hidden by it from the battle camera, which left the paws reading as
+      // loose spheres lying on the grass with nothing joining them to anything.
+      parts.push(this._makeHuskLimbGeometry([
+        { x: s * 0.205, y: 0.352, z: -0.135, r: 0.102 },
+        { x: s * 0.256, y: 0.196, z: -0.248, r: 0.078 },
+        { x: s * 0.252, y: 0.108, z: -0.142, r: 0.062 },
+        { x: s * 0.244, y: 0.058, z: -0.052, r: 0.084 },
+      ]));
     }
 
     const merged = mergeGeometries(parts, false);
     for (const g of parts) g.dispose();
     merged.computeVertexNormals();
     return merged;
+  }
+
+  /**
+   * One husk limb: hip to toe as a single closed surface.
+   *
+   * `joints` are `{x, y, z, r}` in the body's normalised space, hip first and
+   * toe last; the run is Catmull-Rom resampled so the knee and hock are curves
+   * rather than creases, and the radius channel is interpolated with it so the
+   * paw's bulge grows out of the shank instead of being stuck onto it.
+   *
+   * The sweep frame is carried, not recomputed per sample: a limb is close
+   * enough to straight that a Frenet frame is free to spin about the tangent
+   * wherever curvature dips through zero, which would twist the tube. Starting
+   * from world +X and re-orthogonalising against each new tangent keeps the
+   * frame continuous by construction.
+   *
+   * The toe closes with a half-ellipsoid cap of its own final radius, which is
+   * what makes the paw *be* the end of the leg. The hip end closes with a flat
+   * fan — it is buried inside the body, and an open tube would hand the
+   * inverted-hull pass a clear view down the bore, which it paints as a plate
+   * hanging in mid-air.
+   */
+  _makeHuskLimbGeometry(joints) {
+    const RADIAL = 12;
+    const SPAN = 9;         // resample steps per authored segment
+    const CAP = 4;          // rings in the closing toe cap
+    const n = joints.length;
+    const path = [];
+    for (let seg = 0; seg < n - 1; seg++) {
+      const p0 = joints[Math.max(0, seg - 1)];
+      const p1 = joints[seg];
+      const p2 = joints[seg + 1];
+      const p3 = joints[Math.min(n - 1, seg + 2)];
+      // The last sample of a segment is the first of the next, so it is emitted
+      // only by the final segment — otherwise every joint carries a duplicated
+      // ring and the tube self-shadows along four seams.
+      const last = seg === n - 2 ? SPAN : SPAN - 1;
+      for (let s = 0; s <= last; s++) {
+        const f = s / SPAN;
+        const spline = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * f
+          + (2 * a - 5 * b + 4 * c - d) * f * f
+          + (-a + 3 * b - 3 * c + d) * f * f * f);
+        path.push({
+          x: spline(p0.x, p1.x, p2.x, p3.x),
+          y: spline(p0.y, p1.y, p2.y, p3.y),
+          z: spline(p0.z, p1.z, p2.z, p3.z),
+          r: Math.max(0.004, spline(p0.r, p1.r, p2.r, p3.r)),
+        });
+      }
+    }
+
+    const pos = [];
+    const nrm = [];
+    const uv = [];
+    const idx = [];
+    const ring = RADIAL + 1;
+    const tangent = new THREE.Vector3();
+    const right = new THREE.Vector3(1, 0, 0);
+    const up = new THREE.Vector3();
+    const normal = new THREE.Vector3();
+
+    /** Emit one ring of `radius` at `p`, oriented on the carried frame. */
+    const emitRing = (p, radius, v) => {
+      for (let j = 0; j <= RADIAL; j++) {
+        const a = (j / RADIAL) * Math.PI * 2;
+        const ca = Math.cos(a);
+        const sa = Math.sin(a);
+        normal.copy(right).multiplyScalar(ca).addScaledVector(up, sa);
+        pos.push(p.x + normal.x * radius, p.y + normal.y * radius, p.z + normal.z * radius);
+        nrm.push(normal.x, normal.y, normal.z);
+        // Leather grain runs along the limb, matching the body's own 2.6 repeat.
+        uv.push(j / RADIAL, v * 1.4);
+      }
+    };
+
+    for (let i = 0; i < path.length; i++) {
+      const p = path[i];
+      const prev = path[Math.max(0, i - 1)];
+      const next = path[Math.min(path.length - 1, i + 1)];
+      tangent.set(next.x - prev.x, next.y - prev.y, next.z - prev.z);
+      if (tangent.lengthSq() < 1e-10) tangent.set(0, -1, 0);
+      tangent.normalize();
+      // Re-orthogonalise the carried right vector against the new tangent. If
+      // the two have gone parallel — which needs a limb doubled back on itself
+      // — fall back to the world axis the body sweep also uses.
+      right.addScaledVector(tangent, -right.dot(tangent));
+      if (right.lengthSq() < 1e-6) right.set(0, 0, 1).addScaledVector(tangent, -tangent.z);
+      right.normalize();
+      up.crossVectors(tangent, right).normalize();
+      emitRing(p, p.r, i / (path.length - 1));
+    }
+
+    // Toe cap: a half-ellipsoid carried on the final frame, so the paw is the
+    // tube's own end rather than a sphere resting near it.
+    const tip = path[path.length - 1];
+    const capLen = tip.r * 1.05;
+    for (let c = 1; c <= CAP; c++) {
+      const t = c / (CAP + 1);
+      const a = (t * Math.PI) / 2;
+      emitRing({
+        x: tip.x + tangent.x * Math.sin(a) * capLen,
+        y: tip.y + tangent.y * Math.sin(a) * capLen,
+        z: tip.z + tangent.z * Math.sin(a) * capLen,
+      }, tip.r * Math.cos(a), 1);
+    }
+
+    const rings = path.length + CAP;
+    for (let i = 0; i < rings - 1; i++) {
+      for (let j = 0; j < RADIAL; j++) {
+        const a = i * ring + j;
+        idx.push(a, a + ring, a + 1, a + 1, a + ring, a + ring + 1);
+      }
+    }
+    // Two fans: the flat hip end and the toe's pole.
+    for (const [end, dir] of [[0, -1], [rings - 1, 1]]) {
+      const src = end === 0 ? path[0] : tip;
+      const reach = end === 0 ? 0 : capLen;
+      const c = pos.length / 3;
+      pos.push(src.x + tangent.x * reach, src.y + tangent.y * reach, src.z + tangent.z * reach);
+      nrm.push(tangent.x * dir, tangent.y * dir, tangent.z * dir);
+      uv.push(0.5, end === 0 ? 0 : 1.4);
+      for (let j = 0; j < RADIAL; j++) {
+        const a = end * ring + j;
+        if (dir < 0) idx.push(c, a + 1, a);
+        else idx.push(c, a, a + 1);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    return geo;
   }
 
   /**
@@ -1969,7 +2577,10 @@ export class LookdevScene extends Scene {
       m.mesh.position.x += m.drift * step;
       if (m.mesh.position.x > MIST_SPAN.east) m.mesh.position.x -= MIST_WRAP;
       m.mesh.quaternion.copy(this.camera.quaternion);
-      m.mesh.position.y += Math.sin(t * 0.21 + m.phase) * 0.0009;
+      // Absolute, not accumulated — see `baseY` in `_buildMist`. 3 cm of swell
+      // is all the bank needs to stop reading as a decal, and it can never walk
+      // the pool up onto the party.
+      m.mesh.position.y = m.baseY + Math.sin(t * 0.21 + m.phase) * 0.03;
     }
 
     const pos = this.motes.geometry.getAttribute('position');
@@ -2006,6 +2617,12 @@ export class LookdevScene extends Scene {
     // materials and the shared outline material are all tracked — so this is
     // only about dropping the references the tick loop walks.
     this.enemies.length = 0;
+    // Both projector targets, its depth material, the resolve shader and the
+    // quad geometry are tracked. Dropping the handle is what stops the service
+    // tick — which has already been unregistered below — from ever finding a
+    // disposed render target if a teardown races a frame.
+    this._contact = null;
+    this._contactUniforms = null;
     // Services outlive the scene that registered them; leaving a disposed rig
     // in the registry would hand the next scene a dead CSM.
     for (const name of ['sky', 'lighting', 'lookdev-stage']) {

@@ -38,6 +38,7 @@
  */
 import * as THREE from 'three';
 import { rng } from '../core/GameState.js';
+import { CAST_LAYER } from './Rig.js';
 
 const FIXED_STEP = 1 / 60;
 const MAX_CATCHUP_STEPS = 4; // Beyond this we drop time; a spiral is worse than a hitch.
@@ -535,6 +536,10 @@ export class ClothSim {
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;
     mesh.matrixAutoUpdate = false; // Vertices are already in root-local space.
+    // A cape is part of the cast silhouette, so it joins the cast layer with
+    // the body — see `CharacterFactory.CAST_LAYER`. Layer 0 stays enabled, so a
+    // scene that does not use it sees no change.
+    mesh.layers.enable(CAST_LAYER);
     panel.geometry = geo;
     panel.mesh = mesh;
     this.root.add(mesh);

@@ -290,32 +290,49 @@ export const ENV_INTENSITY = Object.freeze({ default: 0.6, metal: 1.0, crystal: 
 /**
  * Named grades for `PostFX.setGrade` (ART_BIBLE §6). Kept here rather than in
  * PostFX so the colour contract lives in one file; PostFX consumes it.
+ *
+ * **`grain` is 0 in every grade, and that is a pipeline rule rather than a
+ * taste setting.** ANIME_PIPELINE's absolute rule is that no procedural noise
+ * touches a character surface, because on a character it reads as dirt — and a
+ * full-screen film-grain pass is a procedural noise texture on every character
+ * surface in the frame, applied after all the work that made those surfaces
+ * flat. The composite's luminance envelope (`4L(1-L)`, peaking in the mids)
+ * puts the *maximum* amplitude exactly on skin, which is why the review found
+ * the lead's face speckled orange-on-orange at 3×; and against a cel band —
+ * a genuinely constant colour region several hundred pixels across — even the
+ * small residual on hair reads as mottling, because there is nothing else in
+ * that region for the eye to attribute the variation to.
+ *
+ * Grain exists to sell photographic capture. This target is drawn, not shot.
+ * Nothing else in the chain depends on it: the composite dithers its own 8-bit
+ * quantisation with interleaved gradient noise, and the toon material dithers
+ * its bands, so removing grain costs no banding.
  */
 export const GRADE = Object.freeze({
   default: {
     shadowTint: 0x2e4a5f, shadowAmount: 0.6,
     highlightTint: 0xffd9a3, highlightAmount: 0.45,
-    saturation: 1.05, contrast: 1.06, grain: 0.035, vignette: 0.28, aberration: 0.0012,
+    saturation: 1.05, contrast: 1.06, grain: 0, vignette: 0.28, aberration: 0.0012,
   },
   sorrow: {
     shadowTint: 0x22384a, shadowAmount: 0.65,
     highlightTint: 0xc9d6dd, highlightAmount: 0.4,
-    saturation: 0.85, contrast: 1.04, grain: 0.05, vignette: 0.3, aberration: 0.0012,
+    saturation: 0.85, contrast: 1.04, grain: 0, vignette: 0.3, aberration: 0.0012,
   },
   ember: {
     shadowTint: 0x33221f, shadowAmount: 0.55,
     highlightTint: 0xffb36b, highlightAmount: 0.5,
-    saturation: 1.08, contrast: 1.08, grain: 0.035, vignette: 0.34, aberration: 0.0014,
+    saturation: 1.08, contrast: 1.08, grain: 0, vignette: 0.34, aberration: 0.0014,
   },
   void: {
     shadowTint: 0x2b1245, shadowAmount: 0.7,
     highlightTint: 0xd6c8ff, highlightAmount: 0.4,
-    saturation: 0.98, contrast: 1.1, grain: 0.04, vignette: 0.32, aberration: 0.002,
+    saturation: 0.98, contrast: 1.1, grain: 0, vignette: 0.32, aberration: 0.002,
   },
   verdant: {
     shadowTint: 0x27423a, shadowAmount: 0.6,
     highlightTint: 0x7a9e6b, highlightAmount: 0.45,
-    saturation: 1.06, contrast: 1.05, grain: 0.035, vignette: 0.28, aberration: 0.0012,
+    saturation: 1.06, contrast: 1.05, grain: 0, vignette: 0.28, aberration: 0.0012,
   },
 });
 

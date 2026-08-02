@@ -16,8 +16,17 @@
  *     -> depth of field thin-lens CoC + half-res bokeh gather
  *     -> motion blur    camera-velocity reprojection
  *     -> radial blur    limit-break speedlines
- *     -> composite      chromatic aberration, flash, ACES, LUT grade, grain, vignette
+ *     -> composite      chromatic aberration, depth-keyed value structure,
+ *                       flash, ACES, LUT grade, grain, vignette
  *     -> FXAA
+ *
+ * The value structure is the one stage that is not a colour operation. It reads
+ * the same depth texture AO and DOF read, splits the frame into foreground /
+ * subject / background around the live focal plane, and enforces the art
+ * bible's dark-frame / bright-subject / hazy-stage relationship that a named
+ * LUT grade — being a function of colour alone — cannot express. It lives
+ * inside the composite because it *is* the grade, only depth-aware; see
+ * compositeShader.js.
  *
  * Diagnostic frames (the flat silhouette check) take a bypass: see
  * `setDiagnostic`. Everything creative is switched off and the pass reduces to
@@ -88,6 +97,46 @@ const SENSOR_HEIGHT_MM = 24;
  */
 const ABERRATION_STEADY = 0.0012;
 const ABERRATION_IMPACT_SPIKE = 0.004 - ABERRATION_STEADY;
+
+/**
+ * The depth-keyed value structure — dark foreground, bright subject, hazy
+ * background — evaluated inside the composite pass. See compositeShader.js for
+ * the operator and for why a colour-only LUT structurally cannot deliver this.
+ *
+ * Every figure here is derived from the measured frame the art director scored,
+ * not dialled in by eye:
+ *
+ *  - `subjectGain` 2.1 — the shipped lit side sat at display 0.314 (ACES input
+ *    0.150); display 0.52, mid-way through the requested L 130-150, is ACES
+ *    input 0.315. 0.315 / 0.150 = 2.1.
+ *  - `foreLift` — luminance 0.070. The foreground ground measured display 0.071
+ *    (L 18); `f + 0.071(1 - f) = 0.135` (L 34, inside the requested 30-40) gives
+ *    f = 0.070. Split across the channels as a teal-black so the frame's dark
+ *    border still carries the palette's hue.
+ *  - `farLift` — luminance 0.148, i.e. the review's "lift the background 15%".
+ *  - `farSaturation` 0.82 with `subjectSaturation` 1.22 opens a 1.5x chroma gap
+ *    between cast and stage, which is the relationship REFERENCE_TARGET §3 means
+ *    by "the background is a stage, never competition".
+ *
+ * The band is expressed as a *ratio* of the focal distance with a metre floor,
+ * so it covers the whole staggered party at the wide battle camera and collapses
+ * onto one face at a closeup without either being re-authored per pose.
+ */
+const VALUE_STRUCTURE = {
+  amount: 1,
+  halfWidthRatio: 0.18,
+  minHalfWidth: 1.2,
+  featherRatio: 0.35,
+  minFeather: 1.6,
+  subjectGain: 2.1,
+  subjectContrast: 1.12,
+  subjectSaturation: 1.22,
+  subjectGrain: 0.15,
+  dehaze: 0.75,
+  foreLift: [0.043, 0.075, 0.095],
+  farLift: [0.115, 0.155, 0.175],
+  farSaturation: 0.82,
+};
 
 /**
  * Quality ladder. Everything here is switchable at runtime; nothing here
@@ -684,6 +733,29 @@ export class PostFX {
       // `new THREE.Color(hex)` would do under colour management) would make it
       // far too dark.
       uVignetteColor: { value: new THREE.Vector3(0.039, 0.071, 0.094) },
+
+      // Depth-keyed value structure. `tDepth` is bound by `_bindDepth`; the
+      // rest are written every frame from `this._structure` and the live focal
+      // plane. `uFogColor` is a THREE.Color because it is copied straight off
+      // `scene.fog`, which three already holds in the linear working space the
+      // un-mix operates in — whereas the two lift colours are Vector3 for the
+      // same reason `uVignetteColor` is: they are display-referred literals and
+      // colour management must not touch them.
+      tDepth: { value: null },
+      uCamNearFar: { value: new THREE.Vector2(0.1, 4000) },
+      uStructure: { value: VALUE_STRUCTURE.amount },
+      uSubjectDistance: { value: 9 },
+      uSubjectBand: { value: new THREE.Vector2(1.6, 3.2) },
+      uSubjectGain: { value: VALUE_STRUCTURE.subjectGain },
+      uSubjectContrast: { value: VALUE_STRUCTURE.subjectContrast },
+      uSubjectSaturation: { value: VALUE_STRUCTURE.subjectSaturation },
+      uSubjectGrain: { value: VALUE_STRUCTURE.subjectGrain },
+      uDehaze: { value: VALUE_STRUCTURE.dehaze },
+      uFogColor: { value: new THREE.Color(0, 0, 0) },
+      uFogDensity: { value: 0 },
+      uForeLift: { value: new THREE.Vector3(...VALUE_STRUCTURE.foreLift) },
+      uFarLift: { value: new THREE.Vector3(...VALUE_STRUCTURE.farLift) },
+      uFarSaturation: { value: VALUE_STRUCTURE.farSaturation },
     };
     this.compositePass = new ShaderPass(postMaterial(COMPOSITE_FRAG, this.compositeUniforms));
 
@@ -755,6 +827,11 @@ export class PostFX {
     this._fNumber = 4.0;
     this._bokehScale = 4.0;
 
+    /** Live copy of the value-structure defaults; `setValueStructure` mutates
+     *  this and re-syncs, so a scene can widen the band for a group shot
+     *  without the constant table becoming per-scene state. */
+    this._structure = { ...VALUE_STRUCTURE };
+
     this._prevViewProj = new THREE.Matrix4();
     this._prevCamPos = new THREE.Vector3();
     this._hasHistory = false;
@@ -791,6 +868,7 @@ export class PostFX {
     ];
 
     this._bindDepth(this.beauty.depthTexture);
+    this._syncStructure();
     this.setSize(engine.width || 1280, engine.height || 720);
     this._applyQuality();
 
@@ -950,6 +1028,43 @@ export class PostFX {
   }
 
   // -------------------------------------------------------------------------
+  // Value structure
+  // -------------------------------------------------------------------------
+
+  /**
+   * Retune the depth-keyed value structure. Keys are the fields of
+   * `VALUE_STRUCTURE`; anything omitted keeps its current value.
+   *
+   * The defaults are composed for the fixed side-view battle stage, which is the
+   * shot the whole art direction is judged on. The two knobs a scene realistically
+   * needs are `amount` (fade the whole relationship out for a stylised or fully
+   * abstract shot) and the band geometry (`halfWidthRatio` / `featherRatio`) when
+   * a cutscene stages actors far deeper than one focal plane can cover.
+   *
+   * @param {Partial<typeof VALUE_STRUCTURE>} opts
+   */
+  setValueStructure(opts = {}) {
+    Object.assign(this._structure, opts);
+    this._syncStructure();
+  }
+
+  /** Push the non-per-frame half of `_structure` onto the composite uniforms. */
+  _syncStructure() {
+    const s = this._structure;
+    const u = this.compositeUniforms;
+    u.uSubjectGain.value = Math.max(0, s.subjectGain);
+    u.uSubjectContrast.value = Math.max(0, s.subjectContrast);
+    u.uSubjectSaturation.value = Math.max(0, s.subjectSaturation);
+    u.uSubjectGrain.value = Math.max(0, s.subjectGrain);
+    // Clamped below 1: a full un-mix would divide the subject band by (1 - f)
+    // and amplify every bit of quantisation noise the fog was hiding.
+    u.uDehaze.value = Math.min(0.95, Math.max(0, s.dehaze));
+    u.uForeLift.value.fromArray(s.foreLift);
+    u.uFarLift.value.fromArray(s.farLift);
+    u.uFarSaturation.value = Math.max(0, s.farSaturation);
+  }
+
+  // -------------------------------------------------------------------------
   // Quality
   // -------------------------------------------------------------------------
 
@@ -1068,6 +1183,11 @@ export class PostFX {
     this.dofPass.prepassUniforms.tDepth.value = depthTexture;
     this.dofPass.compositeUniforms.tDepth.value = depthTexture;
     this.motionBlurUniforms.tDepth.value = depthTexture;
+    // The composite reads depth for the value structure. Safe at this point in
+    // the chain for the same reason motion blur is: the beauty target is never
+    // bound as an output once the render pass has finished, so there is no
+    // framebuffer feedback loop to form.
+    this.compositeUniforms.tDepth.value = depthTexture;
   }
 
   /** Advance every time-driven parameter. Split out of render() so the
@@ -1132,6 +1252,47 @@ export class PostFX {
     // with a cut-in, slow enough that it never snaps (art bible §7.8).
     const focusK = 1 - Math.exp(-dt / 0.25);
     this._focusDistance += (this._focusGoal - this._focusDistance) * focusK;
+  }
+
+  /**
+   * Point the value structure at this frame's subject and at this frame's air.
+   *
+   * The focal plane is the anchor because it is already the one number in the
+   * engine that means "where the thing the shot is about is standing" — scenes
+   * set `focusDistance`, cutscenes call `focusOn(actor)`, and both are smoothed
+   * by `_advance`. Deriving the subject band from anything else would give the
+   * cast two different definitions of "in focus" and let the bright band drift
+   * off the characters mid-shot.
+   *
+   * The fog is read live rather than configured, so the un-mix always inverts
+   * the fog that was actually composited: `Sky` re-derives colour and density
+   * from the time of day every frame, and a hard-coded haze colour here would
+   * put a magenta cast on the party the moment dusk turned to night.
+   */
+  _updateValueStructure(scene, camera, active) {
+    const u = this.compositeUniforms;
+    const s = this._structure;
+    u.uStructure.value = active && u.tDepth.value ? Math.max(0, Math.min(1, s.amount)) : 0;
+    if (u.uStructure.value <= 0) return;
+
+    const d = this._focusDistance;
+    u.uSubjectDistance.value = d;
+    u.uSubjectBand.value.set(
+      Math.max(s.minHalfWidth, d * s.halfWidthRatio),
+      Math.max(s.minFeather, d * s.featherRatio),
+    );
+    u.uCamNearFar.value.set(camera.near, camera.far);
+
+    // Only FogExp2 is invertible with the closed form the shader uses. Linear
+    // THREE.Fog would need its own near/far pair; no scene mounts one, and
+    // silently applying the wrong curve would tint the cast rather than fail.
+    const fog = scene.scene?.fog;
+    if (fog?.isFogExp2) {
+      u.uFogColor.value.copy(fog.color);
+      u.uFogDensity.value = fog.density;
+    } else {
+      u.uFogDensity.value = 0;
+    }
   }
 
   /** Resolve where the focal plane should be for this frame. */
@@ -1207,6 +1368,8 @@ export class PostFX {
     } else {
       this.compositeUniforms.uGradeAmount.value = 1;
     }
+
+    this._updateValueStructure(scene, camera, perspective && !diag);
 
     // --- camera shake ----------------------------------------------------
     this._camPos.copy(camera.position);

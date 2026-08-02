@@ -8,10 +8,11 @@
  * surface it wraps — bit for bit, not "the same idea reimplemented". Re-deriving
  * skinning, morphing, instancing and log-depth by hand is how inverted hulls end
  * up peeling off a character halfway through an animation. Reusing three's own
- * chunks makes that class of bug unrepresentable. Fog comes along for free,
- * which REFERENCE_TARGET §3 wants anyway: an ink line that stays crisp at 60 m
- * while the character it wraps washes into the mist is the one object in frame
- * ignoring the atmosphere.
+ * chunks makes that class of bug unrepresentable. Fog is compiled in but left
+ * *off* by `Outline.js`: this project's mist is brighter than its cast, so
+ * fogging the line mixes it toward something paler than the character it closes
+ * and the contour fades exactly where the silhouette needs it. Ink is a mark on
+ * top of the image, not a surface standing in the atmosphere.
  *
  * Two things here are load-bearing and easy to get subtly wrong.
  *
@@ -149,7 +150,7 @@ uniform vec3  uOutlineFallback;
  * line the document rules out.
  *
  * `uOutlineFloor` then keeps the result off zero: a deep navy coat darkened by
- * 0.16 is black to within a code value, which would put the only pure black in
+ * 0.18 is black to within a code value, which would put the only pure black in
  * the frame on the subject and break ART_BIBLE §2.3's tinted value floor. And a
  * colour with *nothing* left to derive from — a hull whose geometry has no
  * colour attribute reads the WebGL default, which is black — falls back to the
