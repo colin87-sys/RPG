@@ -276,6 +276,25 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
   // form shadow instead of punching a hole through the character.
   reflectedLight.indirectDiffuse += uToonShadowFill * ( uToonShadowGain * ( 1.0 - awLit ) ) * awAlbedo;
 
+  // ---- highlight ceiling --------------------------------------------------
+  // The drawn highlight is accumulated per light inside 'RE_Direct_Toon', which
+  // cannot know what the rest of the surface will come to — so, unlike the rim
+  // below, it had no bound at all. On the two classes that carry one that is
+  // where the clipping actually lived: a pale hair mass under a hard key put the
+  // anisotropic band past 2.0, and a pauldron's ping past 3.0, where ACES has no
+  // resolution left and every hue in the shape flattens to the same neutral
+  // white. That is the review's "edges clipping to pure white rather than
+  // glowing", on the specular rather than on the rim.
+  //
+  // Scaling the *peak channel* back to the class ceiling bounds it exactly while
+  // leaving its chromaticity alone, so a gold blade's ping stays gold and a hair
+  // band stays the colour of lightened hair. The ceiling is the same one the rim
+  // is spent against, which is the point: it is the surface class's HDR headroom,
+  // not a per-term allowance — metal and crystal carry a higher one precisely
+  // because the art direction lets their highlights run hotter.
+  float awSpecPeak = max3( reflectedLight.directSpecular );
+  reflectedLight.directSpecular *= min( 1.0, uToonRimCeiling / max( awSpecPeak, 1e-4 ) );
+
   // ---- mandatory rim ------------------------------------------------------
   // REFERENCE_TARGET §1 lists this as non-negotiable: "a bright rim/back light
   // separating them from the background in every frame". Deliberately not

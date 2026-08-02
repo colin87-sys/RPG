@@ -249,8 +249,16 @@ export const TOON_PRESETS = Object.freeze({
     shadowMix: 0.50, shadowSat: 1.35, shadowValue: 0.74,
     shadowLevel: 0.24, shadowGain: 1.0, shadowLift: 0.08, shadowFloor: 0.0,
     ambientGain: 0.80, litBandThreshold: 0.86, litBandGain: 0.22,
-    specColor: SURFACE_TINT.SILK_SPEC, specGain: 1.45, specExponent: 96,
-    specThreshold: 0.52, specSoftness: 0.035, specAlbedoMix: 0.45,
+    // 1.05, not 1.45, and 0.58 albedo rather than 0.45. The band is now held
+    // under the class ceiling by the composite, so a higher gain no longer
+    // brightens it — it only widens the plateau that sits *at* the ceiling,
+    // which is a flat white shape rather than a highlight. Keeping the peak just
+    // under the ceiling leaves the band's own falloff intact, and carrying more
+    // of the hair's colour through it is what §3's "bright, slightly desaturated"
+    // asks for: at 0.45 the band on a pale hair mass was more spec tint than
+    // hair, and read as a strip of plastic laid over the crown.
+    specColor: SURFACE_TINT.SILK_SPEC, specGain: 1.05, specExponent: 96,
+    specThreshold: 0.52, specSoftness: 0.035, specAlbedoMix: 0.58,
     aniso: true, anisoShift: 0.18,
     rimPower: 3.6, rimGain: 1.90, rimFloor: 0.32,
     rimWidth: 0.66, rimCeiling: 1.60,
@@ -303,7 +311,7 @@ export const TOON_PRESETS = Object.freeze({
     shadowLevel: 0.20, shadowGain: 1.0, shadowLift: 0.06, shadowFloor: 0.0,
     ambientGain: 0.80, litBandThreshold: 0.84, litBandGain: 0.28,
     metalAlbedo: 0.70,
-    specColor: 0xffffff, specGain: 2.4, specExponent: 130,
+    specColor: 0xffffff, specGain: 1.8, specExponent: 130,
     specThreshold: 0.45, specSoftness: 0.03, specAlbedoMix: 0.50,
     aniso: true, anisoShift: 0.06,
     // ART_BIBLE §2.3 lets a specular ping clip, so metal keeps the highest

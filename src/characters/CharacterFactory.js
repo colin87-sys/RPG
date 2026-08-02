@@ -1486,6 +1486,22 @@ function buildHair(parts, m, def, pal) {
     return (onShell ? shellOuter : 1.05) + (t / h.ry) * 0.42;
   };
 
+  /**
+   * The radial scale of a clump's **first** spine sample — under the shell's
+   * outer wall where there is one, just clear of the scalp where there is not.
+   *
+   * A sweep caps its first ring with a disc facing back along the spine. At the
+   * root the spine is tangential to the skull, so that disc faces *up-slope* —
+   * and with the roots ringed around the crown, every one of them presents its
+   * cap to the top of the head. What that renders as is a ring of hard-edged
+   * ends around a patch of bare shell, which reads as a dark hole punched in the
+   * crown. Starting the spine inside the shell puts the cap where nothing can
+   * see it and makes the clump genuinely emerge *through* the scalp.
+   */
+  const rootScale = (theta, phi) => (
+    phi > hairlinePhi(theta, frontPhi, backPhi, peak) ? shellInner + 0.005 : 1.035
+  );
+
   /** The azimuthal ("comb") direction at an azimuth — a clump's wide axis. */
   const comb = (theta) => new THREE.Vector3(
     -h.rx * Math.sin(theta), 0, h.rz * Math.cos(theta),
@@ -1513,16 +1529,26 @@ function buildHair(parts, m, def, pal) {
    */
   const clump = (o) => {
     const w = o.w;
-    const th = o.thick ?? w * 0.60;
+    // Depth is 0.74 of width, not 0.60. A clump's wide axis is combed azimuthally
+    // and its thin axis is the skull radial, so a shallow section presents an
+    // almost edge-free plane to any camera standing off the character's flank —
+    // which is every camera in the game. At 0.60 the party's locks silhouetted as
+    // ribbons with no thickness at their ends; 0.74 is enough that the section's
+    // squared side is visible along the whole length and the clump reads as the
+    // carved wedge ANIME_PIPELINE §3 asks for, without fattening into a tube.
+    const th = o.thick ?? w * 0.74;
     const runs = 3;
     const pts = [];
     for (let i = 0; i <= runs; i++) {
       const k = i / runs;
       const theta = o.theta + (o.runTheta ?? 0) * k;
       const phi = o.phi + (o.runPhi ?? 0) * k;
-      // The stand-off eases in quadratically, so the root stays genuinely flush
-      // and only the free end of the scalp run lifts away.
-      pts.push(P(theta, phi, seat(theta, phi, th) + (o.lift ?? 0) * k * k));
+      // Sample 0 is buried; the rest bed onto the surface, and the stand-off
+      // eases in quadratically so the run stays flush and only the free end
+      // lifts away.
+      pts.push(P(theta, phi, i === 0
+        ? rootScale(theta, phi)
+        : seat(theta, phi, th) + (o.lift ?? 0) * k * k));
     }
     if (o.via) for (const v of o.via) pts.push(v);
     const path = smoothPath(pts, o.seg ?? 13);
@@ -1564,7 +1590,15 @@ function buildHair(parts, m, def, pal) {
   for (let i = 0; i < nF; i++) {
     const t = nF === 1 ? 0.5 : (i + 0.5) / nF;
     const off = (t - 0.5) + partShift;
-    const theta = Math.PI * 0.5 - off * Math.PI * 0.92 * spread;
+    // The fan is capped at ±1.0 rad off the front. Past that a "fringe" clump is
+    // really a lock hanging beside the ear, and because it lies flat against the
+    // side of the skull the camera sees its whole broad face at once — a dark
+    // rectangle stuck to the temple, which is the exact slab read this rebuild
+    // is removing. Locks that belong beside the ear are authored as such by the
+    // styles that want them.
+    const theta = Math.PI * 0.5 - THREE.MathUtils.clamp(
+      off * Math.PI * 0.92 * spread, -1.0, 1.0,
+    );
     const w = h.rx * (0.30 - Math.abs(off) * 0.07);
     const th = w * 0.62;
     const runTheta = fringeSweep * 0.45 * Math.sign(off || 1);
@@ -1573,7 +1607,7 @@ function buildHair(parts, m, def, pal) {
     // The span matters more than the absolute: clumps that all bottom out on the
     // guard floor fuse into one horizontal bar across the forehead, which reads
     // as a headband rather than as a fringe.
-    let end = root - (0.40 + 0.75 * Math.min(1, Math.abs(off) * 2.4)) * (fLen / 0.30);
+    let end = root - (0.38 + 0.56 * Math.min(1, Math.abs(off) * 2.4)) * (fLen / 0.30);
     // Hold the tip clear of the painted eye block. Outside the column a clump
     // may hang to the jaw, which is where a fringe earns its silhouette corners.
     const tip = P(theta + runTheta, end, seat(theta, end, th));
@@ -1718,12 +1752,24 @@ function buildHair(parts, m, def, pal) {
     // rendered as one smooth unbroken dome — a helmet, not hair — and the crop
     // breaks the outline without giving him a hairstyle he is not supposed to
     // have.
-    for (let i = 0; i < 5; i++) {
-      const t = (i + 0.5) / 5;
+    // Seven, not five, and each one leaves the scalp at its end. Five clumps of
+    // half-width 0.26 spread over four radians of azimuth cover barely two
+    // thirds of the arc, so a third of the crown stayed bare shell — and a bare
+    // shell is a smooth unbroken dome, which is the swim-cap read the crop
+    // exists to break. Seven overlap, and the free flick past the ear is what
+    // gives the crop an outline of its own instead of a painted edge.
+    const nCrop = 7;
+    for (let i = 0; i < nCrop; i++) {
+      const t = (i + 0.5) / nCrop;
       const theta = 0.40 - (Math.PI + 0.80) * t;
+      const end = 1.06 - 1.38;
+      const tipP = P(theta + 0.08, end, seat(theta, end, 0));
+      const away = new THREE.Vector3(tipP.x, 0, tipP.z);
+      if (away.lengthSq() > 1e-9) away.normalize(); else away.set(0, 0, 1);
       clump({
-        theta, phi: 1.06, runTheta: 0.08, runPhi: -1.38, lift: 0.05,
-        w: h.rx * 0.26, tipRatio: 0.16, hold: 0.46,
+        theta, phi: 1.06, runTheta: 0.08, runPhi: -1.38, lift: 0.06,
+        via: [tipP.clone().addScaledVector(away, h.rx * 0.09).add(new THREE.Vector3(0, -h.ry * 0.10, 0))],
+        w: h.rx * 0.30, tipRatio: 0.14, hold: 0.46,
       });
     }
     const blen = (hp.beardLength ?? 1.0) * D;
@@ -1821,10 +1867,19 @@ function buildHair(parts, m, def, pal) {
       const mid = base.clone().lerp(tip, 0.44);
       mid.y = Math.min(mid.y + len * 0.10, ceiling);
       tip.y = Math.min(tip.y, ceiling);
+      // A splayed spike is the one clump whose wide axis and whose growth
+      // direction are *both* roughly horizontal, so its broad face lies in a
+      // horizontal plane — and every camera in this game looks down 10–18°
+      // (REFERENCE §2), straight onto it. At the shared 0.74 depth ratio those
+      // read as flat plates radiating off the skull, which is the exact defect
+      // this rebuild is removing. A near-round section turns each one back into
+      // a tapered horn that keeps its thickness from any angle; the crown's
+      // carved read here comes from eight separate forms, not from faceting
+      // within one.
       clump({
         theta, phi, runPhi: 0.05, lift: 0.02,
         via: [mid, tip],
-        w: h.rx * 0.23, tipRatio: 0.05, hold: 0.22,
+        w: h.rx * 0.23, thick: h.rx * 0.20, tipRatio: 0.05, hold: 0.22,
       });
     }
   } else if (style === 'topknot' || style === 'braid') {
@@ -2218,10 +2273,31 @@ function buildAccessories(parts, m, def, pal) {
     if (acc.collar === 'feather') {
       const n = Math.max(3, def.cape?.feathers ?? 9);
       const fl = (def.cape?.featherLength ?? 0.18) * H;
+      // A ruff that lies **back over the shoulders**, not a crown that stands up
+      // out of the chest ring.
+      //
+      // The quills used to grow straight up — `tip = base + (0, featherLength,
+      // 0)` — and on a chibi that is catastrophic: the collar ring sits barely a
+      // head-radius below the chin, so a fifth of body height of rise puts every
+      // one of eleven bone-white blades across the wearer's jaw, mouth and eyes.
+      // Yshara shipped with her whole lower face behind her own collar.
+      //
+      // Splaying them outward is also the better read. A feather mantle's
+      // silhouette value is *width* at the shoulder line, which is what
+      // WORLD_BIBLE asks of hers, and width costs nothing against REFERENCE §1's
+      // heads-tall budget the way height does. The rise is capped against the
+      // solved jaw rather than tuned, so no roster length and no head scale can
+      // put a quill back over the face.
+      const jaw = m.head.center.y - m.head.ry * 0.98;
       for (let i = 0; i < n; i++) {
         const a = Math.PI * (0.18 + (i / (n - 1)) * 1.64);
-        const base = new THREE.Vector3(Math.sin(a) * g.chestX * 0.95, m.joints.chest.y + g.chestZ * 0.5, Math.cos(a) * g.chestZ * 0.95);
-        const tip = base.clone().add(new THREE.Vector3(Math.sin(a) * fl * 0.45, fl, Math.cos(a) * fl * 0.45));
+        const out = new THREE.Vector3(Math.sin(a), 0, Math.cos(a));
+        const base = new THREE.Vector3(out.x * g.chestX * 0.95, m.joints.chest.y + g.chestZ * 0.5, out.z * g.chestZ * 0.95);
+        // Longest at the back of the ring, shortest at the shoulder points, so
+        // the fan reads as a mantle gathered behind the neck.
+        const len = fl * (0.72 + 0.38 * Math.max(0, -Math.cos(a)));
+        const rise = Math.min(len * 0.42, Math.max(0, jaw - base.y));
+        const tip = base.clone().add(new THREE.Vector3(out.x * len, rise, out.z * len - g.chestZ * 0.22));
         sweep(cloth, [base, tip], SECTIONS.lens(8, 0.4),
           (i2) => { const s = H * (i2 === 0 ? 0.022 : 0.004); return [s, s * 0.7]; },
           { capStart: false, capEnd: true });
@@ -3049,6 +3125,25 @@ function buildCloth(root, rig, metrics, def, pal, materials) {
     }
 
     if (cape.skirt) {
+      // A wrapping skirt is a *tube*, and it has to be a tube centred on the
+      // body. `addPanel` lays a curved panel out with its edge columns on
+      // `offsetZ` and its centre column bowed forward by `(1 - cos(curve/2)) ·
+      // radius`. Below a half turn that is exactly right — the middle of a cape
+      // sits against the back and the edges come round onto the ribs — but past
+      // a half turn the edges have wrapped back and the construction displaces
+      // the whole ring forward by very nearly its own radius. Seren's skirt hung
+      // a full radius in front of her hips with its waist opening aimed at the
+      // battle camera, and the frame looked straight down inside her clothing.
+      //
+      // Two corrections, and both are derived rather than dialled so retuning
+      // one cannot desynchronise the other. `offsetZ` is the bow term negated,
+      // which puts the arc's circle centre on the body axis. And the waist
+      // radius is pulled just *inside* the hip girth, so the body itself plugs
+      // the top of the tube from every angle instead of relying on a garment
+      // hem to cover it.
+      const skirtCurve = TAU * 1.03;
+      const skirtWidth = g.hipX * TAU * 1.02;
+      const skirtRadius = skirtWidth / skirtCurve;
       sim.addPanel({
         material: clothMat,
         color: gradeAlbedo(pal.identity, 'cloth'),
@@ -3065,13 +3160,13 @@ function buildCloth(root, rig, metrics, def, pal, materials) {
         // so the gap opens under wind and you see the terrain through the skirt.
         // Overlapping the seam by 3% closes it for every pose without needing a
         // wrapped constraint topology.
-        width: g.hipX * TAU * 1.10,
+        width: skirtWidth,
         length: cape.skirt.length * H,
         flare: cape.skirt.flare ?? 1.7,
-        curve: TAU * 1.03,
+        curve: skirtCurve,
         hem: 'hemline',
-        offsetY: g.hipX * 0.30,
-        offsetZ: 0,
+        offsetY: g.hipX * 0.34,
+        offsetZ: Math.cos(skirtCurve * 0.5) * skirtRadius,
         stiffness: cape.skirt.stiffness ?? 0.24,
         drag: cape.skirt.drag ?? 0.05,
         mass: 0.8,
