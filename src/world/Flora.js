@@ -382,6 +382,55 @@ function floraMaterial(opts) {
      * *darkens* outward, 188 → 41. So flora asks for none.
      */
     rimGain: opts.rimGain ?? 0,
+    /**
+     * **No highlight on a plant either**, and for the same reason the rim went.
+     *
+     * The rim removal above was correct but incomplete: it took out one of the
+     * three white, albedo-independent terms `generic` adds, and left the other
+     * two. `generic` also ships `specGain: 0.80` (threshold 0.50, softness
+     * 0.35), and the thresholded Blinn lobe it drives is evaluated against the
+     * *shading* normal — which every blade in this module blends 35–68% toward
+     * world up, precisely so a lawn reads as ground. Under the plate's high key
+     * that leaves N·H nearly constant over an entire field, so the threshold is
+     * crossed by every fragment at once: instead of a highlight somewhere, the
+     * whole meadow gets a flat white addition.
+     *
+     * Measured on `shots/now/cast-stage.png` over the vegetation band behind the
+     * cast (x 200–1400, y 230–440, n = 252 000): mean sRGB (196, 191, 176),
+     * luminance p50 **210**, 24% of the band above 230, mean saturation 0.170,
+     * violet-pixel fraction 0.006. The same band in `bravely01.jpg` (x 820–1500,
+     * y 200–430, n = 156 400): mean (79, 93, 89), luminance p50 **83**, 0.0%
+     * above 230, saturation 0.468, violet fraction 0.071. Two and a half stops
+     * of white laid over a `#4a2f8c` albedo is not a palette problem — it is
+     * these two terms, and no albedo survives them.
+     *
+     * `specGain: 0` does not merely zero the lobe, it drops `TOON_SPECULAR` from
+     * the compiled program, which also removes a lobe plus a screen-space edge
+     * resolve per light per fragment from the highest-overdraw surfaces in the
+     * frame. On the SwiftShader capture that is the cheapest fix available.
+     */
+    specGain: 0,
+    /**
+     * The second term, and the one the rim fix could not have caught.
+     *
+     * The environment specular is `envRadiance × F × uToonEnvSpecular`, with
+     * `F = F0 + (F90 − F0)·(1 − N·V)^5`. A blade of grass is *all* grazing —
+     * that is the same geometric fact that made the rim cover whole plants — so
+     * `N·V → 0`, `(1 − N·V)^5 → 1`, and `F` climbs to the dielectric F90 of 1.0
+     * across the entire surface rather than at a contour. `generic`'s
+     * `envSpecular: 0.30` therefore adds ~0.27 of the sky probe as **white,
+     * un-multiplied by albedo**, against a diffuse ambient of 0.90 × albedo. On
+     * `LAVENDER_DEEP` (linear ≈ 0.075, 0.030, 0.276) that white term is larger
+     * than the albedo's own green channel, which is exactly how a violet bed
+     * arrives at a mean saturation of 0.170.
+     *
+     * Zeroed rather than reduced: a leaf has no specular lobe worth the name at
+     * this scale, and the sky's genuine contribution to flora is diffuse bounce,
+     * which still arrives through `envMapIntensity` below. That is the term that
+     * should carry the sky — it is multiplied by the albedo and so keeps the
+     * plant's hue while lifting its shaded side.
+     */
+    envSpecular: opts.envSpecular ?? 0,
     ambientGain: opts.ambientGain,
     normalMap: opts.normalMap,
     roughnessMap: opts.roughnessMap,
@@ -430,9 +479,22 @@ function injectVertex(source, anchor, block) {
 /** A measured sRGB hex as a linear-space `THREE.Color`, which is the space
  *  vertex-colour and instance-colour buffers are read in. `new THREE.Color(hex)`
  *  already does this under three's colour management; being explicit stops the
- *  next reader wondering whether the conversion happened. */
+ *  next reader wondering whether the conversion happened. A `Color` passed in is
+ *  copied through, so a caller may hand a ramp endpoint it computed itself. */
 function lin(hex) {
-  return new THREE.Color().setHex(hex, THREE.SRGBColorSpace);
+  return hex instanceof THREE.Color
+    ? hex.clone()
+    : new THREE.Color().setHex(hex, THREE.SRGBColorSpace);
+}
+
+/** Blend two measured percentiles in **linear** light. Used where a ramp wants
+ *  an endpoint between two entries of `FLORA_PALETTE` rather than a new
+ *  constant: the palette holds what was measured off the plate, and inventing a
+ *  fourth green to sit between two of them would leave the next reader unable to
+ *  tell a measurement from an adjustment. Blending in sRGB instead would darken
+ *  the midpoint by roughly a stop, which is the whole quantity in question. */
+function mixLin(a, b, t) {
+  return lin(a).lerp(lin(b), t);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -872,16 +934,49 @@ export function buildGrassField(opts = {}) {
   const growth = opts.distanceGrowth ?? 0.85;
   // Blade width in metres. Real grass is 4 mm and 4 mm blades alias into a
   // shimmering mess at any distance, so the width is set instead by what it
-  // takes to *cover*: with the default falloff about 3 500 of these land inside
-  // 3 m of the centre, which at 18 mm reads as turf and at 4 mm reads as fur.
-  const bladeWidth = opts.bladeWidth ?? (isMeadow ? 0.030 : 0.018);
+  // takes to *cover*.
+  //
+  // The lawn's 18 mm was too narrow and it is the reason our near ground read as
+  // scattered spikes on a bare plane rather than as turf. Coverage is the only
+  // thing that makes a lawn, and of the three ways to buy it — more blades,
+  // taller blades, wider blades — only the third is free: width is an instance
+  // scale, so it costs no instance, no vertex and no draw call. The capture
+  // already runs against a 180 s budget on SwiftShader, so it is the only lever
+  // that may be pulled. 26 mm with the flatter taper below is a little over
+  // twice the projected area per blade at the same count.
+  const bladeWidth = opts.bladeWidth ?? (isMeadow ? 0.030 : 0.026);
 
   const geo = setSway(
     bladeGeometry({
       segments: isMeadow ? 6 : 4,
-      droop: isMeadow ? 0.62 : 0.30,
-      taper: 0.62,
-      rootColor: isMeadow ? FLORA_PALETTE.MEADOW_ROOT : FLORA_PALETTE.GRASS_ROOT,
+      // The lawn blade arcs much harder than it did. A 6–10 cm blade standing at
+      // droop 0.30 is a vertical tick with clear ground either side of it; the
+      // plate's mown lawn has no visible ground between its blades at all,
+      // because each one lies over into its neighbours. This is the same
+      // coverage argument as the width and it is likewise free.
+      droop: isMeadow ? 0.62 : 0.55,
+      // `halfWidth = 0.5·(1−t)^taper`, so the exponent decides how quickly the
+      // blade comes to a point. 0.62 puts a needle on the lawn — 24% of full
+      // width nine tenths of the way up — and a field of needles is a field of
+      // spikes. The plate's lawn resolves as *streaks* that hold their weight
+      // most of their length, which is 0.38 (45% at the same station). The bed's
+      // tufts stay sharp: there the pointed silhouette is the read.
+      taper: isMeadow ? 0.62 : 0.38,
+      // The lawn's within-blade ramp is deliberately much shorter than the
+      // meadow's. Measured percentiles over the plate's lawn are p10 #2b4b1b,
+      // p50 #5b763c, p90 #7e9659 — but that spread lives *between* patches and
+      // between lit and shaded ground, not inside one 6 cm blade. Running the
+      // full p10→p90 up an object 10 px tall puts a two-stop gradient at the
+      // pixel scale, and a dark base under a pale tip is precisely what the eye
+      // reads as a spike lying on a plane rather than as ground cover. Starting
+      // the ramp at the measured p50 keeps the blade close to the value of the
+      // ground it grows out of, and the p10 end arrives where the plate puts
+      // it — in the shaded troughs, from the shading model. 0.42 of the way from
+      // the p10 entry to the tip resolves to #5f783f, which is the plate's own
+      // p50 of #5b763c to within four code values on every channel.
+      rootColor: isMeadow
+        ? FLORA_PALETTE.MEADOW_ROOT
+        : mixLin(FLORA_PALETTE.GRASS_ROOT, FLORA_PALETTE.GRASS_TIP, 0.42),
       tipColor: isMeadow ? FLORA_PALETTE.MEADOW_TIP : FLORA_PALETTE.GRASS_TIP,
       // A mown lawn is seen almost edge-on from a battle camera, so its blades
       // need the strongest push toward a ground normal; the bed's tufts are seen
@@ -923,11 +1018,29 @@ export function buildGrassField(opts = {}) {
     _v3.set(p.x, heightAt(p.x, p.z) - h * 0.06, p.z);
     _s3.set(rng.range(0.65, 1.05) * bladeWidth * size, h, h * 0.55);
     m.compose(_v3, _q, _s3);
-    // Hue drift across the field. The plate's lawn is not one green: masked
-    // p10 #2b4b1b to p90 #7e9659 is nearly two stops, and a field at one value
-    // reads as felt.
-    const v = rng.range(0.80, 1.16);
-    c.setRGB(v * rng.range(0.94, 1.03), v, v * rng.range(0.88, 1.0));
+    // Value drift across the field — still there, but now at the *spatial*
+    // frequency the plate actually shows it at.
+    //
+    // The field must not sit at one value; that reads as felt, and the measured
+    // p10→p90 spread of nearly two stops is real. But drawing each blade's value
+    // independently puts that whole spread between one blade and the blade
+    // beside it, which is salt-and-pepper at the pixel scale and is the other
+    // half of why our near ground read as scattered spikes: a bright blade
+    // against a dark neighbour separates, and a field of separated blades is
+    // never ground cover however dense it gets. On the plate the lawn's value
+    // varies over patches a metre or two across — sun through the canopy, a
+    // slight roll in the ground — and neighbouring blades agree.
+    //
+    // So the bulk of the variation is sampled from position instead of from the
+    // RNG. Two incommensurate sinusoids are enough: the beat between them gives
+    // drifting patches with no visible tiling, and it is evaluated once per
+    // blade at build time, so it costs nothing at render.
+    const patch = Math.sin(p.x * 0.83 + p.z * 0.51) * Math.cos(p.z * 0.67 - p.x * 0.29);
+    // Per-blade jitter is kept but reduced to a tenth of its old range: enough
+    // to break the sinusoids' regularity, far too little to detach a blade from
+    // its neighbours.
+    const v = (0.94 + patch * 0.17) * rng.range(0.97, 1.03);
+    c.setRGB(v * rng.range(0.97, 1.02), v, v * rng.range(0.93, 1.0));
     return rng.range(0.7, 1.35);
   }, { castShadow: false, receiveShadow: true });
 
@@ -997,21 +1110,60 @@ export function buildLavender(opts = {}) {
     // Florets are fattest at the base of the raceme and taper to buds. The
     // silhouette that produces — a soft spearhead, not a cylinder — is the
     // single most recognisable thing about lavender at 10 m.
-    const scale = (0.85 - 0.45 * u * u) * spikeRatio;
+    const scale = (0.95 - 0.42 * u * u) * spikeRatio;
     // Two florets per whorl, alternating 90° so the spike is not flat from any
     // angle. Cheaper than three and indistinguishable past two metres.
     const phase = w * 1.87;
     // Base of the raceme is deepest, tip is nearly white with unopened buds.
-    floretColor.copy(deep).lerp(mid, Math.min(1, u * 2.0));
-    if (u > 0.55) floretColor.lerp(pale, (u - 0.55) / 0.45);
+    //
+    // Both rates were too fast. The masked lavender in the plate runs p10
+    // #3e2479 → p50 #6144a0 → p90 #936dc8, so a raceme's *mean* should land near
+    // `LAVENDER_MID` with `LAVENDER_DEEP` holding most of the lower column and
+    // the pale buds confined to the tip. Reaching full mid by u = 0.5 and then
+    // washing to `LAVENDER_PALE` over the entire top 45% put the raceme's mean
+    // above p90 — a bed of pale mauve where the plate has saturated violet.
+    // Zoomed on the plate the near-white buds are the top sixth of a spike at
+    // most; below that it is solid colour.
+    floretColor.copy(deep).lerp(mid, Math.min(1, u * 1.4));
+    if (u > 0.78) floretColor.lerp(pale, (u - 0.78) / 0.22);
 
     const floret = petalWhorlGeometry({
       petals: 4,
       rows: 2,
       phase,
-      radius: (t) => 0.010 + 0.030 * t,
-      height: (t) => 0.020 * t,
-      width: (t) => 0.014 * (1 - t * 0.55),
+      // A raceme is a *column*, not a string of beads, and this is where ours
+      // stopped being one.
+      //
+      // Whorls sit `spikeRatio·0.96/(whorls−1)` apart — 0.042 of the spike's
+      // height at the defaults. The florets were 0.020 tall before the `scale`
+      // above shrank them to 0.006, so better than four fifths of the raceme's
+      // volume was air, and at the 11–16 m the bed actually sits at the grass
+      // behind simply showed through and averaged the violet away. Measured on
+      // the last capture: violet-pixel fraction 0.008 over the band, against
+      // 0.071 for the same band in the plate and 0.167 inside the plate's dense
+      // bed. Run-length over the plate's violet mask gives contiguous
+      // *horizontal* runs of 7 px median and 18 px at p90 — solid columns, with
+      // nothing dotted about them.
+      //
+      // So the florets are sized to close on their neighbours instead. The
+      // condition is `span × scale(0) ≥ spacing`: 0.135 × 0.3325 = 0.0449
+      // against 0.042, so the lower whorls overlap by about 7% and the base of
+      // the raceme is continuous colour with no grass visible through it. The
+      // taper in `scale` still opens the top out into separate buds — at u = 1
+      // the same span covers only 0.025 of a 0.042 gap — which is the spearhead
+      // silhouette the plate shows and the reason this is not simply a cylinder.
+      //
+      // Radial reach is set from the plate's own proportion: 0.068 × 0.3325 is a
+      // half-width of 0.023 against a 0.35 raceme, i.e. a width-to-length ratio
+      // of 0.13, or 5.4 cm across on a 1.2 m spike. This costs nothing — it is
+      // the same 9 whorls of the same 4 petals on the same instanced geometry,
+      // so the meadow gains its violet for zero triangles and zero draw calls,
+      // which is the only kind of fix the capture's time budget allows.
+      radius: (t) => 0.014 + 0.054 * t,
+      // Starts below its own whorl anchor and finishes above it, so the floret
+      // straddles the gap rather than hanging under the next one up.
+      height: (t) => -0.048 + 0.135 * t,
+      width: (t) => 0.024 * (1 - t * 0.5),
       cup: 0.5,
       colorAt: (t) => floretColor,
     });
