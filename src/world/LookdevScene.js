@@ -273,7 +273,7 @@ const PATH = { x0: -1.0, z0: 4.8, dx: 0.75, dz: 1.0, feather: 1.2, width: 4.5 };
  * puts it above the heads (320–383) and hard against the top edge, and leaves
  * the encounter its own column of frame.
  */
-const CHERRY = { x: -3.6, z: -4.5, height: 3.2, spread: 1.40, drift: 3.6 };
+const CHERRY = { x: -3.6, z: -4.8, height: 3.6, spread: 1.45, drift: 4.0 };
 
 /**
  * The ground's analytic height field.
@@ -381,12 +381,24 @@ function stagePlacement(slot) {
  * Seren 1.06 m) take near slots so the run's frame heights stay inside
  * 0.25–0.39 rather than fanning out with the roster's own 19% height spread.
  *
- * `turn` is how far the figure rotates **back toward the lens** from squaring
- * up to the threat, and it is the single control over whether this stage has
- * faces in it. Measured on the plate the four figures sit 43°, 45°, 59° and 75°
- * off the lens — near profile for the armoured lead, three-quarter front for
- * the casters — and the values below reproduce that spread rather than putting
- * everyone at one flattering angle.
+ * `face` is **degrees the head ends up off the lens axis** — 0 is straight down
+ * the barrel, 90 is dead profile — and it is the single control over whether
+ * this stage has faces in it. Measured on the plate the four figures sit 43°,
+ * 45°, 59° and 75° off the lens, near profile for the armoured lead and
+ * three-quarter front for the casters, and the column below reproduces that
+ * spread rather than putting everyone at one flattering angle.
+ *
+ * It replaced a `turn` column that stated the rotation *back toward the lens
+ * from the threat bearing*, and the replacement is the correction that made the
+ * mirrored staging viable at all. A turn is only equivalent to a presentation
+ * angle when the threat and the camera are on opposite sides of the figure,
+ * which was true while the threat was off the right edge and every slot sat
+ * left of the axis. Move the threat to the left and both are on the *same*
+ * side: the same `turn` values then measured 106°, 67°, 68°, 63°, 60° and 34°
+ * off the lens — the party leader shipped as the back of a skull, and nothing
+ * about the column said so. Authoring the presentation angle directly makes the
+ * number that matters the number that is written down, and it holds whatever
+ * the threat bearing or the slot's screen position later become.
  *
  * ## The 0.90× / +0.075 shift, and why the line could not simply stay put
  *
@@ -404,12 +416,12 @@ function stagePlacement(slot) {
  * against.
  */
 const PARTY = [
-  { id: 'auren',  ndc: -0.627, depth: 4.15, turn: 0.35 },
-  { id: 'bramm',  ndc: -0.393, depth: 5.30, turn: 0.70 },
-  { id: 'seren',  ndc: -0.159, depth: 4.45, turn: 0.85 },
-  { id: 'kite',   ndc:  0.093, depth: 5.60, turn: 0.55 },
-  { id: 'emrys',  ndc:  0.327, depth: 4.75, turn: 0.62 },
-  { id: 'yshara', ndc:  0.561, depth: 5.95, turn: 0.80 },
+  { id: 'auren',  ndc: -0.627, depth: 4.15, face: 68 },
+  { id: 'bramm',  ndc: -0.393, depth: 5.30, face: 62 },
+  { id: 'seren',  ndc: -0.159, depth: 4.45, face: 55 },
+  { id: 'kite',   ndc:  0.093, depth: 5.60, face: 58 },
+  { id: 'emrys',  ndc:  0.327, depth: 4.75, face: 52 },
+  { id: 'yshara', ndc:  0.561, depth: 5.95, face: 45 },
 ];
 
 /**
@@ -425,17 +437,23 @@ const PARTY = [
  *    — 43% of the image — and there is no arrangement of six characters and a
  *    HUD stack that leaves that much. The driftbell is 0.58 wide per unit of
  *    height and vertical, so it buys its screen presence in the one axis the
- *    frame has spare. It is also the cheapest of the three at 2 236 triangles
- *    against a meadow of 1.7 M, i.e. free.
- *  - **`height` 2.00 m against a 1.00–1.19 m cast.** 49% of frame height at this
+ *    frame has spare. It is also the cheapest of the three — 1 236 triangles
+ *    with the hull off, against a meadow of 1.7 M — i.e. free.
+ *  - **`height` 1.70 m against a 1.00–1.19 m cast.** 42% of frame height at this
  *    depth, where the nearest party member is 37%. Bigger than anything in the
  *    line in both world metres and screen pixels, which is what "reads as a
- *    threat" has to mean when the reference gives no enemy to measure.
- *  - **`ndc` −0.90, i.e. cropped by the left edge.** Its right flank lands at
- *    px 249 of 1920 and Auren's left shoulder at px 254, so the two silhouettes
- *    clear by five pixels and nothing occludes anything. The 19% that falls off
- *    the edge is the point rather than a compromise: a threat that the frame
- *    cannot contain is the plate's own device (it puts its threat entirely
+ *    threat" has to mean when the reference gives no enemy to measure. It was
+ *    2.00, and the projected bounding box of that came back 633 px wide against
+ *    a 417 px silhouette — because at this `ndc` the creature straddles the
+ *    steepest part of the frustum and its near tendrils sit at a visibly
+ *    different `ndc` scale from its far ones. Screen presence on this stage is
+ *    bought in *height*; the width is a tax on it.
+ *  - **`ndc` −0.90, i.e. clipped by the left edge.** Its far flank lands at
+ *    px 288 of 1920 against Auren's left shoulder at 254, so the 34 px of
+ *    overlap is a rear tendril passing behind him — a depth cue, since the
+ *    creature is 1.5 m further from the lens. Roughly a quarter of it falls off
+ *    the edge, and that is the point rather than a compromise: a threat the
+ *    frame cannot contain is the plate's own device (it puts its threat entirely
  *    off-frame) taken one step in.
  *  - **`depth` 5.60**, i.e. between the two rear slots. Nearer than the bed's
  *    front edge, so no lavender grows through it, and on the *near* side of the
@@ -451,7 +469,7 @@ const ENCOUNTER = {
   id: 'driftbell',
   ndc: -0.90,
   depth: 5.60,
-  height: 2.00,
+  height: 1.70,
   hover: 0.055,
   bobRate: 0.85,
   /** Fixed, so two captures of this stage dress the creature identically —
@@ -579,6 +597,53 @@ const GAZE_ANCHOR = new THREE.Vector3(-18.0, 1.00, 2.00);
  * the lens, which is where a chibi's eyes still read as eyes.
  */
 const GAZE_WEIGHT = 0.6;
+
+/**
+ * How much of the body-to-target yaw gap the **head** actually ends up carrying.
+ *
+ * `GAZE_WEIGHT` is what `Animator.lookAt` is *told*; this is what the head bone
+ * is measured to do with it, and the two are not the same number because the
+ * aim is split across chest, neck and head and each joint is separately damped
+ * and clamped. Read off the built rig on the shipped stage — head world forward
+ * against root rotation, six figures — the head carried 0.02, 0.24, 0.24, 0.34,
+ * 0.39 and 0.41 of the gap, mean 0.27. (The spread is the idle clip's own head
+ * motion riding on top; it is a few degrees at chibi scale and there is no
+ * useful way to cancel it from out here.)
+ *
+ * The staging needs the *forward* solve — given a wanted head bearing, what root
+ * rotation delivers it — so it needs this constant and not `GAZE_WEIGHT`. Using
+ * 0.6 here would over-rotate every figure by 15–25° toward the lens, which on
+ * the left of the line is the difference between a three-quarter and a frontal
+ * mugshot.
+ */
+const LOOK_YAW_SHARE = 0.27;
+
+/**
+ * Root rotation that presents a slot's head `face` degrees off the lens axis.
+ *
+ * Three bearings meet here, all measured in the rig's convention (+Z forward,
+ * so a bearing is `atan2(dx, dz)`):
+ *
+ *  - `camBearing` — from the figure to the camera. This is what "off the lens"
+ *    is measured against, and it is emphatically *not* zero: a figure at the
+ *    left of frame sees the camera off to its right, and at the stage lens that
+ *    offset runs to 23°. Ignoring it is what let the previous `turn` column
+ *    look correct on paper and ship a figure at 106°.
+ *  - `gazeBearing` — from the figure to {@link GAZE_ANCHOR}, i.e. where the
+ *    look-at will drag the head.
+ *  - the solve — the head lands at `body + share · (gaze − body)`, so requiring
+ *    it to land at `camBearing − face` inverts to the expression below.
+ *
+ * @param {{x:number,z:number}} place ground position of the figure
+ * @param {number} faceDeg wanted head angle off the lens, degrees; positive
+ *   turns the head toward frame-left, which is where this stage's threat is.
+ */
+function presentationRotation(place, faceDeg) {
+  const camBearing = Math.atan2(STAGE.camX - place.x, STAGE.camZ - place.z);
+  const gazeBearing = headingTo(place, GAZE_ANCHOR);
+  const wantHead = camBearing - (faceDeg * Math.PI) / 180;
+  return (wantHead - LOOK_YAW_SHARE * gazeBearing) / (1 - LOOK_YAW_SHARE);
+}
 
 /**
  * A camera pose is a composition (ART_BIBLE §5), so each entry carries its
@@ -1345,13 +1410,25 @@ export class LookdevScene extends Scene {
     plant(buildConiferTree, 5.4, -6.0, { count: 1, height: 4.6 });
     // The belt. A 34 m scatter about z = −27 reached forward to z = +7, i.e.
     // to within a metre of the lens, and the first capture duly shipped conifers
-    // standing in the flower bed at four times the party's height. Pushed back
-    // and tightened so the whole annulus lives behind the bank's crest, where a
-    // treeline belongs: it reads as the far side of the valley.
-    plant(buildConiferTree, 0, -44, { count: 26, radius: 20, height: 5.4 });
+    // standing in the flower bed at four times the party's height. It then went
+    // to z = −44 at 5.4 m, which fixed that and created the opposite defect:
+    // measured on the capture, the top 200 px of frame is **71% sky** against
+    // the plate's **7%**, and reads p50 178 / saturation 0.15 against the
+    // plate's 57 / 0.53. The plate has no sky band at all — its upper third is a
+    // dark saturated mass of rock, foliage and hillside, and that mass is most
+    // of what gives the frame a lid.
+    //
+    // z = −30 at 7.0 m puts the belt's crowns off the top edge and its trunks at
+    // y 229, so the band above the bed is treeline rather than haze, and at
+    // 14 m nearer the fog takes far less of its chroma. Measured across the
+    // change, the top 200 px went from 71% sky to **31%**. It is also
+    // **cheaper**: 22 trees at this height merge to 43 k triangles against the
+    // 51 k the previous 26 cost, which is the trade this file owes the capture
+    // budget for the boulders and the creature.
+    plant(buildConiferTree, 0, -30, { count: 22, radius: 16, height: 7.0 });
 
     // --- rock ---------------------------------------------------------------
-    // **Forward from z = −26 to z = −18, and up from 2.8 m to 3.0 m.** The
+    // **Forward from z = −26 to z = −18, and up from `size` 2.8 to 5.0.** The
     // previous station was solved for a bed that then grew: with the bank at
     // 3.1 m the lavender at the mass's far edge crests at screen y 115, and a
     // 2.8 m block at z = −26 tops out at y 89 — a 26 px ribbon of grey that the
@@ -1362,13 +1439,30 @@ export class LookdevScene extends Scene {
     // At z = −18 the same block tops out at y 15 and its base sits at y 201, so
     // it clears the bed's crest by a hundred pixels of angular grey across most
     // of the frame width. The radius comes in with it, 11 → 8: the cluster's
-    // near rim reaches `centre + radius`, and at 11 that put 3 m blocks at
-    // z = −7, i.e. inside the flower bed at four times the lavender's height.
-    // At 8 the whole scatter lives between z = −26 and −10, which is behind the
-    // bed's far half and half-buried in its near half — which is exactly how the
-    // plate's wall meets its meadow.
-    plant(buildBoulderCluster, -1.5, -18, { count: 12, radius: 8, size: 3.0, chips: 22 });
-    plant(buildBoulderCluster, 9.5, -16, { count: 5, radius: 5, size: 2.4, chips: 12 });
+    // near rim reaches `centre + radius`, and at 11 that put the blocks at
+    // z = −7, i.e. inside the flower bed. At 8 the whole scatter lives between
+    // z = −26 and −10, which is behind the bed's far half and half-buried in
+    // its near half — which is exactly how the plate's wall meets its meadow.
+    //
+    // **`size` is not a height, and that is what the first move at 3.0 got
+    // wrong.** Measured on the built cluster, `size: 3.0` produces a bounding
+    // box 1.74 m tall: the option is a *typical block* dimension that the
+    // builder then varies and half-buries, so the wall stood barely taller than
+    // the lavender in front of it and the capture came back with a couple of
+    // grey specks. 5.0 measures 2.91 m, which at this depth is 181 px of frame —
+    // the band the plate actually shows. The whole cluster is 558 triangles
+    // across 23 instances at any size, so the correction is free.
+    //
+    // **The wall should not grow past this**, and the reason is a value defect
+    // this file cannot reach. The plate's rock is a dark blue-grey: its top
+    // 200 px read p50 57 sRGB at 0.53 saturation. Ours renders near-white, so
+    // once the blocks were tall enough to fill that band they took it to p50
+    // 109 at 0.27 — the wall closes the sky, which is the structural win, but it
+    // *lifts* the band while doing it. Any further rock makes the top of frame
+    // brighter than the reference rather than darker, so `props/RockForms.js`
+    // owning the plate's slate is the prerequisite for a taller wall.
+    plant(buildBoulderCluster, -1.5, -18, { count: 12, radius: 8, size: 5.0, chips: 22 });
+    plant(buildBoulderCluster, 9.5, -16, { count: 5, radius: 5, size: 4.0, chips: 12 });
     // The plate keeps a few loose stones on the mown grass in the near corners.
     // Small enough to be scale cues rather than props.
     plant(buildBoulderCluster, 4.2, 5.0, { count: 3, radius: 1.1, size: 0.42, chips: 10 });
@@ -1698,7 +1792,16 @@ export class LookdevScene extends Scene {
       // rather than neutral per ART_BIBLE §2.1, and the tint does real work —
       // SHADOW_TINT attenuates red about four times harder than blue, so the
       // pool cools as it darkens instead of going grey.
-      uContactTint: { value: new THREE.Color(LIGHT.SHADOW_TINT).multiplyScalar(0.45) },
+      //
+      // 0.62, up from 0.45, and the number came off the plate rather than off a
+      // preference. Over the meadow floor beneath the party (x 300–1300,
+      // y 850–1050) `bravely01.jpg` reads p1 **37** sRGB — its shadowed grass
+      // never goes near black, because a sunlit lawn under a 49° key is still
+      // lit by the whole sky where the sun is blocked. The shipped capture read
+      // p1 **1** over the same region. Two terms make that floor and only one
+      // of them is this file's: the cascades' own occlusion is `Lighting`'s, and
+      // this pool was multiplying what the cascades had already taken.
+      uContactTint: { value: new THREE.Color(LIGHT.SHADOW_TINT).multiplyScalar(0.62) },
       uContactStrength: { value: CONTACT.strength },
       /**
        * Floor albedo — two measured colours and a detail multiplier.
@@ -1717,7 +1820,14 @@ export class LookdevScene extends Scene {
        * clamped so no fBm extreme can drive the floor to black or to white. It
        * supplies tiling variation and nothing else.
        */
-      uLawnColor: { value: new THREE.Color(0x5f7233) },
+      // 0x66763f, up from 0x5f7233. Over the plate's mown lawn (x 300–1300,
+      // y 850–1050) mean saturation is 0.483 and ours measured 0.587 at a p50 of
+      // 100 against the plate's 112 — a green that is both darker and more
+      // chromatic than the reference. This lifts the red channel and leaves the
+      // green where `Flora.js` measured it, which drops the plane's own
+      // saturation from 0.55 to 0.47 without moving it off the p50 the blades
+      // are now authored to sit against.
+      uLawnColor: { value: new THREE.Color(0x66763f) },
       uPathColor: { value: new THREE.Color(0xd8c096) },
       uGroundDetail: { value: new THREE.Vector2(0.35, 0.85) },
       /** `(x0, z0, dx, dz)` of {@link PATH}, plus its feather, evaluated per
@@ -1918,17 +2028,12 @@ ${shader.fragmentShader}`
       const place = places[i];
       const character = built[i];
       character.root.position.set(place.x, groundHeight(place.x, place.z), place.z);
-      // Square up to the threat, then swing `turn` radians back toward the
-      // lens. The rig's forward is **+Z** — `CharacterFactory`'s `hairlinePhi`
-      // states the convention outright, "+Z (forward) is theta = pi/2" — so
-      // `headingTo` is already in rig space. The threat is to frame *left*
-      // (−X), i.e. a heading near −π/2, and the camera stands on +Z, so opening
-      // toward the lens is an **addition**. This sign is paired with
-      // GAZE_ANCHOR's and cannot be read off the `turn` column alone: getting it
-      // wrong turns the whole line away from the camera and ships six painted
-      // faces pointing off-frame, which is what the previous right-hand address
-      // used the opposite sign to avoid.
-      character.root.rotation.y = headingTo(place, GAZE_ANCHOR) + slot.turn;
+      // Solved, not authored — see {@link presentationRotation}. The rig's
+      // forward is **+Z** (`CharacterFactory`'s `hairlinePhi` states the
+      // convention outright, "+Z (forward) is theta = pi/2"), so every bearing
+      // in that solve is already in rig space and the result goes straight on
+      // the root.
+      character.root.rotation.y = presentationRotation(place, slot.face);
       // Idle is already playing from the factory; restate it so the clip is
       // explicit at the call site and a future pose change is one edit.
       character.animator.play('idle', { fade: 0 });
