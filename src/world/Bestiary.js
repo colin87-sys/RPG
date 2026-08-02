@@ -45,9 +45,10 @@
  *     a sclera at 191: a near-black mark inside a near-white one. The creatures
  *     invert the polarity (a bright lens inside a near-black socket, since a
  *     monster's eye is the lit part) but keep both the contrast and the *size*:
- *     lens diameter is 0.21–0.31 of head width on all three, and every lens sits
- *     inside a socket dome a third larger in the darkest colour on the animal.
- *     The stand-in's eyes were about 0.09 of head width and vanished at 8 m.
+ *     lens diameter is 0.19–0.31 of head width on all three, and every lens sits
+ *     inside a socket dome a quarter larger in the darkest colour on the animal.
+ *     The stand-in's lenses measured 0.048 across in the same normalised space
+ *     the bodies are authored in; these run 0.074–0.104.
  *
  * ## Construction, and the budget
  *
@@ -60,10 +61,11 @@
  *
  * The budget is the reason for that. The capture harness renders on CPU
  * SwiftShader and a recent round failed a 180 s screenshot timeout, so the whole
- * catalogue is about 3.1 k triangles — roughly one field creature for the cost
- * of forty grass tufts. Radial counts are 4–6 on limbs and 10–14 on bodies:
- * a 6-gon leg is indistinguishable from a 16-gon leg at battle distance and
- * costs a third as much to raster and to push through the outline hull.
+ * catalogue is 5.0 k triangles and 4.1 k vertices — 2024 / 1236 / 1724 for the
+ * quadruped, the floater and the insectoid. Radial counts are 4–6 on limbs and
+ * 10–12 on bodies: a 6-gon leg is indistinguishable from a 16-gon leg at battle
+ * distance and costs a third as much to raster and to push through the outline
+ * hull, which is the one place a vertex is paid for twice.
  *
  * Normals are never authored. Every buffer is closed with
  * `computeVertexNormals`, and the choice between a smooth and a hard surface is
@@ -147,9 +149,9 @@ export const BESTIARY = Object.freeze({
       + 'into the ridge of its neck as it ages, so an old one walks under a crest '
       + 'of other people\'s memories.',
     palette: Object.freeze({
-      hide: 0x3a2f47, flank: 0x4a3d55, belly: 0x8a7b6b,
-      plate: 0x6d6152, ridge: 0x9a8e79,
-      bone: 0xd9d2c4,
+      hide: 0x2b2136, flank: 0x483b5c, belly: 0x7d6f5d,
+      plate: 0x574a63, ridge: 0x8d7f9e,
+      bone: 0xc2b9a8,
       growth: 0x8c4dd9, emissive: ELEMENT.dark.accent,
       eye: ELEMENT.dark.fringe,
       socket: 0x140f1a,
@@ -168,8 +170,8 @@ export const BESTIARY = Object.freeze({
       + 'bell it was stored in. It drifts down the wind lanes ringing on a note '
       + 'nobody alive remembers the words to.',
     palette: Object.freeze({
-      hide: 0x2e2842, flank: 0x453d63, belly: 0x8d84ad,
-      plate: 0x554c78, ridge: 0x8079a8,
+      hide: 0x241f36, flank: 0x433b62, belly: 0x7a7296,
+      plate: 0x554c78, ridge: 0x9089b8,
       bone: 0xcfc9dd,
       growth: 0x9a6fe0, emissive: ELEMENT.dark.accent,
       eye: ELEMENT.ice.core,
@@ -189,8 +191,8 @@ export const BESTIARY = Object.freeze({
       + 'and sweating it out along the spine. Hunted for the plate; survives '
       + 'because the plate is what makes it worth hunting.',
     palette: Object.freeze({
-      hide: 0x1d2a34, flank: 0x2b3d4a, belly: 0x6d7c78,
-      plate: 0x38505e, ridge: 0x6f8894,
+      hide: 0x16212a, flank: 0x2c3f4e, belly: 0x64736e,
+      plate: 0x3d5768, ridge: 0x839aa6,
       bone: 0xb9c2bd,
       growth: 0x5fb8b0, emissive: ELEMENT.wind.fringe,
       eye: ELEMENT.fire.fringe,
@@ -586,16 +588,23 @@ function plate(mb, o) {
   const W = o.width * 0.5;
   const rise = o.rise;
   const lip = o.lip ?? 0;
+  // `drop` sinks the four corners below the plate's own plane, turning a flat
+  // shield into an arch that follows the body under it. Without it a tergite
+  // wide enough to read has its corners floating off a curved back, and one
+  // narrow enough to sit flush is too small to see — measured on the first
+  // insectoid build, which shipped six plates down the spine and no visible
+  // segmentation whatsoever.
+  const drop = o.drop ?? 0;
   const set = (out, al, sl, nl) => out
     .set(c[0], c[1], c[2])
     .addScaledVector(_pAxis, al)
     .addScaledVector(_pSide, sl)
     .addScaledVector(_pNormal, nl);
 
-  set(_p0, -L, -W, 0);
-  set(_p1, -L, W, 0);
-  set(_p2, L, W, 0);
-  set(_p3, L, -W, 0);
+  set(_p0, -L, -W, -drop);
+  set(_p1, -L, W, -drop);
+  set(_p2, L, W, -drop);
+  set(_p3, L, -W, -drop);
   set(_k0, -L, 0, rise);
   set(_k1, L + lip, 0, rise * 1.15);
 
@@ -664,6 +673,13 @@ function hideTinter(palette, noise, o = {}) {
   const bandDepth = o.bandDepth ?? 0;
   const bandAxis = o.bandAxis ?? 2;
   const freq = o.noiseFreq ?? 7;
+  // A meridional rib highlight, for a body of revolution. The geometry's own
+  // flutes give the silhouette its scallop; this paints the crest of each flute
+  // lighter so the ribs read on the *facing* surface too, where a soft
+  // terminator will not draw them. Free — one atan2 per vertex at build time.
+  const ribCount = o.ribCount ?? 0;
+  const ribDepth = o.ribTintDepth ?? 0;
+  const ribCol = hexToLinear(o.ribColor ?? palette.ridge, [0, 0, 0]);
 
   return (x, y, z, upFacing, t, out) => {
     const u = clamp(upFacing * 0.5 + 0.5, 0, 1);
@@ -689,6 +705,14 @@ function hideTinter(palette, noise, o = {}) {
       r += (band[0] - r) * m;
       g += (band[1] - g) * m;
       b += (band[2] - b) * m;
+    }
+
+    if (ribDepth > 0) {
+      const c = Math.cos(ribCount * Math.atan2(x, z));
+      const m = c * c * c * c * ribDepth;
+      r += (ribCol[0] - r) * m;
+      g += (ribCol[1] - g) * m;
+      b += (ribCol[2] - b) * m;
     }
 
     const k = 1 + mottle * noise.fbm3(x * freq, y * freq, z * freq, { octaves: 3 });
@@ -751,6 +775,7 @@ const _eyePos = new THREE.Vector3();
 const _eyeQuat = new THREE.Quaternion();
 const _eyeScale = new THREE.Vector3();
 const _eyeFace = new THREE.Vector3();
+const _IDENTITY = new THREE.Quaternion();
 
 function _eyeDir(face) {
   return _eyeFace.set(face[0], face[1], face[2]).normalize();
@@ -764,8 +789,6 @@ function blob(mb, sphere, at, sx, sy, sz, color, quat = null) {
   _eyeMat.compose(_eyePos, _eyeQuat, _eyeScale);
   pushGeometry(mb, sphere, _eyeMat, color);
 }
-
-const _IDENTITY = new THREE.Quaternion();
 
 /**
  * One eye: a bright lens in the glow buffer, a near-black socket dome a third
@@ -782,8 +805,15 @@ function eye(hide, lens, o) {
   const quat = new THREE.Quaternion().setFromUnitVectors(REF_FWD, facing);
   const at = o.at;
 
-  blob(hide, o.sphere,
-    at, o.radius * 1.34, o.radius * 1.34, o.radius * 0.72, o.socketColor, quat);
+  // Both halves take the UV sphere rather than the icosahedron every other blob
+  // uses. The eye is the single most-looked-at 40 px on the creature and a
+  // detail-0 icosahedron silhouettes as a pentagon — the socket worse than the
+  // lens, because it is the larger shape. An 8x4 UV sphere is an octagon in
+  // silhouette at 45 shared vertices; the icosahedron subdivision that would
+  // have matched it is *non-indexed* and costs 240, which is how the first build
+  // put more vertices into three eyes than into the entire bell.
+  blob(hide, o.lensSphere ?? o.sphere,
+    at, o.radius * 1.24, o.radius * 1.24, o.radius * 0.70, o.socketColor, quat);
 
   // The lens sits proud of the socket along the facing axis, so the socket is a
   // ring around it from every angle the battle camera can reach.
@@ -792,7 +822,7 @@ function eye(hide, lens, o) {
     at[1] + facing.y * o.radius * 0.30,
     at[2] + facing.z * o.radius * 0.30,
   ];
-  blob(lens, o.sphere,
+  blob(lens, o.lensSphere ?? o.sphere,
     out, o.radius, o.radius * (o.squash ?? 0.86), o.radius * 0.86, o.lensColor, quat);
 }
 
@@ -816,9 +846,9 @@ function eye(hide, lens, o) {
  *    only bright thing above the shoulder line, so the eye lands on the head end.
  */
 function buildGlassmane(hide, glow, lens, ctx) {
-  const { pal, rng, noise, sphere } = ctx;
+  const { pal, rng, noise, sphere, lensSphere } = ctx;
   const tintBody = hideTinter(pal, noise, {
-    mottle: 0.07, bandFreq: 11, bandDepth: 0.24, bandColor: pal.hide, noiseFreq: 6,
+    mottle: 0.07, bandFreq: 9, bandDepth: 0.34, bandColor: pal.hide, noiseFreq: 6,
   });
   const tintLimb = hideTinter(pal, noise, {
     back: pal.hide, flank: pal.flank, belly: pal.flank, mottle: 0.05, noiseFreq: 9,
@@ -829,6 +859,9 @@ function buildGlassmane(hide, glow, lens, ctx) {
   const darkCol = hexToLinear(pal.socket, [0, 0, 0]);
   const growthCol = hexToLinear(pal.growth, [0, 0, 0]);
   const growthTip = hexToLinear(pal.emissive, [0, 0, 0]);
+  const flankCol = hexToLinear(pal.flank, [0, 0, 0]);
+  const bellyCol = hexToLinear(pal.belly, [0, 0, 0]);
+  const hideCol = hexToLinear(pal.hide, [0, 0, 0]);
 
   // Trunk, neck and skull as one skin. Overlapping ellipsoids would each
   // contribute their own silhouette edge and light up separately under the rim,
@@ -837,16 +870,16 @@ function buildGlassmane(hide, glow, lens, ctx) {
   const trunk = sweep(hide, [
     [0, 0.520, -0.560, 0.030, 0.90, 0.00],
     [0, 0.545, -0.440, 0.120, 1.10, 0.10],
-    [0, 0.550, -0.300, 0.148, 1.18, 0.16],
+    [0, 0.552, -0.300, 0.158, 1.26, 0.16],
     [0, 0.560, -0.140, 0.136, 1.04, 0.20],
     [0, 0.590, 0.010, 0.150, 1.02, 0.26],
     [0, 0.625, 0.150, 0.172, 1.06, 0.30],
     [0, 0.605, 0.285, 0.158, 1.14, 0.22],
     [0, 0.580, 0.380, 0.108, 0.98, 0.16],
     [0, 0.540, 0.470, 0.086, 0.92, 0.14],
-    [0, 0.495, 0.550, 0.078, 0.90, 0.12],
-    [0, 0.462, 0.622, 0.090, 1.00, 0.10],
-    [0, 0.446, 0.700, 0.070, 0.90, 0.06],
+    [0, 0.495, 0.550, 0.080, 0.92, 0.12],
+    [0, 0.464, 0.618, 0.106, 1.14, 0.10],
+    [0, 0.448, 0.698, 0.072, 0.92, 0.06],
     [0, 0.432, 0.772, 0.046, 0.80, 0.02],
     [0, 0.428, 0.822, 0.016, 0.70, 0.00],
   ], { samples: 30, radial: 10, belly: 0.30, tint: tintBody });
@@ -867,15 +900,15 @@ function buildGlassmane(hide, glow, lens, ctx) {
       [s * 0.112, 0.520, 0.250, 0.076],
       [s * 0.120, 0.340, 0.292, 0.058],
       [s * 0.116, 0.175, 0.232, 0.040],
-      [s * 0.114, 0.058, 0.258, 0.036],
-      [s * 0.112, 0.016, 0.300, 0.046],
+      [s * 0.114, 0.072, 0.258, 0.036],
+      [s * 0.112, 0.040, 0.300, 0.044],
     ], { samples: 12, radial: 6, tint: tintLimb });
     sweep(hide, [
       [s * 0.128, 0.510, -0.300, 0.090],
       [s * 0.136, 0.352, -0.226, 0.070],
       [s * 0.128, 0.195, -0.352, 0.044],
-      [s * 0.120, 0.056, -0.302, 0.036],
-      [s * 0.118, 0.016, -0.262, 0.046],
+      [s * 0.120, 0.070, -0.302, 0.036],
+      [s * 0.118, 0.040, -0.262, 0.044],
     ], { samples: 12, radial: 6, tint: tintLimb });
 
     // Claws, three per paw. Tetrahedra: three triangles each and solid, so a
@@ -883,11 +916,11 @@ function buildGlassmane(hide, glow, lens, ctx) {
     for (let c = 0; c < 3; c++) {
       const off = (c - 1) * 0.026;
       spike(hide, {
-        origin: [s * 0.112 + off, 0.018, 0.330], dir: [off * 2, -0.35, 1],
+        origin: [s * 0.112 + off, 0.030, 0.332], dir: [off * 2, -0.42, 1],
         length: 0.046, radius: 0.013, sides: 3, color: boneCol,
       });
       spike(hide, {
-        origin: [s * 0.118 + off, 0.018, -0.232], dir: [off * 2, -0.35, 1],
+        origin: [s * 0.118 + off, 0.030, -0.230], dir: [off * 2, -0.42, 1],
         length: 0.044, radius: 0.013, sides: 3, color: boneCol,
       });
     }
@@ -897,12 +930,12 @@ function buildGlassmane(hide, glow, lens, ctx) {
     // quadruped's form is hardest to read — the joint between limb and trunk.
     plate(hide, {
       center: [s * 0.148, 0.640, 0.205], axis: [0, -0.30, 1], normal: [s * 0.92, 0.38, 0],
-      length: 0.235, width: 0.155, rise: 0.026, lip: 0.020,
+      length: 0.235, width: 0.155, rise: 0.044, lip: 0.032,
       color: plateCol, ridgeColor: ridgeCol,
     });
     plate(hide, {
       center: [s * 0.150, 0.585, -0.315], axis: [0, 0.24, 1], normal: [s * 0.94, 0.34, 0],
-      length: 0.205, width: 0.140, rise: 0.022, lip: 0.018,
+      length: 0.205, width: 0.140, rise: 0.038, lip: 0.028,
       color: plateCol, ridgeColor: ridgeCol,
     });
     for (let t = 0; t < 3; t++) {
@@ -910,7 +943,7 @@ function buildGlassmane(hide, glow, lens, ctx) {
         origin: [s * 0.130, 0.352 + t * 0.026, 0.300 - t * 0.014],
         dir: [s * 0.55, -0.35 - t * 0.2, 0.75],
         length: 0.085 + rng.range(-0.012, 0.012), radius: 0.020, sides: 3,
-        color: hexToLinear(pal.flank, [0, 0, 0]), tipColor: hexToLinear(pal.belly, [0, 0, 0]),
+        color: flankCol, tipColor: bellyCol,
       });
     }
   }
@@ -919,16 +952,16 @@ function buildGlassmane(hide, glow, lens, ctx) {
   // what tells the eye which end of a quadruped it is looking at.
   sweep(hide, [
     [0, 0.535, -0.560, 0.044],
-    [0, 0.566, -0.680, 0.032],
-    [0, 0.542, -0.790, 0.021],
-    [0, 0.480, -0.868, 0.012],
+    [0, 0.566, -0.660, 0.032],
+    [0, 0.540, -0.742, 0.021],
+    [0, 0.482, -0.798, 0.012],
   ], { samples: 12, radial: 5, tint: tintLimb });
   for (let t = 0; t < 5; t++) {
     const a = (t / 5) * Math.PI * 2;
     spike(hide, {
-      origin: [Math.cos(a) * 0.012, 0.484, -0.862], dir: [Math.cos(a) * 0.55, -0.42, -1],
-      length: 0.11 + rng.range(-0.02, 0.02), radius: 0.019, sides: 3,
-      color: hexToLinear(pal.hide, [0, 0, 0]), tipColor: hexToLinear(pal.flank, [0, 0, 0]),
+      origin: [Math.cos(a) * 0.012, 0.486, -0.792], dir: [Math.cos(a) * 0.55, -0.42, -1],
+      length: 0.095 + rng.range(-0.018, 0.018), radius: 0.019, sides: 3,
+      color: hideCol, tipColor: flankCol,
     });
   }
 
@@ -940,7 +973,7 @@ function buildGlassmane(hide, glow, lens, ctx) {
       origin: [s * 0.045 * (t % 3), 0.505 - t * 0.018, 0.415 + t * 0.012],
       dir: [s * 0.35, -0.55, 0.76],
       length: 0.115 + rng.range(-0.015, 0.015), radius: 0.026, sides: 3,
-      color: hexToLinear(pal.flank, [0, 0, 0]), tipColor: hexToLinear(pal.belly, [0, 0, 0]),
+      color: flankCol, tipColor: bellyCol,
     });
   }
 
@@ -950,7 +983,7 @@ function buildGlassmane(hide, glow, lens, ctx) {
     plate(hide, {
       center: [s * 0.058, 0.492, 0.652], axis: [0.15 * s, -0.18, 1], normal: [s * 0.55, 0.82, 0.15],
       length: 0.115, width: 0.078, rise: 0.020, lip: 0.014,
-      color: hexToLinear(pal.hide, [0, 0, 0]), ridgeColor: plateCol,
+      color: hideCol, ridgeColor: plateCol,
     });
     // Swept-back horns. The pair is the tallest thing on the head and gives the
     // skull an outline the neck cannot be confused with.
@@ -968,9 +1001,19 @@ function buildGlassmane(hide, glow, lens, ctx) {
       origin: [s * 0.036, 0.424, 0.694], dir: [s * 0.15, -1, 0.05],
       length: 0.038, radius: 0.010, sides: 3, color: boneCol,
     });
+    // Set wide on the skull and strongly squashed. A round eye on the midline
+    // reads as a pet; a narrow one set out toward the cheek reads as a predator,
+    // and the plate's own eyes are 2.6 times as wide as they are tall.
     eye(hide, lens, {
-      sphere, at: [s * 0.052, 0.468, 0.668], face: [s * 0.42, 0.10, 0.90],
-      radius: 0.038, squash: 0.80, socketColor: darkCol, lensColor: [1, 1, 1],
+      sphere, lensSphere, at: [s * 0.062, 0.470, 0.658], face: [s * 0.68, 0.12, 0.72],
+      radius: 0.037, squash: 0.62, socketColor: darkCol, lensColor: [1, 1, 1],
+    });
+    // Cheek plate. The skull sweep alone reads as a swelling in the neck; a hard
+    // plate along the jaw line is what separates a head from a tube.
+    plate(hide, {
+      center: [s * 0.082, 0.452, 0.646], axis: [0.22 * s, -0.30, 1], normal: [s * 0.94, 0.10, 0.32],
+      length: 0.150, width: 0.088, rise: 0.026, lip: 0.018,
+      color: plateCol, ridgeColor: ridgeCol,
     });
   }
 
@@ -1018,11 +1061,22 @@ function buildGlassmane(hide, glow, lens, ctx) {
  * front-heavy, and terminating in trailing streamers rather than in feet, so
  * the two are separable as pure black shapes.
  *
- * The bell is a surface of revolution with a seven-fold radius modulation, which
- * gives it seven vertical flutes for the cost of one cosine per vertex. Flutes
+ * The bell is a surface of revolution with a six-fold radius modulation, which
+ * gives it six vertical flutes for the cost of one cosine per vertex. Flutes
  * matter more than they sound: an unmodulated dome under a soft terminator is a
  * value gradient with no incident in it at all, and this creature has no limbs
  * to supply any.
+ *
+ * **The rib count is `radial / 2` and that is not a coincidence.** The first
+ * build ran seven ribs against twelve radial vertices, which samples the cosine
+ * at incommensurate phase and produced no flutes at all — just a slightly noisy
+ * sphere. At `radial = 2 · ribs` every vertex lands exactly on a crest or a
+ * trough, so the cross-section is a clean six-lobed rosette and the silhouette
+ * scallops. The depth went 0.055 → 0.155 for the same reason the plates' rise
+ * did: on a 0.25 radius, 5% is 12 mm and nothing at battle distance sees it.
+ * A matching six-fold *tint* rides on top through `ribCount`, because the
+ * silhouette only carries the ribs at the edges and the facing surface needs
+ * them too.
  *
  * The mouth is capped rather than left open. An open tube shows its back faces,
  * and a fold that tucks the rim inward inverts the winding at the fold — either
@@ -1030,9 +1084,10 @@ function buildGlassmane(hide, glow, lens, ctx) {
  * hung beneath it reads better and costs less.
  */
 function buildDriftbell(hide, glow, lens, ctx) {
-  const { pal, rng, noise, sphere } = ctx;
+  const { pal, rng, noise, sphere, lensSphere } = ctx;
   const tintBell = hideTinter(pal, noise, {
     mottle: 0.05, bandFreq: 9, bandDepth: 0.22, bandColor: pal.hide, bandAxis: 1, noiseFreq: 5,
+    ribCount: 6, ribTintDepth: 0.48, ribColor: 0x60587e,
   });
   const tintRibbon = hideTinter(pal, noise, {
     back: pal.flank, flank: pal.plate, belly: pal.ridge, mottle: 0.05, noiseFreq: 8,
@@ -1044,19 +1099,19 @@ function buildDriftbell(hide, glow, lens, ctx) {
   const growthTip = hexToLinear(pal.emissive, [0, 0, 0]);
 
   sweep(hide, [
-    [0, 0.868, 0, 0.014],
-    [0, 0.848, 0, 0.072],
-    [0, 0.812, 0, 0.132],
-    [0, 0.762, 0, 0.188],
-    [0, 0.700, 0, 0.224],
-    [0, 0.632, 0, 0.246],
-    [0, 0.560, 0, 0.250],
-    [0, 0.496, 0, 0.240],
-    [0, 0.452, 0, 0.218],
-    [0, 0.424, 0, 0.186],
-    [0, 0.412, 0, 0.120],
-    [0, 0.408, 0, 0.048],
-  ], { samples: 16, radial: 12, ribs: 7, ribDepth: 0.055, tint: tintBell });
+    [0, 0.872, 0, 0.014],
+    [0, 0.856, 0, 0.060],
+    [0, 0.824, 0, 0.116],
+    [0, 0.776, 0, 0.166],
+    [0, 0.712, 0, 0.204],
+    [0, 0.640, 0, 0.228],
+    [0, 0.566, 0, 0.244],
+    [0, 0.498, 0, 0.252],
+    [0, 0.448, 0, 0.246],
+    [0, 0.418, 0, 0.206],
+    [0, 0.408, 0, 0.128],
+    [0, 0.404, 0, 0.048],
+  ], { samples: 16, radial: 12, ribs: 6, ribDepth: 0.155, tint: tintBell });
 
   // Rim lappets — sixteen, alternating long and short, which is what turns a
   // machined-looking rim into a scalloped organic one. Three-sided and solid.
@@ -1117,13 +1172,13 @@ function buildDriftbell(hide, glow, lens, ctx) {
   // Three eyes in an arc across the bell's front, the centre one nearly twice
   // the others. A single eye reads as a machine; an arc reads as a face.
   eye(hide, lens, {
-    sphere, at: [0, 0.600, 0.244], face: [0, 0.10, 1],
-    radius: 0.054, squash: 0.92, socketColor: darkCol, lensColor: [1, 1, 1],
+    sphere, lensSphere, at: [0, 0.596, 0.248], face: [0, 0.08, 1],
+    radius: 0.047, squash: 0.90, socketColor: darkCol, lensColor: [1, 1, 1],
   });
   for (const s of [1, -1]) {
     eye(hide, lens, {
-      sphere, at: [s * 0.116, 0.648, 0.204], face: [s * 0.55, 0.22, 0.81],
-      radius: 0.031, squash: 0.90, socketColor: darkCol, lensColor: [1, 1, 1],
+      sphere, lensSphere, at: [s * 0.132, 0.618, 0.212], face: [s * 0.62, 0.16, 0.77],
+      radius: 0.029, squash: 0.88, socketColor: darkCol, lensColor: [1, 1, 1],
     });
   }
 }
@@ -1146,12 +1201,14 @@ function buildDriftbell(hide, glow, lens, ctx) {
  *  - **Segmentation is authored, not shaded.** Six overlapping tergites down the
  *    spine, each with a proud front lip and a light ridge. The soft terminator
  *    this project shades with will not carve a segment boundary on its own.
- *  - **The eyes are the largest in the catalogue** relative to the head — lens
- *    0.31 of head width, against 0.21 on the quadruped — because the head is the
- *    smallest and lowest of the three and needs the most help to be found.
+ *  - **The eyes are set on the sides of the cranium, not the front.** Lens
+ *    diameter is 0.30 of head width — the same as the quadruped's — but the pair
+ *    faces outward at 55°, which is the difference between an insect and a
+ *    mammal with too many legs. This head is the smallest and lowest of the
+ *    three, so it gets the catalogue's largest eyes in absolute terms.
  */
 function buildShardmite(hide, glow, lens, ctx) {
-  const { pal, rng, noise, sphere } = ctx;
+  const { pal, rng, noise, sphere, lensSphere } = ctx;
   const tintBody = hideTinter(pal, noise, {
     mottle: 0.06, bandFreq: 13, bandDepth: 0.26, bandColor: pal.hide, noiseFreq: 6,
   });
@@ -1191,20 +1248,31 @@ function buildShardmite(hide, glow, lens, ctx) {
   // Nasal horn and mandibles. Together they are the whole front-on read, and the
   // horn is what makes the creature's height at the head end nonzero.
   spike(hide, {
-    origin: [0, 0.322, 0.556], dir: [0, 0.76, 0.65],
-    length: 0.240, radius: 0.044, waist: 0.40, sides: 4,
-    bend: [0, 0.035, 0.02], color: plateCol, tipColor: boneCol,
+    origin: [0, 0.330, 0.520], dir: [0, 0.90, 0.44],
+    length: 0.260, radius: 0.046, waist: 0.40, sides: 4,
+    bend: [0, 0.030, 0.030], color: plateCol, tipColor: boneCol,
+  });
+  // Pronotum — the shield across the front of the thorax. Without it the head
+  // is a swelling on the front of the body rather than a separate mass, which
+  // is the one thing a beetle's silhouette must state.
+  plate(hide, {
+    center: [0, dorsal(body, 0.330) - 0.026, 0.332], axis: [0, 0, 1], normal: [0, 1, 0],
+    length: 0.185, width: 0.310, rise: 0.058, lip: 0.055, drop: 0.070,
+    color: plateCol, ridgeColor: ridgeCol,
   });
   for (const s of [1, -1]) {
+    // The pair converges without crossing. An earlier build had them meeting at
+    // the midline and the front-on read was a drawn X under the eyes rather than
+    // a mouth.
     spike(hide, {
-      origin: [s * 0.078, 0.272, 0.606], dir: [-s * 0.28, -0.16, 1],
-      length: 0.205, radius: 0.030, waist: 0.42, sides: 4,
-      bend: [-s * 0.085, -0.030, 0.010], color: plateCol, tipColor: boneCol,
+      origin: [s * 0.090, 0.266, 0.600], dir: [-s * 0.10, -0.20, 1],
+      length: 0.200, radius: 0.030, waist: 0.42, sides: 4,
+      bend: [-s * 0.048, -0.028, 0.010], color: plateCol, tipColor: boneCol,
     });
     // Compound eye, sunk into the side of the cranium and angled forward.
     eye(hide, lens, {
-      sphere, at: [s * 0.110, 0.318, 0.506], face: [s * 0.80, 0.16, 0.58],
-      radius: 0.055, squash: 0.94, socketColor: darkCol, lensColor: [1, 1, 1],
+      sphere, lensSphere, at: [s * 0.112, 0.320, 0.504], face: [s * 0.80, 0.16, 0.58],
+      radius: 0.052, squash: 0.92, socketColor: darkCol, lensColor: [1, 1, 1],
     });
   }
 
@@ -1234,9 +1302,14 @@ function buildShardmite(hide, glow, lens, ctx) {
   for (let i = 0; i < PLATE_Z.length; i++) {
     const z = PLATE_Z[i];
     const p = atZ(body, z);
+    // Width is held near the body's *half*-width, not its full width. A tergite
+    // as wide as the animal has its corners buried inside a curved back and only
+    // its ridge ever surfaces, which is exactly how the first build measured —
+    // six plates on the spine and no visible segmentation at all.
     plate(hide, {
-      center: [0, dorsal(body, z) - 0.014, z], axis: [0, 0, 1], normal: [0, 1, 0],
-      length: 0.190, width: p[3] * p[4] * 1.85, rise: 0.030 - i * 0.002, lip: 0.030,
+      center: [0, dorsal(body, z) - 0.028, z], axis: [0, 0, 1], normal: [0, 1, 0],
+      length: 0.175, width: p[3] * p[4] * 1.42, rise: 0.056 - i * 0.003, lip: 0.050,
+      drop: 0.085,
       color: plateCol, ridgeColor: ridgeCol,
     });
     // Lateral spurs along the plate's edge — the woodlouse read, and the thing
@@ -1245,7 +1318,7 @@ function buildShardmite(hide, glow, lens, ctx) {
       spike(hide, {
         origin: [s * p[3] * p[4] * 0.94, p[1] + p[3] * 0.30, z],
         dir: [s * 0.92, 0.22, -0.32],
-        length: 0.085 + (i === 1 || i === 2 ? 0.030 : 0), radius: 0.024, sides: 3,
+        length: 0.115 + (i === 1 || i === 2 ? 0.040 : 0), radius: 0.026, sides: 3,
         color: plateCol, tipColor: ridgeCol,
       });
     }
@@ -1332,12 +1405,14 @@ export function buildCreature(id, opts = {}) {
   // One shared source for every eye lens and socket on the creature, disposed
   // the moment the buffers are closed: it is a template, not an asset.
   const sphere = new THREE.IcosahedronGeometry(1, 0);
+  const lensSphere = new THREE.SphereGeometry(1, 8, 4);
   // The noise stream is seeded off the creature's own draw so two of a species
   // mottle differently, and off nothing else so a capture is reproducible.
   const noise = makeNoise((rng.next() * 0xffffffff) >>> 0 || 1);
 
-  builder(hide, glow, lens, { pal, rng, noise, sphere });
+  builder(hide, glow, lens, { pal, rng, noise, sphere, lensSphere });
   sphere.dispose();
+  lensSphere.dispose();
 
   const owned = [];
   const track = (r) => {
@@ -1374,6 +1449,7 @@ export function buildCreature(id, opts = {}) {
 
   const hideMesh = new THREE.Mesh(hide.finish(`${id}:hide`), hideMat);
   hideMesh.name = `${id}:hide`;
+  hideMesh.frustumCulled = true;
   hideMesh.castShadow = true;
   hideMesh.receiveShadow = true;
   root.add(hideMesh);
@@ -1433,11 +1509,32 @@ export function buildCreature(id, opts = {}) {
     outlineMesh = createToonOutline(hideMesh, { material: outlineMat });
   }
 
-  root.scale.setScalar(height);
+  // The scale is **solved**, not assumed. Every creature is authored in a space
+  // whose intended top is y = 1, but the tallest point is a spline sample or a
+  // spike tip and lands a few percent short of it — the quadruped's crest closed
+  // at 0.958 and the insectoid's at 0.977, so a bare `setScalar(height)` shipped
+  // creatures 4% and 2% under their stated size. Measuring the finished buffers
+  // makes `height` a guarantee, which matters because a scene stages a creature
+  // against the cast by its height and nothing else.
+  const bounds = new THREE.Box3();
+  for (const mesh of [hideMesh, growthMesh, eyeMesh]) {
+    if (!mesh) continue;
+    mesh.geometry.computeBoundingBox();
+    bounds.union(mesh.geometry.boundingBox);
+  }
+  const scale = height / Math.max(1e-3, bounds.max.y);
+  root.scale.setScalar(scale);
+
   root.userData.creature = {
     id,
     spec,
     height,
+    /** Ground footprint and the depth the feet deliberately sink, in metres. */
+    footprint: {
+      width: (bounds.max.x - bounds.min.x) * scale,
+      length: (bounds.max.z - bounds.min.z) * scale,
+      sink: Math.max(0, -bounds.min.y * scale),
+    },
     meshes: { hide: hideMesh, growth: growthMesh, eye: eyeMesh },
     materials: { hide: hideMat, eye: eyeMat },
   };

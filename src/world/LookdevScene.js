@@ -20,13 +20,17 @@
  * `REFERENCE_TARGET.md` §2/§3 and `ANIME_PIPELINE.md` describe this frame as a
  * staggered diagonal on the right, facing a dramatically larger enemy mass on
  * the left, in a dark misty landscape whose background elements are near
- * silhouettes. **The plate is none of those things**, and the plate wins:
+ * silhouettes. **The plate is mostly none of those things**, and where it
+ * disagrees the plate wins:
  *
- *  - There is **no enemy in frame**. The party addresses something off the
- *    right edge; the read is four (here six) figures and the meadow they stand
- *    in. The husk creature this stage used to carry was the largest single
- *    departure from the reference and is gone with the rest of the fiction it
- *    served.
+ *  - The plate shows **no enemy in frame** — its party addresses something off
+ *    the right edge. This stage does carry one, because a battle staging that
+ *    cannot show what is being fought is not reviewable, and §2's "dramatically
+ *    larger enemy mass on the left" is the one part of the prose the plate does
+ *    not actually contradict; it simply declines to show it. So the plate's
+ *    *device* is kept and mirrored: the threat sits at the left edge, cropped by
+ *    it, larger than anything in the line, and the line addresses it. See
+ *    {@link ENCOUNTER}.
  *  - The line runs **across the frame**, not along a diagonal into one corner,
  *    and the camera sits at roughly the cast's own eye height. That is what
  *    puts every head on a near-level line and every pair of feet on a *staggered*
@@ -63,6 +67,7 @@ import {
   buildConiferTree, buildBoulderCluster, buildFlowerPatch,
   updateFlora, setFloraWind, FLORA_PALETTE,
 } from './Flora.js';
+import { buildCreature } from './Bestiary.js';
 
 /**
  * Stage frame — solved against `bravely01.jpg` rather than against the prose.
@@ -368,15 +373,80 @@ function stagePlacement(slot) {
  * off the lens — near profile for the armoured lead, three-quarter front for
  * the casters — and the values below reproduce that spread rather than putting
  * everyone at one flattering angle.
+ *
+ * ## The 0.90× / +0.075 shift, and why the line could not simply stay put
+ *
+ * Staging the encounter (see {@link ENCOUNTER}) costs frame width, and the
+ * budget is fixed at both ends: the creature has to be *at* the left edge to be
+ * the thing the line is addressing, and the HP/MP/BP stack owns everything past
+ * `ndc` +0.56 — measured on the plate, whose own rightmost figure centres at
+ * +0.49 with only her bow under the stack. Six figures at the previous 0.26 slot
+ * pitch spanned 1.32 of the 1.55 that leaves, so the whole line moves right by
+ * 0.075 and compresses by 10%. That is a real cost and it is the *only* one
+ * paid: the tightest resulting silhouette gap is 39 px at 1920 (Auren to Bramm),
+ * against 90 px between the plate's own two closest figures. The alternative —
+ * a wider lens — would have shrunk the near figure below the plate's measured
+ * 39% of frame height, which is the one number this whole file is solved
+ * against.
  */
 const PARTY = [
-  { id: 'auren',  ndc: -0.78, depth: 4.15, turn: 0.35 },
-  { id: 'bramm',  ndc: -0.52, depth: 5.30, turn: 0.70 },
-  { id: 'seren',  ndc: -0.26, depth: 4.45, turn: 0.85 },
-  { id: 'kite',   ndc:  0.02, depth: 5.60, turn: 0.55 },
-  { id: 'emrys',  ndc:  0.28, depth: 4.75, turn: 0.62 },
-  { id: 'yshara', ndc:  0.54, depth: 5.95, turn: 0.80 },
+  { id: 'auren',  ndc: -0.627, depth: 4.15, turn: 0.35 },
+  { id: 'bramm',  ndc: -0.393, depth: 5.30, turn: 0.70 },
+  { id: 'seren',  ndc: -0.159, depth: 4.45, turn: 0.85 },
+  { id: 'kite',   ndc:  0.093, depth: 5.60, turn: 0.55 },
+  { id: 'emrys',  ndc:  0.327, depth: 4.75, turn: 0.62 },
+  { id: 'yshara', ndc:  0.561, depth: 5.95, turn: 0.80 },
 ];
+
+/**
+ * The staged encounter — one creature from `world/Bestiary.js`, at the left edge.
+ *
+ * Authored in the same (screen x, view depth) space as {@link PARTY} and solved
+ * through the same {@link stagePlacement}, because the only thing that matters
+ * about an enemy's position is where it lands in frame relative to the line.
+ *
+ *  - **`driftbell`, not the quadruped.** Read off the built buffers rather than
+ *    chosen by taste: the glassmane is 1.78 × as long as it is tall, so at a
+ *    frame height that reads as a threat it is 0.87 of `ndc` wide seen broadside
+ *    — 43% of the image — and there is no arrangement of six characters and a
+ *    HUD stack that leaves that much. The driftbell is 0.58 wide per unit of
+ *    height and vertical, so it buys its screen presence in the one axis the
+ *    frame has spare. It is also the cheapest of the three at 2 236 triangles
+ *    against a meadow of 1.7 M, i.e. free.
+ *  - **`height` 2.00 m against a 1.00–1.19 m cast.** 49% of frame height at this
+ *    depth, where the nearest party member is 37%. Bigger than anything in the
+ *    line in both world metres and screen pixels, which is what "reads as a
+ *    threat" has to mean when the reference gives no enemy to measure.
+ *  - **`ndc` −0.90, i.e. cropped by the left edge.** Its right flank lands at
+ *    px 249 of 1920 and Auren's left shoulder at px 254, so the two silhouettes
+ *    clear by five pixels and nothing occludes anything. The 19% that falls off
+ *    the edge is the point rather than a compromise: a threat that the frame
+ *    cannot contain is the plate's own device (it puts its threat entirely
+ *    off-frame) taken one step in.
+ *  - **`depth` 5.60**, i.e. between the two rear slots. Nearer than the bed's
+ *    front edge, so no lavender grows through it, and on the *near* side of the
+ *    party's centroid — which is what lets {@link GAZE_ANCHOR} sit on the
+ *    creature's own bearing while still opening every face toward the lens.
+ *
+ * `hover` is the metres of vertical travel the idle bob covers, and `bobRate`
+ * its radians per second. Everything in `buildCreature` is merged into three
+ * meshes with no rig, so the root is the only thing there is to animate — which
+ * for a thing that floats is exactly enough.
+ */
+const ENCOUNTER = {
+  id: 'driftbell',
+  ndc: -0.90,
+  depth: 5.60,
+  height: 2.00,
+  hover: 0.055,
+  bobRate: 0.85,
+  /** Fixed, so two captures of this stage dress the creature identically —
+   *  `buildCreature` seeds its mottle and its tendril drift off this. */
+  seed: 0x5c0a11ed,
+};
+
+/** Ground position of the staged creature, solved against the same frame. */
+const ENCOUNTER_PLACE = stagePlacement(ENCOUNTER);
 
 /** Ground positions of every staged figure, solved once against the frame. */
 const PARTY_PLACES = PARTY.map(stagePlacement);
