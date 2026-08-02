@@ -1767,9 +1767,9 @@ function buildHair(parts, m, def, pal) {
       const away = new THREE.Vector3(tipP.x, 0, tipP.z);
       if (away.lengthSq() > 1e-9) away.normalize(); else away.set(0, 0, 1);
       clump({
-        theta, phi: 1.06, runTheta: 0.08, runPhi: -1.38, lift: 0.06,
-        via: [tipP.clone().addScaledVector(away, h.rx * 0.09).add(new THREE.Vector3(0, -h.ry * 0.10, 0))],
-        w: h.rx * 0.30, tipRatio: 0.14, hold: 0.46,
+        theta, phi: 1.06, runTheta: 0.08, runPhi: -1.38, lift: 0.10,
+        via: [tipP.clone().addScaledVector(away, h.rx * 0.13).add(new THREE.Vector3(0, -h.ry * 0.13, 0))],
+        w: h.rx * 0.30, thick: h.rx * 0.26, tipRatio: 0.14, hold: 0.52,
       });
     }
     const blen = (hp.beardLength ?? 1.0) * D;
@@ -1844,11 +1844,41 @@ function buildHair(parts, m, def, pal) {
     const n = hp.spikes ?? 8;
     const splay = hp.spikeSpread ?? 1.4;
     const len0 = (hp.spikeLength ?? 0.55) * D;
+    // Fat wedges, not darts, and near-round in section.
+    //
+    // Two things made this crown read as flat plates radiating off a bare dome.
+    // A splayed spike is the one clump whose wide axis and whose growth
+    // direction are *both* roughly horizontal, so its broad face lies in a
+    // horizontal plane — and every camera in this game looks down 10–18°
+    // (REFERENCE §2), straight onto it. And a taper starting a fifth of the way
+    // along left four fifths of every spike a needle with no bulk to catch the
+    // light. A near-round section that holds its width to nearly half its
+    // length is a tapered horn from any angle; the carved read comes from eight
+    // separate forms overlapping at the crown, not from faceting inside one.
+    const spikeW = h.rx * 0.30;
+    const spikeT = h.rx * 0.26;
+    // Hard ceiling on the mass, not a tuned one. REFERENCE §1 measures the
+    // silhouette head — hair included — against the 3.0–3.5 heads band, and a
+    // starburst is the one style whose randomised roots can spend the whole
+    // budget upward; `auditCharacter` enforces it, so this is the constraint the
+    // shape is solved under rather than a number to eyeball.
+    //
+    // The ceiling applies to the *spine*, and a spine runs down the middle of a
+    // clump, so it has to sit a half-thickness below the height it buys — and
+    // for the same reason the root band is capped too. A root sitting a few
+    // degrees off the pole puts its section's whole half-thickness straight up,
+    // which is height the tip clamp never sees. Both limits are expressed
+    // against `spikeT`, so fattening the section can no longer silently spend
+    // the proportion budget.
+    const ceiling = h.crownY - spikeT;
+    const rootPhiMax = Math.asin(THREE.MathUtils.clamp(
+      (ceiling - h.center.y) / (h.ry * (shellOuter + 0.06)), -0.98, 0.98,
+    ));
     for (let i = 0; i < n; i++) {
       const theta = (i / n) * TAU + rand.jitter(hp.spikeJitter ?? 0.3);
       // Roots spread from the temples to just short of the pole, so the spikes
       // themselves cover the crown instead of standing on a bare dome.
-      const phi = 0.42 + rand.next() * 0.62;
+      const phi = Math.min(0.42 + rand.next() * 0.62, rootPhiMax);
       const len = len0 * (0.72 + rand.next() * 0.52);
       const base = P(theta, phi, seat(theta, phi, 0));
       // Flattening the vertical component of the growth direction is what turns
@@ -1857,29 +1887,13 @@ function buildHair(parts, m, def, pal) {
         base.x * splay, (base.y - h.center.y) * 0.30, base.z * splay,
       ).normalize();
       const tip = base.clone().addScaledVector(dir, len);
-      // Hard ceiling on the mass, not a tuned one. REFERENCE §1 measures the
-      // silhouette head — hair included — against the 3.0–3.5 heads band, and a
-      // starburst is the one style whose randomised roots can spend the whole
-      // budget upward. Nothing may rise more than a tenth of a head-radius above
-      // the crown; a spike that wants to goes wide instead, which is what the
-      // outline wanted anyway.
-      const ceiling = h.crownY + h.ry * 0.04;
       const mid = base.clone().lerp(tip, 0.44);
       mid.y = Math.min(mid.y + len * 0.10, ceiling);
       tip.y = Math.min(tip.y, ceiling);
-      // A splayed spike is the one clump whose wide axis and whose growth
-      // direction are *both* roughly horizontal, so its broad face lies in a
-      // horizontal plane — and every camera in this game looks down 10–18°
-      // (REFERENCE §2), straight onto it. At the shared 0.74 depth ratio those
-      // read as flat plates radiating off the skull, which is the exact defect
-      // this rebuild is removing. A near-round section turns each one back into
-      // a tapered horn that keeps its thickness from any angle; the crown's
-      // carved read here comes from eight separate forms, not from faceting
-      // within one.
       clump({
         theta, phi, runPhi: 0.05, lift: 0.02,
         via: [mid, tip],
-        w: h.rx * 0.23, thick: h.rx * 0.20, tipRatio: 0.05, hold: 0.22,
+        w: spikeW, thick: spikeT, tipRatio: 0.07, hold: 0.42,
       });
     }
   } else if (style === 'topknot' || style === 'braid') {
@@ -2254,7 +2268,18 @@ function buildAccessories(parts, m, def, pal) {
     // with a disc would only replace the flap with a lid across the neck. The
     // shell has no open boundary anywhere above the torso, so there is nothing
     // left to see through.
-    const top = new THREE.Vector3(0, y + g.neck * 1.4 * tall, -g.neck * 0.35 * tall);
+    // The top ring is *solved* against the jaw, not trusted from `tall`. Collar
+    // heights are authored as multiples of a neck radius, and the neck is the
+    // body part whose girth varies most across this roster, so a height that
+    // frames Auren's chin closes over Yshara's mouth — which is what shipped:
+    // a bone-coloured band across the lower half of her face in every frame.
+    // Clamping here means no roster value and no proportion block can restore it.
+    const jaw = m.head.center.y - m.head.ry * 0.98;
+    const top = new THREE.Vector3(
+      0,
+      Math.min(y + g.neck * 1.4 * tall, jaw - g.neck * 0.15),
+      -g.neck * 0.35 * tall,
+    );
     const bottom = new THREE.Vector3(0, y - g.neck * 0.6, 0);
     const rOuter = (i) => g.neck * (i === 0 ? 1.5 : 1.9) * wide;
     const outerGrid = sweep(cloth, [bottom, top], SECTIONS.circle(16),
@@ -2287,19 +2312,27 @@ function buildAccessories(parts, m, def, pal) {
       // WORLD_BIBLE asks of hers, and width costs nothing against REFERENCE §1's
       // heads-tall budget the way height does. The rise is capped against the
       // solved jaw rather than tuned, so no roster length and no head scale can
-      // put a quill back over the face.
-      const jaw = m.head.center.y - m.head.ry * 0.98;
+      // put a quill back over the face — the same solved line the collar shell
+      // above is clamped to.
+      //
+      // The fan is also cut back to the rear three-fifths of the ring. A quill
+      // rooted near the front of the collar points straight at the lens on the
+      // side-view stage, so it crosses the throat and the jaw however short it
+      // is — length alone cannot save a direction that is wrong.
       for (let i = 0; i < n; i++) {
-        const a = Math.PI * (0.18 + (i / (n - 1)) * 1.64);
+        const a = Math.PI * (0.42 + (i / (n - 1)) * 1.16);
         const out = new THREE.Vector3(Math.sin(a), 0, Math.cos(a));
         const base = new THREE.Vector3(out.x * g.chestX * 0.95, m.joints.chest.y + g.chestZ * 0.5, out.z * g.chestZ * 0.95);
         // Longest at the back of the ring, shortest at the shoulder points, so
         // the fan reads as a mantle gathered behind the neck.
-        const len = fl * (0.72 + 0.38 * Math.max(0, -Math.cos(a)));
-        const rise = Math.min(len * 0.42, Math.max(0, jaw - base.y));
+        const len = fl * (0.40 + 0.34 * Math.max(0, -Math.cos(a)));
+        const rise = Math.min(len * 0.30, Math.max(0, jaw - base.y));
         const tip = base.clone().add(new THREE.Vector3(out.x * len, rise, out.z * len - g.chestZ * 0.22));
-        sweep(cloth, [base, tip], SECTIONS.lens(8, 0.4),
-          (i2) => { const s = H * (i2 === 0 ? 0.022 : 0.004); return [s, s * 0.7]; },
+        // Broad at the root and blunt at the tip: a quill, not a needle. The
+        // narrow profile turned each feather into a pale hairline against the
+        // fog, and eleven hairlines fanned across a shoulder read as cutlery.
+        sweep(cloth, [base, tip], SECTIONS.lens(8, 0.55),
+          (i2) => { const s = H * (i2 === 0 ? 0.028 : 0.009); return [s, s * 0.8]; },
           { capStart: false, capEnd: true });
       }
     }

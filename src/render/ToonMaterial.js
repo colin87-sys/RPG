@@ -311,7 +311,13 @@ export const TOON_PRESETS = Object.freeze({
     shadowLevel: 0.20, shadowGain: 1.0, shadowLift: 0.06, shadowFloor: 0.0,
     ambientGain: 0.80, litBandThreshold: 0.84, litBandGain: 0.28,
     metalAlbedo: 0.70,
-    specColor: 0xffffff, specGain: 1.8, specExponent: 130,
+    // 1.15, down from 2.4. ART_BIBLE §2.3 lets a specular *ping* clip, and a
+    // ping is a few pixels on a blade edge. Auren's pauldron is a smooth
+    // ellipsoid a tenth of the frame across, so the same gain put a broad band
+    // of blown red channel over the largest metal area in the cast — a white
+    // blob on his shoulder, not a highlight on armour. The composite's ceiling
+    // bounds the band; this is what keeps it a *shape* inside that bound.
+    specColor: 0xffffff, specGain: 1.15, specExponent: 130,
     specThreshold: 0.45, specSoftness: 0.03, specAlbedoMix: 0.50,
     aniso: true, anisoShift: 0.06,
     // ART_BIBLE §2.3 lets a specular ping clip, so metal keeps the highest
