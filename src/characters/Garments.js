@@ -228,6 +228,38 @@ const TRUNK_PROFILE = Object.freeze([
 const CLEARANCE = 1.075;
 const LAYER = 0.055;
 
+/**
+ * The turned edge every free garment boundary carries, as a fraction of body
+ * height H.
+ *
+ * **Measured, because the written spec is wrong here.** The finding asks for a
+ * "2–4 mm scale" lip. At this roster's scale a figure is 1.00–1.26 units for a
+ * roughly 1.5 m read, so 3 mm is 0.002 units — about 0.17% H, which at the
+ * battle camera (a 1.16-unit figure filling ~360 px of a 1080 frame) is 0.6 px.
+ * A sub-pixel lip is exactly the invisible edge the finding is complaining
+ * about, so following the number would have reproduced the defect.
+ *
+ * `bravely01.jpg` settles it. On the knight, whose crown-to-sole height is
+ * 363 px in that plate, the pale piped edge on the hat-mage's skirt hem, the
+ * turned edge of the staff-mage's coat and the lower lip of the archer's gown
+ * all read at **4–5 px**, i.e. **1.1–1.4% of figure height** — two decimal
+ * orders above the prose value and comfortably legible at capture resolution.
+ *
+ * `roll` is the one that matters: `shell` extends the lip *in-plane*, outward
+ * past the boundary, so raising it deepens the visible turn without moving the
+ * inner skin any closer to the body. `thickness` is held near where it was
+ * precisely because it does move the inner skin, and a skirt only clears the
+ * legs by about half of it.
+ */
+const HEM = Object.freeze({
+  /** Hanging edges: skirt and coat hems, cape and apron borders, fauld lips. */
+  roll: 0.014,
+  /** Fitted edges — collar, cuff, lapel, sash. Smaller pieces, finer turn. */
+  edge: 0.010,
+  /** Two-skin separation for soft goods, held tight so hems clear the body. */
+  thickness: 0.009,
+});
+
 // ============================================================ small maths
 
 const pw = (x, e) => Math.sign(x) * Math.pow(Math.abs(x), e);
@@ -562,6 +594,8 @@ function shell(s, o) {
 const _tmp = new THREE.Vector3();
 const _tmp2 = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+/** Scratch for per-strand tonal variation; see `furCollar`. */
+const _ink = new THREE.Color();
 const range = (n) => Array.from({ length: n }, (_, i) => i);
 
 // ============================================================ swept solids
@@ -867,11 +901,26 @@ const PATTERNS = {
       ctx.closePath();
       ctx.fill();
     }
-    ctx.globalAlpha = 0.22;
+    // Warp and weft. **Fourteen cells, not the twenty-eight this used to draw.**
+    //
+    // A weave line has to survive minification as a *line*; once its on-screen
+    // pitch falls under about two pixels it stops resolving and starts beating
+    // against whatever else in the motif is near that frequency — here the
+    // colour bands — and the interference prints as a regular two-tone grid.
+    // That is how this pattern shipped a magenta-and-white check on Seren's
+    // petticoat: a 28-cell hatch tiled nine times round a skirt is a quarter of
+    // a pixel per cell at the battle camera. Fourteen cells at the tiling this
+    // roster now asks for lands the hatch at 8–11 px, which reads as cloth.
+    //
+    // The alpha comes down with it: a hatch that is legible does not need to be
+    // dark to be seen, and 0.22 black over a light band was half the contrast in
+    // the beat pattern.
+    ctx.globalAlpha = 0.14;
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = Math.max(1, size * 0.003);
-    const cell = size / 28;
-    for (let i = 0; i <= 28; i++) {
+    const weave = 14;
+    const cell = size / weave;
+    for (let i = 0; i <= weave; i++) {
       ctx.beginPath(); ctx.moveTo(i * cell, 0); ctx.lineTo(i * cell, size); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(0, i * cell); ctx.lineTo(size, i * cell); ctx.stroke();
     }
@@ -993,9 +1042,70 @@ const PATTERNS = {
  */
 const _patternCache = new Map();
 
+/**
+ * Tiling, resolved in **one** place.
+ *
+ * This function exists because the checkerboard the review found on Seren's
+ * petticoat was not a missing texture at all — this project loads no external
+ * assets, so there is no path that can fail to resolve — it was a motif tiled
+ * twice over. `skirt`, `longcoat`, `sash` and `cape` each multiplied u by a
+ * private `patternRepeatU` default *inside the geometry*, and `materialFor`
+ * then multiplied again by the roster's `pattern.repeat` *on the texture*. Her
+ * underskirt asked for 3 and got 3 × 3 = 9, applied in u only, which squashes a
+ * square-authored motif into a 9:1 grating: 252 near-vertical weave lines round
+ * the skirt crossed by 28 horizontal ones down it. Sampled at a couple of
+ * pixels a fine two-tone grating is a checkerboard, and because the aurora-silk
+ * ramp happened to place its rose stop next to its ivory one, it was a
+ * *magenta and white* checkerboard — indistinguishable from an engine's
+ * missing-texture placeholder, which is exactly how the review read it.
+ *
+ * So: the builders no longer scale UVs, `pattern.repeat` is the only tiling
+ * control any garment has, and it is validated here.
+ *
+ * Two rules are enforced rather than documented, because both defects reached a
+ * capture once already:
+ *
+ * - **Anisotropy is capped at 4:1.** Every motif in `PATTERNS` is drawn square
+ *   on a square canvas, so a repeat far off the diagonal does not tile it, it
+ *   *shears* it into a grating — the failure above. Four is the widest ratio at
+ *   which a blossom still reads as a blossom.
+ * - **A clamped motif may not tile at all.** `wrap: 'clamp'` is how the
+ *   non-repeating devices (the heraldic keep, the rib-plate) are placed, and a
+ *   repeat above 1 on a clamped texture stretches one edge texel across the
+ *   whole remaining surface — a smear, not a print.
+ *
+ * Both clamp with a warning rather than throwing: a mistuned repeat is ugly,
+ * and shipping ugly beats a character failing to build mid-battle.
+ */
+function resolveRepeat(p) {
+  const r = p.repeat;
+  if (!r) return null;
+  let [u, v] = r;
+  if (!Number.isFinite(u) || !Number.isFinite(v) || u <= 0 || v <= 0) {
+    console.warn(`[Garments] pattern "${p.id}" has a non-positive repeat ${JSON.stringify(r)}; ignoring it`);
+    return null;
+  }
+  if (p.wrap === 'clamp' && (u !== 1 || v !== 1)) {
+    console.warn(`[Garments] pattern "${p.id}" is clamped and cannot tile; forcing repeat to 1×1`);
+    return [1, 1];
+  }
+  const skew = Math.max(u / v, v / u);
+  if (skew > 4) {
+    const k = Math.sqrt(4 / skew);
+    [u, v] = u > v ? [u * k, v / k] : [u / k, v * k];
+    console.warn(`[Garments] pattern "${p.id}" repeat ${JSON.stringify(r)} shears the motif ${skew.toFixed(1)}:1; clamped to ${u.toFixed(2)}×${v.toFixed(2)}`);
+  }
+  return [u, v];
+}
+
 function patternTexture(id, p) {
   const fn = PATTERNS[id];
-  if (!fn) return null;
+  // A garment naming a motif that does not exist is this project's only
+  // possible "unresolved texture reference", and it used to fail *silently* —
+  // the piece shipped in flat vertex colour and nothing said so. Throwing means
+  // a typo in `roster.js` cannot reach a capture: it fails the scene load with
+  // the offending id, at the moment the wardrobe is built.
+  if (!fn) throw new Error(`[Garments] unknown pattern id "${id}" — valid ids: ${Object.keys(PATTERNS).join(', ')}`);
   const key = `${id}|${JSON.stringify(p)}`;
   const hit = _patternCache.get(key);
   if (hit !== undefined) return hit;
@@ -1096,7 +1206,10 @@ function materialFor(cache, def, recipeName, pattern) {
   const hit = cache.get(key);
   if (hit) return hit;
 
-  if (map && pattern.repeat) map.repeat.set(pattern.repeat[0], pattern.repeat[1]);
+  if (map) {
+    const rep = resolveRepeat(pattern);
+    map.repeat.set(rep ? rep[0] : 1, rep ? rep[1] : 1);
+  }
   const material = createToonMaterial({
     preset: recipe.preset,
     name: `${def.id}:garment:${recipeName}${map ? `:${pattern.id}` : ''}`,
@@ -1361,6 +1474,8 @@ const BUILDERS = {
           },
           segU: 5, segV: 4,
           thickness: H * (sp.thickness ?? 0.008),
+          // A hanging tab is a hem on three of its four sides.
+          roll: H * HEM.roll,
           face: faceC, back: backC, rim: rimC,
           outward: (u) => { const a = mid + lerp(-halfA, halfA, u); return V(Math.cos(a), 0, Math.sin(a)); },
         });
@@ -1521,12 +1636,16 @@ const BUILDERS = {
     };
     shell(s, {
       point, segU: 26, segV: 9,
-      thickness: H * (sp.thickness ?? 0.009),
-      roll: H * 0.008,
+      thickness: H * (sp.thickness ?? HEM.thickness),
+      // Hem *and* both front panel edges — the coat's rim is one closed walk —
+      // so raising this is what puts a visible turned edge down the split as
+      // well as along the bottom, which is where the plate's coat reads thick.
+      roll: H * HEM.roll,
       face: faceC,
       back: ctx.col(sp.lining ?? 'trim', 'trim', sp.material ?? 'panel'),
       rim: ctx.col(sp.piping ?? sp.lining ?? 'trim', 'trim', sp.material ?? 'panel'),
-      uv: (u, v) => [u * (sp.patternRepeatU ?? 2), 1 - v],
+      // No UV scale here, on purpose — see `resolveRepeat`. The coat's tiling
+      // lives in the roster's `pattern.repeat` and nowhere else.
       outward: (u) => {
         const a = Math.PI * 0.5 + gap * 0.5 + u * (TAU - gap);
         return V(Math.cos(a), 0, Math.sin(a));
@@ -1573,7 +1692,8 @@ const BUILDERS = {
           return V(Math.cos(a) * t.rx * out, y, t.z + Math.sin(a) * t.rz * out);
         },
         segU: 6, segV: 6,
-        thickness: H * (sp.thickness ?? 0.008),
+        thickness: H * (sp.thickness ?? HEM.thickness),
+        roll: H * HEM.edge,
         face: faceC, back: backC, rim: faceC,
         outward: V(0, 0.25, 1),
       });
@@ -1605,7 +1725,10 @@ const BUILDERS = {
             return fr.p.clone().addScaledVector(fr.side, Math.cos(a) * r).addScaledVector(fr.front, Math.sin(a) * r);
           },
           segU: 14, segV: 3, closedU: true,
-          thickness: H * (sp.thickness ?? 0.008),
+          thickness: H * (sp.thickness ?? HEM.thickness),
+          // The free edge of a turned cuff is the whole read; it is the one
+          // hem on the character that sits next to a hand and gets looked at.
+          roll: H * HEM.edge,
           face: faceC, back: backC, rim: ctx.col(sp.rim ?? sp.color, 'trim', sp.material ?? 'cloth'),
         });
       }
@@ -1630,6 +1753,9 @@ const BUILDERS = {
       },
       segU: 14, segV: 7,
       thickness: H * (sp.thickness ?? 0.010),
+      // An apron is bound all round with a contrasting tape, and that binding
+      // is the thickest edge on the character wearing it.
+      roll: H * HEM.roll,
       face: ctx.col(sp.color, 'identity', sp.material ?? 'panel'),
       back: ctx.col(sp.lining ?? 'leather', 'leather', sp.material ?? 'panel'),
       rim: ctx.col(sp.binding ?? 'trim', 'trim', sp.material ?? 'panel'),
@@ -1668,11 +1794,12 @@ const BUILDERS = {
     };
     shell(s, {
       point, segU: 18, segV: 5,
-      thickness: H * (sp.thickness ?? 0.008),
+      thickness: H * (sp.thickness ?? HEM.thickness),
+      roll: H * HEM.roll,
       face: ctx.col(sp.color, 'cape', sp.material ?? 'panel'),
       back: ctx.col(sp.lining ?? 'capeLining', 'capeLining', sp.material ?? 'panel'),
       rim: ctx.col(sp.piping ?? sp.lining ?? 'trim', 'trim', sp.material ?? 'panel'),
-      uv: (u, v) => [u * 2, 1 - v],
+      // No UV scale — `pattern.repeat` is the cape's only tiling control.
       outward: (u) => { const a = phase + lerp(-wrap, wrap, u); return V(Math.cos(a), 0, Math.sin(a)); },
     });
     if (sp.furTrim) {
@@ -1688,7 +1815,9 @@ const BUILDERS = {
         const outp = point(u, 1.0);
         const dir = outp.clone().sub(root).normalize();
         const len = H * (sp.furLength ?? 0.030) * (0.62 + ctx.rng.next() * 0.75);
-        fs.ink(k % 2 ? furC : furS);
+        // Continuous tonal spread rather than a hard every-other alternation:
+        // two colours in strict rotation read as a stripe, not as fur.
+        fs.ink(_ink.copy(furS).lerp(furC, 0.15 + ctx.rng.next() * 0.85));
         sweep(fs, [
           root.clone().addScaledVector(dir, -H * 0.010),
           root.clone().addScaledVector(dir, len * 0.5),
@@ -1714,7 +1843,8 @@ const BUILDERS = {
         return V(Math.cos(a) * r, rise, back + Math.sin(a) * r * 0.55);
       },
       segU: 14, segV: 6,
-      thickness: H * (sp.thickness ?? 0.009),
+      thickness: H * (sp.thickness ?? HEM.thickness),
+      roll: H * HEM.roll,
       face: ctx.col(sp.color, 'identity', sp.material ?? 'panel'),
       back: ctx.col(sp.lining ?? 'trim', 'trim', sp.material ?? 'panel'),
       rim: ctx.col(sp.piping ?? 'trim', 'trim', sp.material ?? 'panel'),
@@ -1764,15 +1894,17 @@ const BUILDERS = {
         return V(Math.cos(a) * t.rx * k, y - v * v * len * sag, t.z + Math.sin(a) * t.rz * k);
       },
       segU: 30, segV: 6, closedU: true,
-      thickness: H * (sp.thickness ?? 0.008),
+      thickness: H * (sp.thickness ?? HEM.thickness),
       // The piped hem, measured on the hat-mage as a pale line running the
       // whole circumference: a rolled rim in the trim colour, standing proud
-      // enough to survive the downscale.
-      roll: H * (sp.piped === false ? 0.006 : 0.011),
+      // enough to survive the downscale. `HEM.roll` is that measurement.
+      roll: H * (sp.piped === false ? HEM.edge : HEM.roll),
       face: ctx.col(sp.color, 'identity', sp.material ?? 'panel'),
       back: ctx.col(sp.lining ?? 'secondary', 'secondary', sp.material ?? 'panel'),
       rim: ctx.col(sp.pipingColor ?? 'trim', 'trim', sp.material ?? 'panel'),
-      uv: (u, v) => [u * (sp.patternRepeatU ?? 3), 1 - v],
+      // No UV scale — the print's tiling is `pattern.repeat` alone. This line
+      // used to multiply u by three on top of it, which is what turned Seren's
+      // petticoat weave into a magenta/white check; see `resolveRepeat`.
       outward: (u) => V(Math.cos(u * TAU), 0, Math.sin(u * TAU)),
     });
   },
@@ -1831,7 +1963,11 @@ const BUILDERS = {
           return V(Math.cos(a) * rx, drop, t.z * v + Math.sin(a) * rz);
         },
         segU: 20, segV: 4,
-        thickness: H * (sp.thickness ?? 0.007),
+        thickness: H * (sp.thickness ?? HEM.thickness * 0.85),
+        // A sailor collar is seen almost edge-on from the battle camera, so its
+        // turned border is nearly all of what the piece contributes — without a
+        // lip it reads as a painted yoke rather than as a laid-on garment.
+        roll: H * HEM.edge,
         face: faceC, back: backC, rim: rimC,
         outward: V(0, 1, -0.15),
       });
@@ -1851,7 +1987,8 @@ const BUILDERS = {
         return V(Math.cos(a) * r, yy, Math.sin(a) * r * 0.98 - f.g.neck * 0.10 * v);
       },
       segU: 18, segV: 4, closedU: true,
-      thickness: H * (sp.thickness ?? 0.008),
+      thickness: H * (sp.thickness ?? HEM.thickness),
+      roll: H * HEM.edge,
       face: faceC, back: backC, rim: rimC,
       outward: (u) => V(Math.cos(u * TAU), 0.30, Math.sin(u * TAU)),
     });
@@ -1889,16 +2026,28 @@ const BUILDERS = {
     const arc = (sp.arc ?? 1.0) * TAU;
     const start = sp.arc ? Math.PI * 0.5 - arc * 0.5 : 0;
     for (let k = 0; k < n; k++) {
-      const a = start + (k / n) * arc;
+      // Angle, radius and height all carry their own jitter, and that is what
+      // fixes the defect rather than what decorates it. Evenly spaced tufts
+      // rooted on one ring at one radius put every neighbouring pair of plates
+      // on the same surface for most of their overlap, and the depth test then
+      // flickers between them — the "bundle of strands that z-fight each other"
+      // the review found on the bone ruff. Staggering the root is what makes
+      // each overlap a definite over/under.
+      const a = start + (k / n) * arc + ctx.rng.jitter((arc / n) * 0.30);
       const dirOut = V(Math.cos(a), 0, Math.sin(a) * 0.95);
       const lift = lerp(sp.liftBack ?? 0.55, sp.liftFront ?? -0.15, (Math.sin(a) + 1) * 0.5);
       const len = H * (sp.length ?? 0.055) * (0.55 + ctx.rng.next() * 0.90);
-      const root = V(dirOut.x * rBase * 0.72, y + ctx.rng.jitter(H * 0.008), dirOut.z * rBase * 0.72 - f.g.neck * 0.10);
+      const seat = rBase * (0.72 + ctx.rng.jitter(0.09));
+      const root = V(dirOut.x * seat, y + ctx.rng.jitter(H * 0.011), dirOut.z * seat - f.g.neck * 0.10);
       const tip = root.clone()
         .addScaledVector(dirOut, len)
         .add(V(ctx.rng.jitter(len * 0.30), len * lift + ctx.rng.jitter(len * 0.22), ctx.rng.jitter(len * 0.30)));
       const mid = root.clone().lerp(tip, 0.55).add(V(0, len * 0.12, 0));
-      s.ink(k % 3 === 0 ? shadeC : faceC);
+      // Strand-level tonal variation, which is what the plates' fur and feather
+      // actually carry — a continuous spread between the shade and the face
+      // colour, not the hard every-third-tuft alternation this used to do. The
+      // `fur` recipe's opened rim supplies the sheen over the top of it.
+      s.ink(_ink.copy(shadeC).lerp(faceC, 0.20 + ctx.rng.next() * 0.80));
       const w = H * (feather ? 0.030 : 0.017) * (0.7 + ctx.rng.next() * 0.6);
       sweep(s, [root.clone().addScaledVector(dirOut, -rBase * 0.30), root, mid, tip],
         feather ? section(6, 0.55) : section(5, 0.85),
@@ -2004,13 +2153,36 @@ const BUILDERS = {
       ps.ink(ctx.col(sp.pompomColor ?? 'accent', 'accent', 'fur'));
       const py = brimY + rise + hd.ry * 0.18;
       blob(ps, { cx: 0, cy: py, cz: -hd.rz * 0.06, rx: hd.rx * 0.32, ry: hd.ry * 0.30, rz: hd.rz * 0.32, eU: 0.85, eV: 0.85, segU: 12, segV: 8 });
-      // Eight short tufts so the pompom's outline is broken, not spherical.
-      for (let k = 0; k < 8; k++) {
-        const a = (k / 8) * TAU;
-        const d = V(Math.cos(a) * 0.8, 0.55, Math.sin(a) * 0.8).normalize();
-        const root = V(0, py, -hd.rz * 0.06);
-        sweep(ps, [root, root.clone().addScaledVector(d, hd.rx * 0.42)],
-          section(4, 0.9), (i) => { const r = hd.rx * (i === 0 ? 0.14 : 0.02); return [r, r]; },
+      /**
+       * Ten tufts, each rooted **on the ball** rather than at its centre.
+       *
+       * This is the worst instance of the review's tassel finding in the file.
+       * Every tuft used to start at the identical point with the identical
+       * radius, so eight cap discs and eight tube mouths occupied exactly the
+       * same space — coincident coplanar geometry, which is what z-fights, and
+       * eight straight two-point sweeps of the same length, which is what makes
+       * a bundle read as untapered matchsticks rather than as wool.
+       *
+       * Each strand now leaves the surface where it would actually leave it,
+       * with its own length, its own thickness and a mid control point that
+       * lets the tip fall away from the direction the root left in. The roots
+       * sit at 0.24 of the head radius against a ball of 0.32, so every cap is
+       * still buried and no open boundary is on the silhouette.
+       */
+      const centre = V(0, py, -hd.rz * 0.06);
+      const tufts = 10;
+      for (let k = 0; k < tufts; k++) {
+        const a = (k / tufts) * TAU + ctx.rng.jitter(0.24);
+        const rise = 0.30 + ctx.rng.next() * 0.70;
+        const d = V(Math.cos(a) * (1 - rise * 0.45), rise, Math.sin(a) * (1 - rise * 0.45)).normalize();
+        const len = hd.rx * (0.30 + ctx.rng.next() * 0.26);
+        const root = centre.clone().addScaledVector(d, hd.rx * 0.24);
+        const mid = root.clone().addScaledVector(d, len * 0.55);
+        const tip = root.clone().addScaledVector(d, len)
+          .add(V(ctx.rng.jitter(len * 0.22), -len * 0.30, ctx.rng.jitter(len * 0.22)));
+        const w = hd.rx * (0.070 + ctx.rng.next() * 0.038);
+        sweep(ps, [root, mid, tip], section(5, 0.9),
+          (i) => { const r = w * [1, 0.62, 0.05][i]; return [r, r]; },
           { capStart: true, capEnd: true });
       }
     }
@@ -2145,11 +2317,12 @@ const BUILDERS = {
         return V(Math.cos(a) * t.rx * k, yy, t.z + Math.sin(a) * t.rz * k);
       },
       segU: 22, segV: 3, closedU: true,
-      thickness: H * (sp.thickness ?? 0.008),
+      thickness: H * (sp.thickness ?? HEM.thickness),
+      roll: H * HEM.edge,
       face: ctx.col(sp.color, 'secondary', sp.material ?? 'cloth'),
       back: ctx.col(sp.lining ?? sp.color, 'secondary', sp.material ?? 'cloth'),
       rim: ctx.col(sp.piping ?? 'trim', 'trim', sp.material ?? 'cloth'),
-      uv: (u, v) => [u * (sp.patternRepeatU ?? 4), 1 - v],
+      // No UV scale — `pattern.repeat` is the sash's only tiling control.
       outward: (u) => V(Math.cos(u * TAU), 0, Math.sin(u * TAU)),
     });
     if (sp.knot !== false) {
@@ -2315,7 +2488,8 @@ const BUILDERS = {
           return V(ankle.x + Math.cos(a) * r, y, ankle.z + Math.sin(a) * r * 1.04);
         },
         segU: 16, segV: 2, closedU: true,
-        thickness: H * 0.007,
+        thickness: H * HEM.thickness,
+        roll: H * HEM.edge,
         face: cuffC,
         back: ctx.col(sp.cuffLining ?? 'secondary', 'secondary', sp.cuffMaterial ?? 'cloth'),
         rim: cuffC,
@@ -2393,23 +2567,27 @@ const BUILDERS = {
     const span = (sp.wrap ?? 0.44) * Math.PI;
     // The sheet follows the skull's own cross-section, standing off it by 6%,
     // so the mesh drapes on the face instead of cutting through the cheek.
-    const at = (u, v) => {
+    const at = (u, v, push = 0) => {
       const y = lerp(top, bot, v);
       const ny = clamp((y - hd.center.y) / hd.ry, -0.98, 0.98);
-      const cr = Math.sqrt(Math.max(0.04, 1 - ny * ny)) * 1.08;
+      const cr = Math.sqrt(Math.max(0.04, 1 - ny * ny)) * (1.08 + push);
       const a = Math.PI * 0.5 + lerp(-span, span, u) + tilt * 0.35;
       return V(Math.cos(a) * hd.rx * cr, y + Math.sin(lerp(-span, span, u)) * tilt * hd.ry * 0.30, Math.sin(a) * hd.rz * cr);
     };
     const cells = clamp(sp.cells ?? 5, 3, 9);
-    const r = H * (sp.strand ?? 0.0028);
+    const r0 = H * (sp.strand ?? 0.0028);
     for (let k = -cells; k <= cells; k++) {
       for (const dir of [1, -1]) {
+        // The two lattices sit on different standoffs — see `fishnet` for why
+        // an equal-radius crossing is a depth-test coin flip rather than a knot.
+        const push = dir > 0 ? 0 : 0.030;
+        const r = r0 * (0.85 + ctx.rng.next() * 0.30);
         const pts = [];
         for (let i = 0; i <= 8; i++) {
           const v = i / 8;
           const u = 0.5 + (k / (cells * 2)) + dir * (v - 0.5) * 0.62;
           if (u < 0 || u > 1) { if (pts.length > 1) break; else continue; }
-          pts.push(at(u, v));
+          pts.push(at(u, v, push));
         }
         if (pts.length > 1) sweep(s, pts, section(4, 1), () => [r, r], { capStart: true, capEnd: true });
       }
@@ -2435,28 +2613,49 @@ const BUILDERS = {
     const len = Math.min(H * (sp.length ?? 0.44), (top - H * 0.015) / (1 + scallopDepth));
     const wrap = (sp.wrap ?? 1.0) * Math.PI;
     const phase = Math.PI * 0.5 + (sp.turn ?? 0);
-    const at = (u, v) => {
+    const at = (u, v, push = 0) => {
       const a = phase + lerp(-wrap, wrap, u);
       // The scallop: the net hangs lower between its hanging points, which is
       // what stops it reading as a printed grid.
       const scallop = 1 + Math.abs(Math.sin(u * Math.PI * (sp.scallops ?? 4))) * scallopDepth;
       const y = top - len * v * scallop;
       const t = f.trunk(Math.max(y, f.hipY - H * 0.01), H * (0.012 + LAYER * 0.55));
-      const k = 1 + v * (flare - 1);
+      const k = (1 + v * (flare - 1)) * (1 + push);
       return V(Math.cos(a) * t.rx * k, y, t.z + Math.sin(a) * t.rz * k);
     };
     const cells = clamp(sp.cells ?? 7, 3, 12);
-    const r = H * (sp.strand ?? 0.0045);
+    const r0 = H * (sp.strand ?? 0.0045);
     for (let k = -cells; k <= cells * 2; k++) {
       for (const dir of [1, -1]) {
+        /**
+         * The two strand directions run on **separate standoffs**, and each
+         * strand carries its own thickness and a taper toward its hanging end.
+         *
+         * Both are fixes for the review's tassel finding rather than dressing.
+         * Two tubes of identical radius crossing at the shallow angle this
+         * lattice uses share a surface over most of the crossing, so the depth
+         * test picks a different winner per pixel and the whole net speckles —
+         * that is the z-fighting, and it is worst on Kite because her net is in
+         * bleached rope against a scarlet coat. Lifting one lattice 1.5% clear
+         * makes every crossing a definite over/under, which is also how a real
+         * net is knotted. The taper gives the hanging points a tip instead of a
+         * flat-cut cylinder end, which is the other half of "untapered".
+         */
+        const push = dir > 0 ? 0 : 0.015;
+        const r = r0 * (0.82 + ctx.rng.next() * 0.36);
         const pts = [];
         for (let i = 0; i <= 7; i++) {
           const v = i / 7;
           const u = 0.5 + (k / (cells * 2)) - 0.5 + dir * (v - 0.5) * 0.55;
           if (u < 0 || u > 1) { if (pts.length > 1) break; else continue; }
-          pts.push(at(u, v));
+          pts.push(at(u, v, push));
         }
-        if (pts.length > 1) sweep(s, pts, section(4, 1), () => [r, r], { capStart: true, capEnd: true });
+        if (pts.length > 1) {
+          const last = pts.length - 1;
+          sweep(s, pts, section(4, 1),
+            (i) => { const t = r * (1 - 0.34 * (i / last)); return [t, t]; },
+            { capStart: true, capEnd: true });
+        }
       }
     }
   },

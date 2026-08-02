@@ -135,8 +135,8 @@ await page.addInitScript(() => {
 
 let failed = false;
 try {
-  await page.goto(url, { waitUntil: 'load', timeout: 90_000 });
-  await page.waitForFunction(() => !!window.__AW__, null, { timeout: 90_000 });
+  await page.goto(url, { waitUntil: 'load', timeout: 180_000 });
+  await page.waitForFunction(() => !!window.__AW__, null, { timeout: 180_000 });
 
   for (const step of steps) {
     if (step.hook) {
@@ -156,7 +156,7 @@ try {
       // SwiftShader renders on the CPU, so a frame costs seconds rather than
       // milliseconds and gets slower as scene geometry grows. Playwright's 30 s
       // default starts timing out well before anything is actually wrong.
-      await page.screenshot({ path: file, timeout: 180_000 });
+      await page.screenshot({ path: file, timeout: 420_000 });
       console.log(file);
     }
   }
@@ -166,7 +166,7 @@ try {
   console.error(`[harness] ${err.message}`);
   // Still capture whatever is on screen — a broken frame is diagnostic too.
   try {
-    await page.screenshot({ path: resolve(outDir, 'FAILURE.png'), timeout: 180_000 });
+    await page.screenshot({ path: resolve(outDir, 'FAILURE.png'), timeout: 420_000 });
   } catch {}
 } finally {
   await writeFile(resolve(outDir, 'console.log'), logs.join('\n'), 'utf8');

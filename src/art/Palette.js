@@ -276,20 +276,36 @@ export const SURFACE_SPEC = Object.freeze({
   // luminance band alone cannot prevent that; only a chroma ceiling can.
   //
   // Band widths are solved in display space rather than picked, and every band
-  // is **narrowed about its previous midpoint** rather than lowered. Grass's
-  // 0.183→0.265 linear encodes to sRGB 119→141, a 22-unit spread against the
-  // old band's 55, and the ground macro layer's ±12% multiplicative drift takes
-  // it to 36 — inside the 40-unit terrain budget. The midpoint is unchanged at
-  // 130, which matters: LookdevScene calibrated its contact-shadow lift against
-  // the stage floor's *value*, and a band that also dropped 18 units of
-  // brightness would have taken those shadows back out while fixing the
-  // contrast. Contrast and saturation are the defect; overall level is not.
+  // is **narrowed or widened about its own midpoint**, never lowered. Sand's
+  // 0.34→0.445 linear encodes to sRGB 161→182, a 21-unit spread against the old
+  // band's 55, and the ground macro layer's ±12% multiplicative drift takes it
+  // to about 35 — inside the 40-unit terrain budget. Holding the midpoint is
+  // what matters: LookdevScene calibrated its contact-shadow lift against the
+  // stage floor's *value*, and a band that also dropped brightness would have
+  // taken those shadows back out while fixing the contrast.
   //
   // `maxSat` is HSV saturation measured on the *encoded* triple, the way it
   // would be eyedropped; `chromaClamp` derives the linear channel ratio that
   // enforces it, and lands within about 0.01 of the authored figure.
   sand: { roughness: [0.55, 0.85], metalness: 0, albedo: [0.34, 0.445], maxSat: 0.22 },
-  grass: { roughness: [0.5, 0.8], metalness: 0, albedo: [0.183, 0.265], maxSat: 0.22 },
+  // Grass is the one terrain surface the 0.22 chroma ceiling is now wrong for.
+  // That number comes from REFERENCE_TARGET §3 ("environment saturation sits
+  // below character saturation"), which BRAVELY_REFERENCE §5 supersedes for the
+  // field: "bright, sharp, saturated ... crisp green grass with visible blade
+  // detail". At 0.22 the generator's greens are clamped to a grey-green that no
+  // consumer was willing to use, which is *why* the stage floor and the blade
+  // instances both ended up hand-authoring their own hexes and drifting apart.
+  // 0.40 is the chroma the derived `MEADOW` family actually carries, so the
+  // ceiling stops rewriting the family and starts only bounding it.
+  //
+  // The luminance band widens about its own midpoint (0.224 → 0.228, i.e. the
+  // floor's overall level is unchanged) from a 0.082 spread to 0.120. §4's
+  // total-variation budget was spent when the macro layer stacked on top of the
+  // detail map; the stage floor discards the macro layer entirely, so the detail
+  // map is the only value structure the largest area in frame has, and at 0.082
+  // it had none — the review's "dead value structure ... chalky". The contrast
+  // that caused the old moiré lived in the *height* field and stays where it is.
+  grass: { roughness: [0.5, 0.8], metalness: 0, albedo: [0.168, 0.288], maxSat: 0.40 },
   dirt: { roughness: [0.78, 0.96], metalness: 0, albedo: [0.14, 0.215], maxSat: 0.2 },
 });
 
@@ -310,6 +326,104 @@ export const SURFACE_TINT = Object.freeze({
 
 /** §4 global rule: env contribution per material class. */
 export const ENV_INTENSITY = Object.freeze({ default: 0.6, metal: 1.0, crystal: 1.0, cloth: 0.25 });
+
+// ------------------------------------------------------- the field's ground
+
+/**
+ * The one colour family the meadow floor is built from: terrain, blades, soil.
+ *
+ * It exists because the same material was being authored independently in three
+ * modules — `Textures.genGrass` carried its own soil and blade hexes,
+ * `LookdevScene` its own `uLawnColor`, and `Flora.js` its own `GRASS_ROOT`/
+ * `GRASS_TIP` — and three independent authors of one surface do not drift by
+ * accident, they drift by construction. Measured on the shipped stage frame the
+ * floor came out at hue 68° (yellow-green) while the blades growing out of it
+ * averaged 110–160° with a tail past 200°: two unrelated hues, which is why the
+ * review read the field as "green mud with plastic shards stuck in it" rather
+ * than as grass.
+ *
+ * `GROUND` is therefore the only authored colour on this surface. The blade
+ * ramp and the bare soil are **derived** from it by {@link bladeRamp} and
+ * {@link MEADOW_SOIL}, so a blade cannot leave the terrain's hue family — the
+ * guarantee is structural rather than a thing a reviewer has to catch.
+ *
+ * The palette's teal is deliberately absent here. `REFERENCE_TARGET` §4's cyan
+ * dominance is carried by the atmosphere and the rim (`FOG_NEAR`, `RING_GLOW`),
+ * where its job is to separate a subject from its background. Inside a ground
+ * material it is not a rim, it is a second hue, and the eye reads two hues in
+ * one surface as two materials.
+ */
+export const MEADOW = Object.freeze({
+  /**
+   * Lawn albedo. The reference plate's mown lawn measures `#7e9659` at p90 of a
+   * hue-masked region; that is a *rendered* value under a high warm key, and an
+   * albedo is not, so what is authored here is the same colour a stop down.
+   */
+  GROUND: 0x5f7233,
+  /** The worn track through it, measured the same way over the plate's path. */
+  PATH: 0xd8c096,
+});
+
+/**
+ * Root and tip colours for a grass blade, derived from the ground it grows out
+ * of so the two can only ever be one material at two values.
+ *
+ * The shape of the derivation is what a blade actually does under a key light:
+ * the tip is the part that clears its neighbours, so it is **lighter and a
+ * little more chromatic**; the base sits inside the sward's own occlusion, so it
+ * is **much darker and slightly cooler** — cooler *within the green family*, a
+ * rotation of a dozen degrees toward the blue-green side, not a push toward
+ * cyan. Both operations run about the ground's own chromaticity, so no setting
+ * of these parameters can produce a hue the terrain does not already contain.
+ *
+ * @param {number} [ground] sRGB hex of the terrain the blades grow from.
+ * @param {Object} [opts]
+ * @param {number} [opts.lift=0.13] tip luminance gain over the terrain.
+ * @param {number} [opts.tipChroma=1.10] tip saturation about its own luminance.
+ * @param {number} [opts.rootValue=0.42] base luminance as a fraction of terrain.
+ * @param {number} [opts.rootChroma=1.12] base saturation — shadow gains chroma
+ *   as it loses value, per §2.1.
+ * @param {number} [opts.rootCool=12] base hue rotation, in degrees, toward the
+ *   cool side of the family.
+ * @returns {{root:number, tip:number}} sRGB hexes.
+ */
+export function bladeRamp(ground = MEADOW.GROUND, opts = {}) {
+  const {
+    lift = 0.13, tipChroma = 1.10,
+    rootValue = 0.42, rootChroma = 1.12, rootCool = 12,
+  } = opts;
+  return {
+    tip: scaleValue(saturate(ground, tipChroma), 1 + lift),
+    root: scaleValue(saturate(hueRotate(ground, rootCool), rootChroma), rootValue),
+  };
+}
+
+/**
+ * The mown lawn the cast stands on, and the unmown tufts behind them.
+ *
+ * One family, two readings of it. The bed's blades are longer, stand deeper in
+ * their own shade and are seen mostly side-on rather than end-on, so their base
+ * runs darker and their tips carry less of the key than the lawn's do — which is
+ * exactly the separation the reference plate shows between its lawn and its bed.
+ * The difference between them is now four numbers on one derivation rather than
+ * four independently eyedropped hexes, so the two presets cannot separate in hue
+ * however far they separate in value.
+ */
+export const LAWN_BLADE = Object.freeze(bladeRamp(MEADOW.GROUND));
+export const MEADOW_BLADE = Object.freeze(bladeRamp(MEADOW.GROUND, {
+  lift: 0.05, tipChroma: 1.04, rootValue: 0.28, rootCool: 16,
+}));
+
+/**
+ * Bare earth between the blades: the family, darkened, warmed and taken down in
+ * chroma. Never an authored brown — an unrelated hue under the sward is half of
+ * what made the old tile read as two materials at texel scale.
+ */
+export const MEADOW_SOIL = saturate(temperatureShift(scaleValue(MEADOW.GROUND, 0.52), 0.45, 0.85), 0.66);
+
+/** Sun-bleached blades scattered through a summer lawn — the family, lifted and
+ *  swung warm. A straw that is not a member of this family reads as litter. */
+export const MEADOW_DRY = saturate(temperatureShift(scaleValue(MEADOW.GROUND, 1.42), 0.7, 1.0), 0.78);
 
 // -------------------------------------------------------------- §6 grades
 
@@ -658,6 +772,28 @@ export function chromaClamp(rgb, i, ratio) {
   rgb[i + 2] = y + (b - y) * k;
 }
 
+/**
+ * Scale a colour's luminance by `k`, holding its chromaticity exactly.
+ *
+ * The companion to `saturate`: between them a colour family can be walked in
+ * value and in chroma independently, which is the whole basis of deriving a
+ * material's light and dark members from one authored colour instead of
+ * eyedropping each of them separately and hoping they stay related.
+ *
+ * A gain that would clip the majority channel scales the whole triple down
+ * instead of letting one channel saturate — clipping is a hue shift, and a hue
+ * shift is precisely what this function exists to prevent.
+ */
+export function scaleValue(hex, k) {
+  const lin = hexToLinear(hex, [0, 0, 0]);
+  let r = lin[0] * k, g = lin[1] * k, b = lin[2] * k;
+  const m = Math.max(r, g, b);
+  if (m > 1) {
+    r /= m; g /= m; b /= m;
+  }
+  return linearToHex(r, g, b);
+}
+
 /** Saturate (>1) or desaturate (<1) about the luminance axis, in linear light. */
 export function saturate(hex, amount) {
   const lin = hexToLinear(hex, [0, 0, 0]);
@@ -731,4 +867,5 @@ export function fogColors() {
 /** Everything the palette exports, grouped, for debug overlays and tooling. */
 export const PALETTE = Object.freeze({
   LIGHT, ELEMENT, TIME_KEYS, SURFACE_SPEC, SURFACE_TINT, GRADE, TEAL_BLACK, ENV_INTENSITY,
+  MEADOW, LAWN_BLADE, MEADOW_BLADE, MEADOW_SOIL, MEADOW_DRY,
 });

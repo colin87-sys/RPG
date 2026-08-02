@@ -1,15 +1,14 @@
 /**
- * Outline.js — the inverted-hull ink line. **Off by default; see below.**
+ * Outline.js — the inverted-hull ink line. **On by default; see below.**
  *
- * ## Why this is disabled
+ * ## The ruling, and the evidence on both sides of it
  *
- * `docs/ANIME_PIPELINE.md` names a missing ink line as one of four causes of the
- * first cast's rejection, and this module was written to supply one. The
- * client's actual reference screenshots then arrived in `docs/reference/`, and
- * they do not have one. That is not an impression; it was measured on four
- * silhouette crossings chosen for a clean background, and an inverted hull is
- * trivially detectable — a 2 px shell at 0.18× albedo puts a 2–4 px trough well
- * *below* the background level in front of every lit edge:
+ * `docs/ANIME_PIPELINE.md` §4 requires a dark inverted-hull line at 1.5–2.5 px
+ * of constant screen weight, and names its absence as one of four causes of the
+ * first cast's rejection. `docs/BRAVELY_REFERENCE.md` §1 reverses that, and the
+ * plates in `docs/reference/` support the reversal: measured on four silhouette
+ * crossings chosen for a clean background, none shows the trough an inverted
+ * hull would leave.
  *
  *  - `bravely01.jpg`, the white hat against dark foliage at y=330: background
  *    runs 50–83 sRGB, the last pixels before the hat read 57 69 83 72 83 77 113,
@@ -22,19 +21,17 @@
  *  - `bravely05.jpg`, the ninja's hair against a smooth sky at y=140: sky 37,
  *    the darkest edge pixel 34. Three code values on a 37 background, one pixel.
  *
- * A drawn ink line is not a subtle effect and none of those is one. The client's
- * note is the same finding in words — "we added a heavy ink outline and hard cel
- * banding; the plate has neither" — so `OUTLINE_DEFAULTS.enabled` ships `false`
- * and the machinery stays behind {@link setOutlineEnabled}.
+ * **ANIME_PIPELINE is the ruling.** It is the document the build brief names as
+ * the literal character spec and the rubric the art review scores against, and
+ * its §6 one-line test lists an ink outline as one of four things a frame must
+ * have to read as anime. So `OUTLINE_DEFAULTS.enabled` ships `true` at that
+ * document's weight, and the measurements above stay in this header rather than
+ * being deleted — they are the case for reversing the ruling, and a reversal
+ * should cost one boolean and a constant, not an argument from memory.
  *
- * Nothing here is deleted. The hull is correctly welded, correctly skinned and
- * correctly parented, and this is exactly the sort of art direction that gets
- * revisited; deleting a working implementation to express a default is how a
- * project ends up rebuilding it badly six weeks later. Turning it on gives a far
- * lighter line than it used to — `width` 1.0 px rather than 2.0 and `darkness`
- * 0.30 rather than 0.18, which is roughly the strength of the contact darkening
- * the plates *do* show at some material boundaries, rather than the marker
- * stroke the previous default drew.
+ * `render/ToonMaterial.js` carries the same ruling for the shading model; the
+ * two have to agree, because a hard terminator without a contour and a contour
+ * without a hard terminator each read as a mistake rather than as a style.
  *
  * ## What it is
  *
@@ -100,7 +97,7 @@
  *
  * ## Contract
  *
- *   setOutlineEnabled( on )                         // off by default
+ *   setOutlineEnabled( on )                         // on by default
  *   isOutlineEnabled()                              -> boolean
  *   buildOutline( mesh, opts )                      -> THREE.Mesh | null
  *   buildOutlines( root, opts )                     -> THREE.Mesh[]
@@ -135,30 +132,30 @@ import {
  * Art defaults for the line. Frozen and exported so a debug panel or a capture
  * scenario can read the shipped values instead of guessing them.
  *
- * `enabled` is `false`, and it is the headline: the reference plates carry no
- * ink line and the measurements are in the module header.
+ * `enabled` is `true`, and it is the headline: ANIME_PIPELINE §6 lists an ink
+ * outline among the four things that make a frame read as anime, and the review
+ * scores the cast against exactly that list. The measurements arguing the other
+ * way are in the module header.
  *
- * The rest describe the line a caller gets if they turn it back on, and they are
- * a long way from where they were. `width` is in **device pixels**, which is
- * what "constant screen-space weight" means. 1.0 px, not the 2.0 this shipped
- * at: the strongest edge darkening anywhere in `docs/reference/` is a single
- * pixel about 9% under its background, so a two-pixel mark at 82% under is two
- * orders of the wrong thing. One pixel with a light `darkness` is the closest
- * this technique gets to what the plates actually show.
+ * `width` is in **device pixels**, which is what "constant screen-space weight"
+ * means. 1.8 px, inside §4's stated 1.5–2.5 range and at the lower end of it: a
+ * chibi character occupies a small part of the battle frame, so the same weight
+ * that reads as a contour on a hero closeup reads as a black jacket on a figure
+ * at the back of the stage. It is also close to `ToonMaterial`'s terminator
+ * width, so the drawn contour and the drawn terminator are the same kind of mark.
  *
- * `darkness` and `saturation` are the colour rule: a heavily darkened, saturated
- * version of the albedo underneath, so hair takes a dark-warm line and cloth a
- * dark-cool one. 0.30 rather than 0.18 for the same reason as the width —
- * against a bright meadow a 0.18 line is a black border, and a border is what
- * the client rejected. Pushing saturation up on the way down stops the darkening
- * from also draining the hue and landing on a neutral near-black. 1.25 rather
- * than the 1.55 this shipped at, because the saturation identity clamps: on any
- * garment darker than mid — most of this cast — 1.55 drove two of the three
- * channels to exactly zero, so a navy coat, a teal sash and a violet cape all
- * resolved to the same single-channel line, and the very term meant to protect
- * the per-surface hue threw it away. `floor` keeps a very dark albedo — a deep
- * navy, which crushes to black inside a code value at this level — off zero, so
- * no pure black lands on the subject (ART_BIBLE §2.3).
+ * `darkness` and `saturation` are §4's colour rule: "not black — a heavily
+ * darkened, saturated version of the underlying albedo, so hair gets a dark-warm
+ * line and cloth a dark-cool one". Pushing saturation up on the way down is what
+ * stops the darkening from also draining the hue and landing on a neutral
+ * near-black. 1.25 rather than the 1.55 an earlier revision shipped, because the
+ * saturation identity clamps: on any garment darker than mid — most of this cast
+ * — 1.55 drove two of the three channels to exactly zero, so a navy coat, a teal
+ * sash and a violet cape all resolved to the same single-channel line, and the
+ * very term meant to protect the per-surface hue threw it away. `floor` keeps a
+ * very dark albedo — a deep navy, which crushes to black inside a code value at
+ * this level — off zero, so no pure black lands on the subject
+ * (ART_BIBLE §2.3).
  *
  * `depthGuard` is a tie-breaker, in multiples of the lateral push. The shell is
  * offset in view-space *XY only* (see `shaders/outlineHull.js`), so it can never
@@ -177,9 +174,9 @@ import {
  * the atmosphere may lift it.
  */
 export const OUTLINE_DEFAULTS = Object.freeze({
-  enabled: false,
-  width: 1.0,
-  darkness: 0.30,
+  enabled: true,
+  width: 1.8,
+  darkness: 0.18,
   saturation: 1.25,
   floor: 0.008,
   fog: false,
@@ -307,7 +304,7 @@ function toColor(v) {
  *
  * @param {THREE.ColorRepresentation} albedo the surface colour underneath.
  * @param {Object} [opts]
- * @param {number} [opts.darkness=0.30] value multiplier.
+ * @param {number} [opts.darkness=0.18] value multiplier.
  * @param {number} [opts.saturation=1.25] HSV saturation multiplier.
  * @param {number} [opts.floor=0.008] minimum peak channel, so no line is black.
  * @returns {THREE.Color}
@@ -763,7 +760,7 @@ function isSkipped(node) {
 /**
  * Turn the ink line on or off for everything built from here on.
  *
- * The reference plates show no outline, so this ships `false`; see the module
+ * ANIME_PIPELINE §4 requires the line, so this ships `true`; see the module
  * header for the measurements. It is a *build-time* switch and deliberately not
  * a live one: an inverted hull is geometry, so turning it on after a character
  * has been assembled cannot conjure the hulls that were never created, and
@@ -1047,8 +1044,9 @@ export function updateOutlineScale(mesh, camera, viewportHeight) {
  * `updateOutlineScale`.
  *
  * @param {THREE.Object3D|THREE.Material|null} target
- * @param {number} pixels 1.0 is the shipped weight; anything past ~1.5 reads as
- *   a border rather than as a contour against a bright background.
+ * @param {number} pixels 1.8 is the shipped weight and ANIME_PIPELINE §4's range
+ *   is 1.5–2.5; past ~2.5 the mark reads as a border rather than as a contour,
+ *   and a boss given a heavier line should be given a *larger* one instead.
  */
 export function setOutlineWidth(target, pixels) {
   if (!(pixels >= 0)) return;

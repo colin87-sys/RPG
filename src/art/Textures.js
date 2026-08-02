@@ -40,6 +40,7 @@ import { makeNoise, smoothstep, smootherstep, clamp, mix, ipow, hash1 } from './
 import {
   hexToLinear, linearToByte, luminance, mixHex, hueRotate, chromaClamp, saturationRatio,
   ELEMENT, SURFACE_SPEC, SURFACE_TINT, TEAL_BLACK, element, elementRamp, toonRamp,
+  LAWN_BLADE, MEADOW_SOIL, MEADOW_DRY,
 } from './Palette.js';
 
 const TAU = Math.PI * 2;
@@ -1161,21 +1162,26 @@ function genSand(buf, n, rng) {
  *    toward geometric past 14 m; a high-contrast albedo does not, and there is
  *    nowhere for that energy to go but interference.
  *
- * 3. **Soil and blade share one hue family.** Two greens and a dry straw at low
- *    chroma, over a soil that is a darkened member of the same family rather
- *    than an unrelated brown. REFERENCE §3 wants a stage, and a stage does not
- *    hold two competing hues at maximum separation.
+ * 3. **Soil and blade share one hue family.** Not by being authored carefully —
+ *    that was the previous attempt and it still drifted, because the four hexes
+ *    here were maintained separately from the two `LookdevScene` paints its
+ *    floor with and the four `Flora.js` colours its blade instances. Every
+ *    colour on this surface is now *derived* from the single `Palette.MEADOW`
+ *    ground colour, so the tile the terrain is painted with and the blades
+ *    standing in it cannot be two different materials. See `Palette.bladeRamp`.
  */
 function genGrass(buf, n, rng) {
   const { w, h } = buf;
   const spec = SURFACE_SPEC.grass;
-  // A muted, slightly cool family. `fitAlbedoBand`'s chroma ceiling would pull
-  // saturated source colours down anyway, but authoring in-band keeps the
-  // relative colour design intact instead of letting the clamp flatten it.
-  const soil = hexToLinear(0x4a4a3d, [0, 0, 0]);
-  const bladeA = hexToLinear(0x7d8a64, [0, 0, 0]);
-  const bladeB = hexToLinear(0x59684d, [0, 0, 0]);
-  const bladeDry = hexToLinear(0x8d8663, [0, 0, 0]);
+  // The family, all four members derived from `MEADOW.GROUND`: a lit blade tip,
+  // a shaded blade base, sun-bleached straw, and the bare earth under them.
+  // Authoring them here as literals is what let this tile and the meadow's own
+  // instanced blades end up 40° of hue apart, which is the defect this whole
+  // derivation exists to make impossible.
+  const soil = hexToLinear(MEADOW_SOIL, [0, 0, 0]);
+  const bladeA = hexToLinear(LAWN_BLADE.tip, [0, 0, 0]);
+  const bladeB = hexToLinear(LAWN_BLADE.root, [0, 0, 0]);
+  const bladeDry = hexToLinear(MEADOW_DRY, [0, 0, 0]);
   const col = [0, 0, 0];
 
   // 6 cycles at 256 texels leaves the top octave at 10.7 texels/cycle. The old

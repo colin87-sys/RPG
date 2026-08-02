@@ -73,6 +73,15 @@
  *    And every length is a fraction of body height, exactly like the rest of
  *    this file.
  *
+ *    A motif's **tiling lives in `pattern.repeat` and nowhere else.** Four
+ *    builders used to scale UVs by their own private `patternRepeatU` on top of
+ *    it, so a block asking for three tiles got nine, applied in u only; on
+ *    Seren's petticoat that sheared a square weave into a magenta-and-white
+ *    grating that the art review reasonably read as a missing-texture
+ *    placeholder. `Garments.resolveRepeat` now owns tiling, refuses a repeat
+ *    that would shear a motif past 4:1, and refuses to tile a `wrap: 'clamp'`
+ *    motif at all.
+ *
  *    Where a piece exists in both `accessories` and `garments`, the accessory
  *    is switched off: the two builders would otherwise both run and the
  *    character would wear two collars.
@@ -429,9 +438,24 @@ export const ROSTER = Object.freeze([
         length: 0.48, flare: 1.72, gores: 6, goreDepth: 0.03,
         // Aurora silk: the archer's iridescent weave, run through her own hues
         // so the shift reads as dawn rather than as the plate's green.
+        //
+        // **This is the piece that shipped the magenta/white checkerboard**, and
+        // both halves of the cause are in this block. `repeat: [3, 1]` was
+        // multiplied again by `skirt`'s own private UV scale of 3, giving nine
+        // tiles round the petticoat in u against one in v — a 9:1 shear that
+        // turns a square weave into a fine vertical grating (see
+        // `Garments.resolveRepeat`, which now makes this the only tiling
+        // control there is). And the old four-stop ramp put rose straight next
+        // to ivory, so the grating alternated saturated magenta with near-white
+        // — the exact colour pair of an engine's missing-texture placeholder.
+        //
+        // Two tiles, and a five-stop ramp that walks teal → ivory → rose
+        // through a dawn-pink mid so no two neighbouring stops are the two
+        // extremes. The shift still reads; it no longer reads as a bug.
         pattern: {
           id: 'iridescent', base: 0x2fa89e,
-          ramp: [0x2fa89e, 0x8fe0d6, 0xcf5077, 0xf6efe0], size: 256, repeat: [3, 1],
+          ramp: [0x2fa89e, 0x8fe0d6, 0xf6efe0, 0xe39ab0, 0xcf5077],
+          size: 256, repeat: [2, 1],
         },
       },
       {
@@ -439,9 +463,15 @@ export const ROSTER = Object.freeze([
         length: 0.40, flare: 2.15, gores: 8,
         // Rose-and-vine, banded to the lower 55% exactly as the staff-mage's
         // coat bands its embroidery.
+        //
+        // `floral` draws three blossom columns per tile, so four tiles is twelve
+        // round the skirt and six across the panel the camera sees — which is
+        // the count measured on the plate. It was nine tiles (three here times
+        // three inside `skirt`), i.e. twenty-seven blossoms round a skirt about
+        // a hundred pixels wide.
         pattern: {
           id: 'floral', base: 0xcf5077, ink: 0x7a2340, accent: 0xf6efe0,
-          bandV: 0.55, size: 256, repeat: [3, 1],
+          bandV: 0.55, size: 256, repeat: [4, 1],
         },
       },
       { kind: 'sash', color: 'secondary', piping: 'accent', width: 0.080, knotSide: 'L' },
@@ -715,16 +745,21 @@ export const ROSTER = Object.freeze([
     garments: Object.freeze([
       {
         kind: 'longcoat', color: 'identity', lining: 'trim', piping: 'trim',
-        top: 0.55, hem: 0.30, flare: 2.0, gap: 0.24, buttons: 5, patternRepeatU: 3,
+        top: 0.55, hem: 0.30, flare: 2.0, gap: 0.24, buttons: 5,
         // Wave damask in a darker scarlet with bleached-rope highlights.
-        pattern: { id: 'damask', base: 0xd93a28, ink: 0x7d1c12, accent: 0xe3d3a8, size: 256 },
+        // `repeat` replaces the `patternRepeatU: 3` that used to sit up here:
+        // tiling is one control now, on the pattern, and the value is the same.
+        pattern: { id: 'damask', base: 0xd93a28, ink: 0x7d1c12, accent: 0xe3d3a8, size: 256, repeat: [3, 1] },
       },
       { kind: 'lapel', color: 'trim', lining: 'identity', width: 0.40, fold: 0.20 },
       { kind: 'collar', cut: 'popped', color: 'identity', lining: 'trim', piping: 'trim', height: 1.5 },
       {
         kind: 'sash', color: 'secondary', piping: 'trim', width: 0.070, knotSide: 'R',
-        // Key-fret woven into the wrap, bone on sea-blue.
-        pattern: { id: 'lattice', base: 0x1c5c92, ink: 0xe3d3a8, size: 256, repeat: [6, 1] },
+        // Key-fret woven into the wrap, bone on sea-blue. Three tiles, not six:
+        // `sash` used to multiply by a further four, so this was twenty-four
+        // tiles of a five-cell fret — a hundred and twenty cells round a band
+        // 0.07 H tall, which resolves to noise at any capture distance.
+        pattern: { id: 'lattice', base: 0x1c5c92, ink: 0xe3d3a8, size: 256, repeat: [3, 1] },
       },
       { kind: 'belt', at: 'hip', color: 'leather', buckle: 'accent', width: 0.034, tailSide: 'R' },
       { kind: 'strap', side: 'L', color: 'leather', buckle: 'accent', width: 0.032, loops: 4 },
@@ -875,10 +910,12 @@ export const ROSTER = Object.freeze([
       {
         kind: 'longcoat', color: 'identity', lining: 'trim', piping: 'trim',
         top: 0.60, hem: 0.055, flare: 2.5, gap: 0.19, buttons: 6, hang: 1.05,
-        patternRepeatU: 2, buttonSpan: 0.40,
+        buttonSpan: 0.40,
+        // Two tiles — the `patternRepeatU: 2` that used to live above, moved to
+        // the one place tiling is now allowed to be authored.
         pattern: {
           id: 'floral', base: 0x7440cc, ink: 0x3a1f63, accent: 0xff6b2b,
-          bandV: 0.34, size: 256,
+          bandV: 0.34, size: 256, repeat: [2, 1],
         },
       },
       { kind: 'lapel', color: 'trim', lining: 'identity', width: 0.46, fold: 0.22, top: 0.95, bottom: -0.70 },

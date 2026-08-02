@@ -8,20 +8,29 @@
  * problem before it is a shading problem, and it decomposes into exactly three
  * jobs:
  *
- *  1. **KEY** — one directional light, colour and direction taken verbatim from
- *     `Sky` so the shadow direction and the sun disc in frame can never drift
- *     apart. Its relative intensity through the day is the ART_BIBLE section 3
- *     table, which `Sky` already interpolates; re-deriving it here would give
- *     the game two disagreeing opinions about noon.
+ *  1. **KEY** — one directional light, colour and *azimuth* taken verbatim from
+ *     `Sky` so the shadow direction and the sun disc in frame can never point
+ *     to two different places. Its elevation is held inside a staging band; see
+ *     `KEY_STAGE_ELEVATION_MAX_DEG`, which is the one axis this rig overrules
+ *     `Sky` on and the reason it does. Its relative intensity through the day is
+ *     the ART_BIBLE section 3 table, which `Sky` already interpolates;
+ *     re-deriving it here would give the game two disagreeing opinions about
+ *     noon.
  *
- *  2. **FILL** — a hemisphere light, never an `AmbientLight` (ART_BIBLE section
- *     7.5: ambient above 20% kills form, and a constant term kills it entirely).
- *     Its sky colour is the *actual* rendered sky zenith pushed halfway to
- *     `SHADOW_TINT`, which is the literal formula in section 2.1's shadow rule.
- *     Its ground colour is `BOUNCE_GROUND`. Both are run through a saturation
- *     floor before they reach the light, so the rule ("a white surface in full
- *     shadow must not eyedrop to zero saturation") is enforced by construction
- *     rather than by hoping the inputs were tinted.
+ *  2. **FILL** — one ambient budget spent across two terms rather than two terms
+ *     each spending whatever they like. A hemisphere light, never an
+ *     `AmbientLight` (ART_BIBLE section 7.5: ambient above 20% kills form, and a
+ *     constant term kills it entirely), and the PMREM probe, which this module
+ *     owns per the ARCHITECTURE service table and which used to sit outside the
+ *     budget entirely. The hemisphere's sky colour is the *actual*
+ *     rendered sky zenith pushed halfway to `SHADOW_TINT`, which is the literal
+ *     formula in section 2.1's shadow rule. Its ground colour is
+ *     `BOUNCE_GROUND`. Both are run through a saturation floor before they
+ *     reach the light, so the rule ("a white surface in full shadow must not
+ *     eyedrop to zero saturation") is enforced by construction rather than by
+ *     hoping the inputs were tinted. How the budget is divided, and why it is
+ *     bounded against the key rather than taken as an absolute, is
+ *     `AMBIENT_KEY_SHARE`.
  *
  *  3. **RIM** — a second directional light opposite the key in azimuth, low over
  *     the horizon, tinted toward `RING_GLOW`. ART_BIBLE section 3's dusk note
@@ -207,6 +216,176 @@ const MAX_CASTER_HEIGHT = 14;
  *  above by its own diagonal, which is what `_updateShadowBounds` writes into
  *  the ortho width — can never clip its own back face. */
 const SHADOW_DEPTH_SLACK = 2;
+
+/**
+ * The staging band the key's elevation is held inside, in degrees.
+ *
+ * This is the one quantity the rig takes off `Sky` and does not use as given,
+ * and the reason is the same one that already governs `RIM_ELEVATION_MIN_DEG`:
+ * a chibi is a *vertical* silhouette standing on a *horizontal* stage, and a
+ * high light serves neither. `LookdevScene` stages its meadow near midday, which
+ * puts the sun at 55 degrees, and at 55 degrees three things go wrong at once
+ * and all three were named in review. A 1.2 m figure throws a 0.83 m shadow that
+ * lands entirely behind its own feet, so the frame has no visible cast shadow
+ * and the cast reads as pasted on. The key's horizontal component is only 0.57,
+ * so a torso — which faces outward, not upward — is lit at little better than
+ * half strength while the tops of heads and shoulders take the peak, which
+ * flattens every form and leaves the terminator up in the hair where it does no
+ * modelling. And the ground plane, which faces the light square on, takes the
+ * *full* key, so the field is the brightest thing in frame and the party is not.
+ *
+ * Clamping the elevation to 34 degrees fixes all three geometrically rather than
+ * by grading: the shadow grows to 1.8 m and fans out either side of the figure,
+ * the horizontal component rises to 0.83 so the key rakes across the body and
+ * writes a real warm/cool split, and the ground's own N·L drops from 0.82 to
+ * 0.56 — so the field darkens by a third while the characters brighten, which is
+ * exactly the "lift the subject relative to the field" the value note asks for,
+ * bought without touching a single exposure.
+ *
+ * **Azimuth is untouched, and that is what keeps this honest.** The review's
+ * test for a committed key is "you can point at the sun", and that is a
+ * statement about *where in plan* the shadows run — which still agrees with the
+ * dome exactly. Only the elevation is dramatised, and only downward, so the disc
+ * can never end up on the opposite side of the sky from the shadows it casts.
+ * The floor is the same idea at the other end: at the hero dusk key the sun sits
+ * at 6 degrees, where the ground's N·L is 0.10 and the whole stage falls into a
+ * near-black grazing light with the fill carrying the entire frame. Twelve
+ * degrees is still unmistakably a low sun and still leaves the terminator low on
+ * the body; it just keeps a floor under the stage.
+ */
+const KEY_STAGE_ELEVATION_MIN_DEG = 12;
+const KEY_STAGE_ELEVATION_MAX_DEG = 34;
+
+/**
+ * The ambient budget, as a ceiling *relative to the key*, plus an absolute floor.
+ *
+ * ART_BIBLE section 7.5 puts the limit at "ambient above 20% kills form", and
+ * the section 3 `ambient` column is written as an absolute. Those two only agree
+ * at one hour. Measured on the stage frame the rig was actually producing: the
+ * section 3 budget at t=0.56 is 0.517, the probe was independently carrying 0.28
+ * on top of it, and the key delivered 2.45 to a lit ground plane — so the real
+ * ambient share was 20% before a single bounce, and the deepest shadow the frame
+ * could contain was a 4:1 step. Two stops is not a shadow, it is a tint, and it
+ * is why the review measured the whole image inside a 45–80% luminance band with
+ * no dark anchor anywhere in it.
+ *
+ * The ceiling is therefore expressed the way `RIM_KEY_SHARE` already expresses
+ * the back light's: as a share of the key, so the relationship the rule is
+ * actually about holds at every hour instead of at one. At 0.15 a lit surface is
+ * roughly 7:1 over its own shadow before cast occlusion, which is a true three-
+ * stop drop and gives the frame a black end to structure against. The floor is
+ * what stops the same rule crushing a night frame, where the key is the dim ring
+ * and a 15% share would be very nearly zero: ambient is the only thing lighting
+ * a moonlit scene, and section 3 raises the column to 0.35 at dusk for exactly
+ * that reason.
+ */
+const AMBIENT_KEY_SHARE = 0.11;
+const AMBIENT_MIN = 0.14;
+
+/**
+ * The PMREM probe's share of that budget, and why the rig clamps it at all.
+ *
+ * The previous rig did not divide the budget. It handed the whole section 3
+ * figure to the hemisphere and then took a flat 62% of it back on the theory
+ * that a probe was carrying the rest — a guess, and a wrong one, because
+ * `scene.environmentIntensity` is an independent number the scene sets and it
+ * measured 0.28 against an assumed 0.196. The rig was better than 20% over its
+ * own ambient budget and had no way to find out, and the probe is the *least*
+ * forgiving place to be over: it is a constant, unoccluded, direction-blind lift
+ * on every surface in frame, which is exactly the term that makes an image
+ * chalky.
+ *
+ * ARCHITECTURE's service table already assigns the env probe to this module, so
+ * the fix is to spend it from the same budget as everything else rather than
+ * beside it. The share is high — over a third — because the probe is not only
+ * ambient diffuse: it is also the environment *specular* that BRAVELY section 4
+ * requires for armour to read as metal, and three drives both from one scalar.
+ * Starving it to make the shadows deeper would trade one review note for
+ * another.
+ *
+ * The clamp is one-directional. A scene that authors *less* probe than its share
+ * keeps what it authored and the hemisphere absorbs the remainder; only an
+ * over-budget probe is pulled back.
+ */
+const AMBIENT_PROBE_SHARE = 0.38;
+
+/**
+ * Why there is no fourth, downward, shadow-casting ambient light here.
+ *
+ * The obvious answer to "nothing darkens the ground under a character's boots"
+ * is to give the sky term a shadow map: a near-vertical directional light
+ * carrying part of the ambient, occluded by everything that casts, putting a
+ * soft pool under every figure and prop from any light direction at any hour.
+ * It is the right technique and it is the one thing this rig cannot have, for a
+ * reason worth recording so it is not attempted twice.
+ *
+ * `three/examples/jsm/csm/CSMShader.js` replaces `lights_fragment_begin`
+ * globally, and its directional loop assumes **every shadow-casting directional
+ * light in the scene is a cascade**: it indexes `CSM_cascades[ i ]` for every
+ * `i < NUM_DIR_LIGHT_SHADOWS` while the array is declared at length
+ * `CSM_CASCADES`. Adding a fifth caster to a four-cascade rig therefore does not
+ * merely misbehave, it fails to compile — `'[]' : array index out of range` on
+ * every lit material in the scene, verified. Working around it means rewriting
+ * the addon's uniform layout from outside (a longer `CSM_cascades`, a raised
+ * `CSM_CASCADES` define, a hand-extended far cascade so geometry past the shadow
+ * range keeps its key light, and a dependency on three's light sort being stable
+ * so the extra caster lands last), on a chunk every other author's materials
+ * compile through. That is a landmine, not a feature.
+ *
+ * So the contact floor is left to the layer that already owns it — characters
+ * carry their own contact decals and the stage projects its own occlusion — and
+ * the rig's contribution is to make the key's own shadow land where the camera
+ * can see it (`KEY_STAGE_ELEVATION_MAX_DEG`) and to stop the ambient filling it
+ * back in (`AMBIENT_KEY_SHARE`).
+ */
+
+/**
+ * The aerial-perspective floor: the fraction of a surface's radiance the haze
+ * must have replaced by the far end of the rig's own shadow range.
+ *
+ * Point 10 of the brief asks for three value tiers — dark foreground, bright
+ * subject, hazy background — and the third one does not exist unless distance
+ * does something. Measured on the stage frame, `FogExp2` was running at density
+ * 0.00213, which is 0.4% extinction at 30 m and 4% at 100 m: the treeline
+ * rendered at full contrast and sat in the same luminance band as the party
+ * standing 10 m from the lens. A background that does not recede is not a
+ * background, it is wallpaper, and no amount of grading separates it from the
+ * subject afterwards because the information is simply not there.
+ *
+ * Stated as an extinction at `shadowDistance` rather than as a density, because
+ * density is a per-scene quantity with no meaning on its own — the same number
+ * is imperceptible on a 20 m arena and opaque on a 300 m vista, and the rig
+ * already knows how deep each scene's stage is because the scene told it.
+ * Applied as a **floor**: a scene asking for more haze keeps it, so a night
+ * battlefield or a storm is never fought. Thirty percent at the stage's far edge
+ * puts roughly 3% on the party at 20 m — they stay crisp, which BRAVELY section
+ * 5 requires — and better than half on anything past 100 m.
+ */
+
+/**
+ * The aerial-perspective floor: the fraction of a surface's radiance the haze
+ * must have replaced by the far end of the rig's own shadow range.
+ *
+ * Point 10 of the brief asks for three value tiers — dark foreground, bright
+ * subject, hazy background — and the third one does not exist unless distance
+ * does something. Measured on the stage frame, `FogExp2` was running at density
+ * 0.00213, which is 0.4% extinction at 30 m and 4% at 100 m: the treeline
+ * rendered at full contrast and sat in the same luminance band as the party
+ * standing 10 m from the lens. A background that does not recede is not a
+ * background, it is wallpaper, and no amount of grading separates it from the
+ * subject afterwards because the information is simply not there.
+ *
+ * Stated as an extinction at `shadowDistance` rather than as a density, because
+ * density is a per-scene quantity with no meaning on its own — the same number
+ * is imperceptible on a 20 m arena and opaque on a 300 m vista, and the rig
+ * already knows how deep each scene's stage is because the scene told it.
+ * Applied as a **floor**: a scene asking for more haze keeps it, so a night
+ * battlefield or a storm is never fought. Thirty percent at the stage's far edge
+ * puts roughly 3% on the party at 20 m — they stay crisp, which BRAVELY section
+ * 5 requires — and better than half on anything past 100 m.
+ */
+const AERIAL_EXTINCTION_AT_RANGE = 0.30;
+const AERIAL_DENSITY_K = Math.sqrt(-Math.log(1 - AERIAL_EXTINCTION_AT_RANGE));
 
 /**
  * Rim azimuth offset from the key.
@@ -534,12 +713,6 @@ const SHADOW_HUE_WINDOW_DEG = 8;
  * shadow the rule exists to forbid.
  */
 const BOUNCE_NIGHT_CHROMA = 0.55;
-
-/** Fraction of the section 3 `ambient` budget the hemisphere keeps once a PMREM
- *  probe is also lighting the scene. The probe supplies directional sky
- *  occlusion the hemisphere cannot; the hemisphere supplies ground bounce and
- *  the mandated shadow tint the probe has no ground to produce. */
-const HEMI_SHARE_WITH_PROBE = 0.62;
 
 /**
  * Target penumbra width in metres.
@@ -1198,6 +1371,12 @@ export class Lighting {
     this._lensKey = '';
     this._lastFrame = -1;
     this._scanTimer = 0;
+    /** The probe level the *scene* authored, latched when `scene.environment`
+     *  changes identity. The rig writes `environmentIntensity` every frame, so
+     *  reading it back as the authored value would ratchet the probe toward the
+     *  budget cap and never let it recover when the budget widens again. */
+    this._probeSource = null;
+    this._probeAuthoredLevel = 0;
 
     // ---- CSM + point pool -------------------------------------------------
     /** @type {Map<THREE.Material, Function|null>} material -> prior onBeforeCompile */
@@ -1227,6 +1406,9 @@ export class Lighting {
       fillSky: new THREE.Color(0x2e4a5f),
       fillGround: new THREE.Color(LIGHT.BOUNCE_GROUND),
       fillIntensity: 0.55,
+      /** The PMREM probe's level. Eased on the same clock as the hemisphere it
+       *  was divided from, so the total ambient cannot wander mid-scrub. */
+      probeIntensity: 0,
       rimDir: new THREE.Vector3(-0.5, 0.5, -0.7).normalize(),
       rimColor: new THREE.Color(LIGHT.RING_GLOW),
       // The rim the *characters* get. Anchored rather than derived, and eased
@@ -1718,6 +1900,23 @@ export class Lighting {
     // leaving it lands back inside the amber band.
     conformChroma(T.keyColor, pickKeyGamut(T.keyColor), KEY_CHROMA_TOLERANCE, KEY_CHROMA_RANGE);
 
+    // ---- key elevation, staged -------------------------------------------
+    // Azimuth is taken exactly as the dome reports it and rebuilt from the same
+    // number, so the shadows and the sun disc always agree about *which way* the
+    // light comes from. Only the elevation is held inside the staging band, and
+    // the rebuild is unconditional rather than guarded on "did the clamp bite" —
+    // reconstructing an unclamped direction from its own azimuth and elevation
+    // is the identity to float precision, and a branch here would mean two code
+    // paths for one vector.
+    const keyAz = Math.atan2(T.keyDir.x, T.keyDir.z);
+    const keyElDeg = THREE.MathUtils.clamp(
+      THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(T.keyDir.y, -1, 1))),
+      KEY_STAGE_ELEVATION_MIN_DEG, KEY_STAGE_ELEVATION_MAX_DEG,
+    );
+    const keyEl = THREE.MathUtils.degToRad(keyElDeg);
+    const kce = Math.cos(keyEl);
+    T.keyDir.set(kce * Math.sin(keyAz), Math.sin(keyEl), kce * Math.cos(keyAz)).normalize();
+
     // `dayness` drives every "is this a sunlit frame" decision in the rig. It
     // is a function of the *true* sun height, not the key's, so the night rig
     // does not flip back to daylight just because the ring happens to be high.
@@ -1744,20 +1943,29 @@ export class Lighting {
       THREE.SRGBColorSpace,
     );
 
-    // Section 3's `ambient` column is the summed hemisphere + probe budget.
-    // When a PMREM probe is present it carries the directional part, so the
-    // hemisphere steps back to avoid double-counting the sky.
-    const probed = !!this.scene?.environment;
-    T.fillIntensity = ambient * (probed ? HEMI_SHARE_WITH_PROBE : 1);
+    // ---- the ambient budget, divided --------------------------------------
+    // Section 3's `ambient` column is the *whole* indirect budget — hemisphere
+    // and probe together — and it is bounded against the key so the 20% rule
+    // holds at every hour rather than at one. See `AMBIENT_KEY_SHARE`.
+    const budget = Math.max(
+      AMBIENT_MIN, Math.min(ambient, T.keyIntensity * AMBIENT_KEY_SHARE),
+    );
+    // The probe is clamped to its share, never raised to it: a scene that wants
+    // less environment reflection than the budget allows keeps what it authored,
+    // and only an over-budget probe is pulled back.
+    T.probeIntensity = Math.min(this._authoredProbe(), budget * AMBIENT_PROBE_SHARE);
+    // Whatever the probe did not spend. Taking the remainder rather than a
+    // second fixed share is what keeps the total on budget when the probe comes
+    // in under its cap — or when there is no probe at all, in which case the
+    // hemisphere absorbs its share and an interior looks exactly as before.
+    T.fillIntensity = Math.max(0, budget - T.probeIntensity);
 
     // ---- rim -------------------------------------------------------------
     // Opposite the key in azimuth — the ring's own side of the sky, per
-    // ART_BIBLE section 3's dusk note — with elevation derived from the key's so
-    // a low dusk key gets a low, raking rim and a high noon key gets a steeper
-    // one, both inside the band that actually catches a chibi head.
-    const keyAz = Math.atan2(T.keyDir.x, T.keyDir.z);
+    // ART_BIBLE section 3's dusk note — with elevation derived from the *staged*
+    // key's, so a low dusk key gets a low, raking rim and a high noon key gets a
+    // steeper one, both inside the band that actually catches a chibi head.
     const rimAz = keyAz + THREE.MathUtils.degToRad(RIM_AZIMUTH_DEG);
-    const keyElDeg = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(T.keyDir.y, -1, 1)));
     const rimElDeg = THREE.MathUtils.clamp(
       RIM_ELEVATION_BASE_DEG + keyElDeg * RIM_ELEVATION_FROM_KEY,
       RIM_ELEVATION_MIN_DEG, RIM_ELEVATION_MAX_DEG,
@@ -1822,6 +2030,35 @@ export class Lighting {
     return c.setHSL(h, s, this._hsl.l, THREE.SRGBColorSpace);
   }
 
+  /**
+   * The probe level the scene asked for, latched per environment map.
+   *
+   * `_applyState` writes `environmentIntensity` every frame, so reading the live
+   * value back as the authored one would compound: the first clamp would become
+   * the new authored level, the next frame would clamp that, and the probe would
+   * ratchet toward zero and never recover when the budget widened again. Latched
+   * on the texture's identity rather than on a mount callback because
+   * `AssetForge` hands the same PMREM result to several scenes and a scene may
+   * swap its environment without telling the rig.
+   */
+  _authoredProbe() {
+    const env = this.scene?.environment ?? null;
+    // A null probe reports nothing but does *not* clear the latch. Scenes drop
+    // `scene.environment` for a pass and put the same texture back — the matte
+    // silhouette capture does exactly that — and clearing here would re-latch on
+    // restore against the clamped value the rig itself wrote, permanently losing
+    // the level the scene authored.
+    if (!env) return 0;
+    if (this._probeSource !== env) {
+      this._probeSource = env;
+      // `environmentIntensity` defaults to 1 and a scene that never set it means
+      // "as authored", which is the whole budget's worth — the clamp is what
+      // brings that back into range.
+      this._probeAuthoredLevel = this.scene.environmentIntensity ?? 1;
+    }
+    return this._probeAuthoredLevel;
+  }
+
   /** Push `_current` into the actual lights and the shared uniform block. */
   _applyState() {
     const S = this._current;
@@ -1840,6 +2077,11 @@ export class Lighting {
     this.fill.color.copy(S.fillSky);
     this.fill.groundColor.copy(S.fillGround);
     this.fill.intensity = S.fillIntensity;
+
+    // ARCHITECTURE's service table assigns the env probe to this module, and the
+    // budget split is only true if the probe respects it — an unclamped
+    // `environmentIntensity` is ambient the rig cannot see and cannot occlude.
+    if (this.scene?.environment) this.scene.environmentIntensity = S.probeIntensity;
 
     // Directional lights in three are aimed from `position` toward `target`;
     // parking the rim at a fixed radius keeps it well outside any scene and
@@ -1903,6 +2145,16 @@ export class Lighting {
   _conformAtmosphere() {
     const fog = this.scene?.fog;
     if (!fog?.color) return;
+
+    // The depth cue, as a floor rather than a setting. See
+    // `AERIAL_EXTINCTION_AT_RANGE`. Only `FogExp2` is driven: linear `Fog`
+    // states its own near and far in metres, which is a scene composing a
+    // specific cutoff rather than declaring an atmosphere, and overruling that
+    // would move geometry in and out of visibility rather than wash it.
+    if (fog.isFogExp2) {
+      fog.density = Math.max(fog.density, AERIAL_DENSITY_K / Math.max(20, this.shadowDistance));
+    }
+
     const source = this.sky?.fogColor ?? fog.color;
     fog.color.copy(source);
     conformChroma(fog.color, FOG_GAMUT, FOG_CHROMA_TOLERANCE, FOG_CHROMA_RANGE);
@@ -2002,6 +2254,7 @@ export class Lighting {
     S.fillSky.copy(T.fillSky);
     S.fillGround.copy(T.fillGround);
     S.fillIntensity = T.fillIntensity;
+    S.probeIntensity = T.probeIntensity;
     S.rimDir.copy(T.rimDir);
     S.rimColor.copy(T.rimColor);
     S.charRimColor.copy(T.charRimColor);
@@ -2047,6 +2300,7 @@ export class Lighting {
     S.charRimColor.lerp(T.charRimColor, kc);
     S.keyIntensity += (T.keyIntensity - S.keyIntensity) * kc;
     S.fillIntensity += (T.fillIntensity - S.fillIntensity) * kc;
+    S.probeIntensity += (T.probeIntensity - S.probeIntensity) * kc;
     S.rimIntensity += (T.rimIntensity - S.rimIntensity) * kc;
     S.exposure += (T.exposure - S.exposure) * ke;
 
@@ -2268,6 +2522,7 @@ export class Lighting {
     this.group.parent?.remove(this.group);
     this.rim.dispose?.();
     this.fill.dispose?.();
+    this._probeSource = null;
     this.scene = null;
     this.sky = null;
   }

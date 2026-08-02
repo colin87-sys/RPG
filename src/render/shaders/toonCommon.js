@@ -1,70 +1,75 @@
 /**
  * toonCommon.js — the GLSL vocabulary of the character shading model.
  *
- * ## This file is a correction, and the evidence is the reference plates
+ * ## The doctrinal ruling this file is built on
  *
- * The previous revision implemented hard two-band cel shading: one
- * `smoothstep( t - w, t + w, N·L )` with `w ≈ 0.04`, resolved through `fwidth`
- * to a terminator **1.3 device pixels wide**, plus a hard-thresholded specular
- * "blob", plus a three-step quantiser on the environment probe. It was written
- * against prose in `docs/ANIME_PIPELINE.md`. The client's actual reference
- * screenshots are now in `docs/reference/`, and they do not show any of it.
- * Measured off `bravely01.jpg` (1920×1080) and `bravely02.jpg`:
+ * Three documents in this repo describe character shading and they contradict
+ * each other. `docs/ANIME_PIPELINE.md` §2/§4/§6 demand flat saturated colour, a
+ * hard two-band terminator, a hard-edged specular shape and an ink outline.
+ * `docs/BRAVELY_REFERENCE.md` §1/§4 reverses all four, and the plates in
+ * `docs/reference/` do support it — measured on `bravely01.jpg`, the white hat
+ * ramps 236 → 142 sRGB over ~30 px of a ~150 px form with a 16-bin histogram
+ * populated in every bin, and four silhouette crossings show no ink trough.
  *
- *  - **The terminator is a broad continuous gradient, not a band.** The white
- *    hat at x=685 runs 236 → 142 sRGB down its crown over ~30 px on a form
- *    ~150 px wide (20% of the form). The red coat sleeve at y=520 runs 15 → 188
- *    over ~13 px on a ~50 px cylinder (26%). Neither shows a step.
- *  - **There is no cel banding.** A 16-bin histogram of the hat's interior over
- *    120–260 sRGB is populated in *every* bin (113 140 157 196 262 369 429 321
- *    192 103 88 128 430 522 30 4). Two-band shading of a curved form is bimodal
- *    with an empty middle; this is a ramp.
- *  - **The shadow side bottoms out high.** Hat crown 236 vs. underside 142 is a
- *    linear ratio of 0.34 — the dark mass is a *level*, and it is a third of the
- *    light mass, not a hole. That is what `uToonShadowDepth` states.
- *  - **The face barely shades at all.** Elvis's cheek measures p50 178 / p95 187
- *    sRGB — ±3% across the whole lit face — and the darkest skin sample on the
- *    plate is RGB(151,130,123) against a lit RGB(186,155,147): a ratio of 0.81,
- *    warm-biased (red falls least). `uToonShadowFloor` is that number.
+ * **The ruling is ANIME_PIPELINE.** It is the document the build brief names as
+ * the literal spec ("how characters are built. Follow literally"), it is the
+ * rubric the art review scores against, and its one-line test in §6 is the
+ * acceptance criterion the cast has been failing. A shading model that satisfies
+ * neither document is the one outcome that cannot be defended, so this file
+ * commits to the cel model completely rather than meeting the two halfway.
  *
- * So the model here is a **soft wrapped diffuse ramp between two stated
- * levels**, with a painted hue shift on the dark side. The architecture that
- * collects every light's contribution and resolves it *once* is kept — it is
- * what stops a six-light rig drawing six terminators at six angles — but what it
- * resolves to is a gradient, not an edge.
+ * The BRAVELY measurements are not deleted; they are recorded here so that if
+ * the ruling is ever reversed, the numbers behind the soft model are still on
+ * record and the reversal costs a preset table rather than a rewrite.
  *
- * The pieces:
+ * ## The model
  *
- *  1. `awToonDiffuse` — a wrapped ramp, `smoothstep` across a *wide* window in
- *     N·L. The width is the plate's, roughly a full unit of N·L.
- *  2. `awToonResolve` — shapes the accumulated ramp and guarantees it never
- *     collapses below a stated number of screen pixels, which is the only thing
- *     `fwidth` is used for here. It is an antialias floor, not an edge former.
- *  3. `awToonShadowAlbedo` — the dark side is a hue shift with rising
- *     saturation, kept from the previous revision because the plates support it:
- *     the shadow-side skin sample above holds its warmth rather than going grey.
- *  4. `awToonSpecShape` — a soft shoulder on a specular lobe. The plates carry
- *     no hard-edged highlight anywhere, so a caller's threshold is honoured as
- *     the lobe's *centre* while the transition is floored wide.
- *  5. `awToonSheen` — a Charlie/Neubelt lobe for fur and feather trim. Adelle's
- *     fur collar measures p5 15 / p50 70 / p95 181 / max 223 sRGB in a smooth
- *     unimodal spread: a broad, low, retro-reflective sheen. A Blinn lobe with a
- *     tight exponent gives the small hot spot on a dark mass that reads as
- *     moulded plastic, which is exactly what this replaces.
- *  6. `awToonRim` — a *profile* in 0..1, no longer clamped to a pixel width,
- *     because it is no longer trying to be a line. Its radiance is bounded twice
- *     by the composite; see `TOON_SURFACE_COMPOSITE`.
+ * **Two levels and an edge between them, not a falloff.** Every light reports
+ * its own N·L, the lights are collected into one dominant direction, and the
+ * *composite* thresholds that once. Collecting rather than shading per light is
+ * the property worth keeping from the previous revision — a six-light rig
+ * otherwise draws six terminators at six angles and their sum is a muddle — but
+ * what it resolves to is now an edge.
  *
- * What is gone: `awToonBand`'s hard step, `awToonEdge`'s pixel-width resolve,
- * the third "lit band" plateau, the specular threshold cut, and `awToonPlate`'s
- * three-step quantiser on the environment probe. On the plate the greaves in
- * `bravely02.jpg` reflect the purple ice below and the teal aurora above as a
- * continuous sweep — quantising that is precisely what stopped our armour
- * reading as metal.
+ * The pieces, in the order the composite uses them:
  *
- * There is still **no ramp texture and no noise of any kind**: no procedural
- * surface noise ever touches a character. Clothing *patterns* arrive through the
- * base colour map, which this model never multiplies anything into.
+ *  1. `awToonBand` — the two-band `smoothstep( t - w, t + w, N·L )` of
+ *     ANIME_PIPELINE §2, at `t ≈ 0.5` and `w ≈ 0.04`. Wide ramps read as PBR.
+ *  2. `awToonEdge` — resolves the transition to a stated width in **device
+ *     pixels**. This is what makes a terminator a drawn line rather than a
+ *     gradient that happens to be steep: it holds the same crispness on a
+ *     character filling the frame and on one at the back of the battle stage,
+ *     and because the width is fixed in pixels it antialiases instead of
+ *     crawling. The previous revision used `fwidth` only to *widen* a collapsing
+ *     ramp; under `TOON_CEL_EDGE` it also narrows, which is the whole technique.
+ *     That define is set for the **character** classes only — ANIME_PIPELINE is
+ *     a character pipeline, `world/Flora.js` shades the entire meadow through
+ *     the `generic` prop class, and banding a field of grass is a change neither
+ *     document asks for.
+ *  3. `awToonShadowAlbedo` — the dark side is a hue rotation with rising
+ *     saturation, never a multiply. Kept unchanged: this is the one part of the
+ *     model both documents agree on, and ANIME_PIPELINE §2 names a darkened copy
+ *     of albedo as "the single most common way cel shading looks cheap".
+ *  4. `awToonBlinn` + `awToonSpecShape` — ANIME_PIPELINE §2: "Specular is a
+ *     hard-edged shape, not a soft lobe: threshold the Blinn-Phong term to
+ *     produce a crisp highlight blob." Both spellings are literal. The
+ *     `BRDF_GGX` the previous revision used is a continuous microfacet falloff
+ *     and cannot produce a shape at any parameterisation.
+ *  5. `awToonAnisoLobe` — Kajiya-Kay for the hair band, thresholded by the same
+ *     shape function so the band has an edge (§3: "hard-ish edges").
+ *  6. `awToonSheen` — a Charlie/Neubelt lobe for fur and feather trim, which is
+ *     the one surface class whose silhouette is meant to read as broken rather
+ *     than as a clean edge.
+ *  7. `awToonQuantise` — levels an environment reflection on a character class.
+ *     §4's rule is flat colour blocking; a continuously-swept probe reflection
+ *     across a pauldron is the single loudest "this is PBR" cue a cel frame can
+ *     carry.
+ *  8. `awToonRim` — a *profile*, edge-resolved by the composite into a band.
+ *
+ * There is **no ramp texture and no noise of any kind**: no procedural surface
+ * noise ever touches a character (ANIME_PIPELINE's absolute rule). Clothing
+ * patterns arrive through the base colour map, which this model never multiplies
+ * anything into.
  *
  * These are exported as source strings rather than registered into
  * `THREE.ShaderChunk`, for the same reason `postCommon.js` and `skyCommon.js`
@@ -101,7 +106,8 @@
  * that is the rig's convention and the shader does not second-guess it.
  * `uKeyColor` carries a second job here — it is the denominator that recovers
  * each light's share of the key, which is what lets the shadow be a *colour*
- * rather than a multiply toward black.
+ * rather than a multiply toward black, and what lets a cast shadow join the
+ * form shadow as one mass instead of punching a hole through it.
  */
 export const TOON_UNIFORMS_GLSL = /* glsl */ `
 uniform vec3  uKeyColor;
@@ -127,6 +133,7 @@ uniform vec3  uToonShadowFill;
 uniform float uToonShadowGain;
 uniform float uToonAmbientGain;
 uniform float uToonAmbientFlatness;
+uniform float uToonEnvLevels;
 uniform float uToonMetalAlbedo;
 uniform float uToonEnvSpecular;
 
@@ -144,21 +151,30 @@ uniform vec3  uToonPulse;
 uniform float uToonPulseRate;
 uniform float uToonTime;
 
+// The third band of ANIME_PIPELINE §2, on the lit side, for hair and metal only.
+#ifdef TOON_HIGH_BAND
+  uniform float uToonHighBand;
+  uniform float uToonHighGain;
+#endif
+
+// The threshold and its transition width belong to *both* specular paths: the
+// isotropic highlight is now a thresholded Blinn lobe rather than a continuous
+// microfacet BRDF, so it needs the same shape controls the hair band does.
 #ifdef TOON_SPECULAR
   uniform vec3  uToonSpecColor;
   uniform float uToonSpecGain;
   uniform float uToonSpecAlbedoMix;
+  uniform float uToonSpecThreshold;
+  uniform float uToonSpecSoftness;
 #endif
 
-// The lobe-shaping trio belongs to the anisotropic path alone. The isotropic
-// highlight is now three's own 'BRDF_GGX' driven by 'material.roughness', so an
-// exponent and a threshold would have nothing to act on there.
+// The strand axis and its lobe tightness belong to the anisotropic path alone;
+// the isotropic path derives its exponent from 'material.roughness' so that one
+// number keeps meaning the same thing on a toon material and a stock one.
 #ifdef TOON_ANISO
   uniform vec3  uToonAnisoDirection;
   uniform float uToonAnisoShift;
   uniform float uToonSpecExponent;
-  uniform float uToonSpecThreshold;
-  uniform float uToonSpecSoftness;
 #endif
 
 #ifdef TOON_SHEEN
@@ -182,86 +198,110 @@ export const TOON_FUNCTIONS_GLSL = /* glsl */ `
 float awMin3( const in vec3 v ) { return min( min( v.x, v.y ), v.z ); }
 
 /**
- * The diffuse ramp: N·L in, 0..1 out, over a **wide** window.
+ * The two-band step of ANIME_PIPELINE §2, verbatim: 'smoothstep( t - w, t + w,
+ * N·L )' with 't ≈ 0.5' and 'w ≈ 0.03–0.06'.
  *
- * This is the single change the reference plates force, and it is a change of
- * kind rather than of degree. The previous revision put 'w ≈ 0.04' here and then
- * resolved the result to a 1.3-pixel edge, which is hard cel shading. Nothing in
- * 'docs/reference/' shades that way. Measured on 'bravely01.jpg': the white hat
- * ramps 236 → 142 sRGB over ~30 px of a ~150 px form, the red coat sleeve
- * 15 → 188 over ~13 px of a ~50 px cylinder, and a 16-bin histogram of the hat
- * interior is populated in every bin — a continuous gradient with no plateau
- * pair anywhere in it.
+ * 't' near 0.5 rather than at the geometric terminator is deliberate and is what
+ * gives a cel figure its large, decisive shadow mass: the surface commits to the
+ * dark level at 60° from the key rather than at 90°, so the shadow shape is a
+ * drawn shape with a describable contour rather than the thin sliver a physical
+ * falloff leaves. 'w' is the transition's **half-width in N·L**, and it is
+ * narrow — this is the number that separates anime from stylised PBR, and the
+ * previous revision's near-unit value is the defect the art review named first.
  *
- * So 'uToonSoftness' is now the ramp's **full width in N·L** and it is close to
- * a whole unit: light wraps most of the way round the form before the surface
- * reaches its shadow level. 'uToonTerminator' is the ramp's *midpoint*, and it
- * sits near 0 — at the geometric terminator — rather than at the 0.5 the cel
- * model needed to carve out a large dark mass. A ramp this wide cannot alias and
- * cannot crawl, which is why the pixel machinery below is only a floor.
- *
- * The 'smoothstep' polynomial is spelled out rather than called so the domain
- * clamp and the S-curve are visibly separate: the clamp is what makes the ends
- * genuinely flat, and flat ends are what let 'uToonShadowDepth' state the dark
- * level as a level.
+ * The output is still continuous. Making it *hard* is 'awToonEdge''s job, and
+ * keeping the two separate is what lets the composite intersect this with the
+ * cast-shadow term before either is resolved.
  */
-float awToonDiffuse( const in float ndl ) {
+float awToonBand( const in float ndl, const in float t, const in float w ) {
 
-  float t = clamp( uToonTerminator, -0.9, 0.9 );
-  float w = max( uToonSoftness, 0.02 );
-  float x = saturate( ( ndl - t ) / w + 0.5 );
+  float lo = t - max( w, 1e-3 );
+  float hi = t + max( w, 1e-3 );
 
-  return x * x * ( 3.0 - 2.0 * x );
+  return smoothstep( lo, hi, ndl );
 
 }
 
 /**
- * Shape the accumulated ramp, and guarantee it never collapses to an edge.
+ * Resolve a transition to a width in **device pixels**.
  *
- * Two jobs, and it is worth being clear that neither is the one the function it
- * replaced ('awToonEdge') had. That function used 'fwidth' to *narrow* the
- * transition to a fixed pixel count, which is how a soft ramp becomes an ink
- * terminator. Here 'fwidth' is used in the opposite direction only.
+ * 'fwidth( x )' is how much the transition moves between neighbouring pixels, so
+ * '1 / fwidth( x )' is how many pixels it currently spans, and dividing by
+ * 'uToonEdgePixels' rescales it about its own midpoint. What the two compile
+ * paths differ on is whether that rescale is allowed to *narrow*:
  *
- * **Gamma.** 'uToonRampGamma' bends the ramp without moving its ends. Above 1
- * holds the shadow longer and turns into the light late, which is what a form
- * with a strong ambient occlusion gradient does; below 1 does the reverse. It is
- * the control that used to be spelled "where do I put the terminator", now that
- * there is no terminator to put.
+ *  - **'TOON_CEL_EDGE' — a drawn edge.** The scale is unclamped, so a
+ *    transition spanning a third of a character is compressed to a line and one
+ *    that has collapsed into a single pixel is expanded back out to the same
+ *    width. Narrowing is what produces the terminator: without it there is no
+ *    edge, only a steep gradient, and a steep gradient photographs as PBR — the
+ *    "smooth PBR-ish falloff with no terminator anywhere" the review measured.
+ *    Widening is what stops that edge aliasing; a hard 'step' crawls and
+ *    stair-steps under animation, which is how hand-rolled cel shaders betray
+ *    themselves, while a transition held at a constant ~1.3 px is a clean,
+ *    resolution-independent antialiased line at any distance or pixel ratio.
+ *  - **Without it — an antialias floor only.** 'min( 1, … )' can widen and never
+ *    narrow, so a soft ramp stays soft.
  *
- * **The antialias floor.** A ramp already spanning hundreds of pixels needs
- * nothing, but a character at the back of the battle stage, or a tight crease on
- * a belt buckle, can compress the same ramp into one or two. 'fwidth( x )' is
- * how much the ramp moves between neighbouring pixels, so '1 / fwidth( x )' is
- * how many pixels it currently spans; where that is under 'uToonEdgePixels' the
- * ramp is re-expanded about its own midpoint by exactly the shortfall. Above the
- * threshold the scale is 1 and this costs nothing but the 'min'.
+ * The distinction is which *classes* get an edge, and it is deliberately not
+ * "all of them". ANIME_PIPELINE governs **characters** — its own framing is a
+ * character pipeline, and REFERENCE_TARGET §8.4 leaves environments physically
+ * based. 'generic', 'leather' and 'crystal' are the prop classes: 'world/Flora.js'
+ * shades every blade of grass, flower and tree in the meadow through 'generic',
+ * and banding a whole field of foliage is not a decision either document asks
+ * for. It also measurably wrecks the frame — banding the props compressed the
+ * capture's luminance range from p1 15 / p95 228 to p1 41 / p95 182, which is
+ * precisely the chalky mid-only structure the review already objects to.
+ *
+ * The floor of 0.5 px keeps a caller from asking for a sub-pixel edge, which is
+ * a 'step' with the aliasing that implies.
  */
-float awToonResolve( const in float x ) {
+float awToonEdge( const in float x ) {
 
-  float px = max( uToonEdgePixels, 0.0 );
-  float scale = px > 0.0
-    ? min( 1.0, 1.0 / max( px * fwidth( x ), 1e-5 ) )
-    : 1.0;
+  float px = max( uToonEdgePixels, 0.5 );
+  float span = max( px * fwidth( x ), 1e-5 );
 
-  float y = saturate( 0.5 + ( x - 0.5 ) * scale );
+  #ifdef TOON_CEL_EDGE
+    float scale = 1.0 / span;
+  #else
+    float scale = min( 1.0, 1.0 / span );
+  #endif
 
-  return pow( y, max( uToonRampGamma, 0.05 ) );
+  return saturate( 0.5 + ( x - 0.5 ) * scale );
+
+}
+
+/**
+ * Fine bias of the terminator inside its own transition window.
+ *
+ * 'uToonRampGamma' is what remains of the previous model's ramp-shaping control,
+ * and in a two-band model there is very little for it to shape: the transition
+ * is only 'w' wide, so a gamma can move the crossing at most that far. That
+ * limited job is still worth keeping — a hair mass and a plate want their edge a
+ * few degrees either side of where the cloth wants it, and expressing that as a
+ * bias on a shared threshold is clearer than six different thresholds. Above 1
+ * holds the shadow slightly longer; below 1 turns into the light earlier.
+ *
+ * Applied before the pixel resolve, because after it the value is already a step
+ * and there is nothing left to bend.
+ */
+float awToonBias( const in float x ) {
+
+  return pow( saturate( x ), max( uToonRampGamma, 0.05 ) );
 
 }
 
 /**
  * The shadow-region **albedo**: a hue shift with rising saturation.
  *
- * Kept from the previous revision, at gentler settings, because this is the one
- * thing the old model had right and the plates confirm it. The darkest skin
- * sample on 'bravely01.jpg' is RGB(151,130,123) against a lit RGB(186,155,147):
- * the channel ratios are 0.81 / 0.84 / 0.84, so the dark side is *warmer* in
- * proportion, not a uniformly scaled copy. On the garments the effect is much
- * stronger — the red coat's shadow keeps its red where a multiply would have
- * drained it to brown.
+ * ANIME_PIPELINE §2: "Shadow colour is a hue shift, not a multiply. Shift toward
+ * the scene's shadow tint and *increase* saturation slightly as value drops. A
+ * darkened copy of albedo is the single most common way cel shading looks
+ * cheap." This function is that rule, and it is the one part of the model that
+ * survived the doctrinal reversal in both directions — the reference plates
+ * agree with it too, so it is unchanged.
  *
- * Light alone cannot deliver that. An amber albedo has almost no blue
+ * Light alone cannot deliver it. An amber albedo has almost no blue
  * reflectance, so however teal the fill is, the product stays a duller amber —
  * which is precisely why a "tinted shadow" built as a light term eyedrops as a
  * darker desaturated copy of the albedo. The fix has to happen one step earlier,
@@ -308,44 +348,106 @@ vec3 awToonShadowAlbedo( const in vec3 base ) {
 
 }
 
-#ifdef TOON_ANISO
+/**
+ * Level a colour, preserving its hue.
+ *
+ * ANIME_PIPELINE §5 asks a character to read as three or four flat colour zones.
+ * An environment probe sampled along the reflection vector does the opposite: it
+ * sweeps continuously across a curved plate, and that sweep is the loudest
+ * "physically based" cue a stylised frame can carry — it is also, on the
+ * reference plates, genuinely the strongest metal cue, which is exactly why the
+ * two documents disagree about it. Under the cel ruling the reflection is
+ * quantised into a small number of flat plates instead.
+ *
+ * Quantised on the **peak channel** and reapplied as a scale, so the hue the
+ * probe returned is preserved exactly and only its level is stepped. Rounding
+ * rather than flooring keeps the mean brightness of the surface unchanged, so
+ * turning quantisation on does not also darken the armour.
+ *
+ * 'levels <= 0' returns the colour untouched, which is how every dielectric
+ * class opts out without a define of its own.
+ */
+vec3 awToonQuantise( const in vec3 c, const in float levels ) {
+
+  if ( levels < 1.0 ) return c;
+
+  float peak = max3( c );
+  float stepped = floor( peak * levels + 0.5 ) / levels;
+
+  return c * ( stepped / max( peak, 1e-5 ) );
+
+}
+
+#ifdef TOON_SPECULAR
 
 /**
- * A soft shoulder on a specular lobe. Never a cut.
+ * Blinn-Phong, with its exponent derived from the material's own roughness.
  *
- * The previous revision ran 'smoothstep( t - w, t + w, lobe )' with 'w ≈ 0.03',
- * which turns any lobe into a flat-topped blob with a drawn edge. Nothing on the
- * reference plates has one. The armour highlights in 'bravely02.jpg' are narrow
- * *streaks* along the crowns of the greaves that fall off continuously into the
- * plate value; the hair sheens in 'bravely01.jpg' are broad and soft; the fur
- * collar has no discrete highlight at all.
+ * ANIME_PIPELINE §2 names Blinn-Phong specifically ("threshold the Blinn-Phong
+ * term"), and the reason is that it is *boundable*: the lobe lives in 0..1, so a
+ * threshold on it is a threshold on a shape. A normalised microfacet BRDF peaks
+ * anywhere from 1 to 100 depending on roughness, so the same threshold is a
+ * different shape on every surface and the "hard-edged highlight" cannot be
+ * specified at all. That, and not its energy behaviour, is why 'BRDF_GGX' is
+ * gone from the direct path.
  *
- * Callers outside this module have tuned 't' and 'w' against the old blob —
- * 'CharacterFactory' passes 0.55 / 0.07 for hair — and silently ignoring them
- * would throw away a real observation about where that band should sit on a
- * chibi cranium. So the threshold is honoured as the lobe value the falloff is
- * centred on, and the transition width is floored at roughly the threshold
- * itself. A caller's tuned blob becomes a tuned *falloff* in the same place,
- * which is the intent behind the number rather than the letter of it.
+ * The exponent is the standard Beckmann-equivalent mapping '2 / α² - 2' with
+ * 'α = roughness²', so a caller who sets 'roughness: 0.32' on a plate still gets
+ * a tight highlight and one who sets 0.66 on leather still gets a broad one —
+ * one number keeps meaning the same thing across the toon and stock materials,
+ * which is what stops a prop and a costume drifting apart.
  */
-float awToonSpecShape( const in float lobe ) {
+float awToonBlinn( const in vec3 n, const in vec3 l, const in vec3 v, const in float roughness ) {
 
-  float t = clamp( uToonSpecThreshold, 0.0, 0.98 );
-  float w = max( uToonSpecSoftness, t * 0.9 + 0.05 );
+  vec3 h = normalize( l + v );
+  float ndh = saturate( dot( n, h ) );
 
-  return smoothstep( max( t - w, 0.0 ), min( t + w, 1.0 ), lobe );
+  float a = max( roughness * roughness, 0.02 );
+  float exponent = clamp( 2.0 / ( a * a ) - 2.0, 1.0, 4096.0 );
+
+  return pow( ndh, exponent );
 
 }
 
 /**
+ * A **hard-edged** highlight shape.
+ *
+ * ANIME_PIPELINE §2, literally: "Specular is a hard-edged shape, not a soft
+ * lobe: threshold the Blinn-Phong term to produce a crisp highlight blob." The
+ * previous revision floored the transition width at roughly the threshold
+ * itself, which turns any threshold back into a falloff — a deliberate
+ * inversion of this rule, made under the other document.
+ *
+ * The threshold is the lobe value the blob's edge sits at; the width is a
+ * pre-antialias only, since 'awToonEdge' then resolves the edge to the same
+ * device-pixel width as the terminator. Sharing that one resolve is what keeps a
+ * highlight's edge and a terminator's edge visually the same *kind* of mark,
+ * which is what an inked frame looks like.
+ */
+float awToonSpecShape( const in float lobe ) {
+
+  float t = clamp( uToonSpecThreshold, 0.001, 0.999 );
+  float w = max( uToonSpecSoftness, 1e-3 );
+
+  return awToonEdge( smoothstep( t - w, t + w, lobe ) );
+
+}
+
+#endif
+
+#ifdef TOON_ANISO
+
+/**
  * Kajiya-Kay with Scheuermann's tangent shift, as a bare lobe.
  *
- * Sculpted hair in this style is a carved volume, not strands, so there is no
- * tangent attribute to trust; the strand axis arrives as a world-space uniform
- * (default +Y, i.e. hair falls) and is orthogonalised against the shading normal
- * by the caller. The lobe is constant *along* the strand axis and falls off
- * *across* it, so it reads as a band running perpendicular to the strands. A
- * round dot means the tangent frame is wrong.
+ * ANIME_PIPELINE §3 asks for "one anisotropic highlight band running across the
+ * crown, perpendicular to the strand direction". Sculpted hair in this style is
+ * a carved volume, not strands, so there is no tangent attribute to trust; the
+ * strand axis arrives as a world-space uniform (default +Y, i.e. hair falls) and
+ * is orthogonalised against the shading normal by the caller. The lobe is
+ * constant *along* the strand axis and falls off *across* it, so it reads as a
+ * band running perpendicular to the strands. A round dot means the tangent frame
+ * is wrong.
  */
 float awToonAnisoLobe( const in vec3 tangent, const in vec3 halfDir ) {
 
@@ -362,19 +464,20 @@ float awToonAnisoLobe( const in vec3 tangent, const in vec3 halfDir ) {
 /**
  * The fur / feather lobe: Charlie distribution with Neubelt visibility.
  *
- * The brief is "fur or feather trim that does not look like hard plastic", and
- * the plate says what the difference is numerically. Adelle's black fur collar
- * in 'bravely01.jpg' measures p5 15 / p50 70 / p95 181 / max 223 sRGB, and the
- * distribution between those points is smooth and unimodal. A Blinn or GGX lobe
- * on a dark albedo gives the opposite signature — a large mass near the albedo
- * plus a small, near-clipped hot spot, with almost nothing in between — and that
- * bimodality is exactly what the eye reads as moulded plastic.
+ * Fur is the one class the cel ruling does *not* give a hard edge, and the
+ * reason is a silhouette one rather than a shading one: a fur or feather collar
+ * reads as a broken, soft-edged contour, and a thresholded blob on it reads as
+ * moulded plastic. The measured signature is a smooth unimodal spread — Adelle's
+ * black collar on 'bravely01.jpg' runs p5 15 / p50 70 / p95 181 / max 223 sRGB
+ * with everything in between populated — where a Blinn or GGX lobe on a dark
+ * albedo gives a large mass near the albedo plus a small near-clipped hot spot
+ * and almost nothing between them.
  *
  * Charlie's 'sin^(1/a)' distribution is broad and, crucially, *peaks at grazing
- * angles rather than at the mirror direction*, so the light sits on the silhouette
- * of every strand clump instead of in a spot on the front of the mass. Neubelt's
- * visibility term keeps it retro-reflective, which is what makes fur brighten
- * when the light is behind it. Both are cheap closed forms.
+ * angles rather than at the mirror direction*, so the light sits on the
+ * silhouette of every strand clump instead of in a spot on the front of the
+ * mass. Neubelt's visibility term keeps it retro-reflective, which is what makes
+ * fur brighten when the light is behind it. Both are cheap closed forms.
  *
  * Written out here rather than calling three's 'BRDF_Sheen': that function is
  * compiled only under 'USE_SHEEN', which is a 'MeshPhysicalMaterial' feature and
@@ -406,13 +509,14 @@ float awToonSheen( const in vec3 n, const in vec3 l, const in vec3 v ) {
 /**
  * Compress a value toward a ceiling with a C1-continuous soft shoulder.
  *
- * Both the highlight and the rim need a bound, and a hard 'min' is the wrong one
- * for either. A hard clamp is exactly a threshold: everything above the ceiling
- * lands *on* it, so a lobe that overshoots by 20x — which a normalised GGX at
- * 'roughness: 0.28' does — comes out as a flat-topped blob with a drawn edge,
- * which is the cel artefact this whole revision exists to remove. The reference
- * armour's brightest streaks clip, but they clip the way film clips: continuous
- * right up to the point where there is nothing left.
+ * Both the highlight and the rim need a bound. This one acts on a term's
+ * *magnitude*, never on its shape: by the time it is reached the highlight is
+ * already a thresholded blob of near-constant value, so compressing it scales
+ * the plateau rather than rounding the edge that 'awToonSpecShape' just drew.
+ * That separation is why a soft shoulder is still the right bound under a cel
+ * model — a hard 'min' would clip the plateau to exactly the ceiling and, on
+ * anything that overshoots, drive it to white, which is the "clipped speculars
+ * with no bloom" the art review measured.
  *
  * Identity below 'c / 2', asymptotic to 'c' above it, and the two halves meet
  * with matching first derivatives so there is no visible knee. Written
@@ -429,27 +533,13 @@ float awToonSoftCap( const in float x, const in float c ) {
 }
 
 /**
- * The rim — a **profile**, in 0..1. Its radiance is applied by the composite,
- * against two independent bounds; see 'TOON_SURFACE_COMPOSITE'.
+ * The rim — a **profile**, in 0..1, which the composite resolves into a band
+ * with a drawn edge and bounds twice; see 'TOON_SURFACE_COMPOSITE'.
  *
- * Search the reference plates for a rim and what you find is: nothing
- * attributable to one. Every bright silhouette band on 'bravely01.jpg' resolves
- * to albedo when you look at what is actually there — Gloria's shoulder reads
- * 172 against a 28 bodice because she is wearing a white collar; Elvis's
- * shoulder reads 164 because he is wearing a grey mantle. On the sun-facing
- * right edge of his coat the surface goes the *other* way, 188 → 181 → 167 →
- * 159 → 136 → 99 → 69 → 41 into the background: it darkens toward the
- * silhouette, with no lift at the edge at all.
- *
- * The rim is nonetheless required by the brief as a separation device against a
- * fog-coloured background, so it stays — but it stays as a whisper, and this
- * function's job is only to say *where*. The previous revision's pixel-width
- * clamp is gone: it existed to keep the rim thinner than the ink outline it was
- * competing with, and it was competing because it was bright enough to be a
- * line. Bound the radiance instead (see 'uToonRimMax') and the width stops being
- * the thing holding the defect back.
- *
- * The three terms and the order they combine in:
+ * REFERENCE_TARGET §1 makes a bright rim/back light separating the cast from the
+ * background a requirement of every frame, and under the cel ruling it is a
+ * *band* — a flat shape with an edge, like every other mark on the character —
+ * rather than a fresnel wash. The three terms and the order they combine in:
  *
  * **Width.** 'pow( 1 - N·V, k )' has no width control — where its tail drops
  * below the window's lower edge is decided jointly by 'k' and by that edge. So

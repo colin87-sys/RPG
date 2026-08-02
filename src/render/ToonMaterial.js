@@ -1,56 +1,59 @@
 /**
  * ToonMaterial — the character shading model.
  *
- * ## What this is, and what it replaced
+ * ## The ruling this module implements
  *
- * This module has been corrected twice. The first cast was rejected for a
- * smooth PBR falloff with procedural noise smeared over hair and cloth; the
- * over-correction that followed was hard two-band cel shading with a 1.3-pixel
- * terminator and a heavy ink outline, which the client rejected again. The
- * reference screenshots are now in `docs/reference/`, they are the authority,
- * and where the prose specs disagree with them the images win.
+ * Three documents in this repo specify character shading and they contradict
+ * each other on four of the five decisions that matter. `docs/ANIME_PIPELINE.md`
+ * §2/§4/§6 demand flat saturated colour, a hard two-band terminator, a
+ * hard-edged specular shape and an ink outline. `docs/BRAVELY_REFERENCE.md`
+ * §1/§4 reverses all four, and the plates in `docs/reference/` do support the
+ * reversal — the white hat on `bravely01.jpg` ramps 236 → 142 sRGB over ~30 px
+ * of a ~150 px form with a 16-bin histogram populated in every bin, and four
+ * silhouette crossings show no ink trough anywhere.
  *
- * Measured off `bravely01.jpg` (1920×1080) and `bravely02.jpg`:
+ * **ANIME_PIPELINE is authoritative.** It is the document the build brief names
+ * as the literal character spec, it is the rubric the art review scores against,
+ * and its §6 one-line test — flat saturated colour, hard terminator, ink
+ * outline, painted face with glossy eyes — is the acceptance criterion the cast
+ * has been failing on all four counts. The previous revision was built to
+ * BRAVELY and is not careless work; it is simply the other document. What could
+ * not continue is a model satisfying neither, so this one commits to cel
+ * completely. The BRAVELY measurements are preserved in the comments rather than
+ * deleted, so reversing the ruling costs a preset table rather than a rewrite.
  *
- *  1. **The terminator is a broad continuous gradient.** The white hat runs
- *     236 → 142 sRGB over ~30 px of a ~150 px form; the red coat sleeve runs
- *     15 → 188 over ~13 px of a ~50 px cylinder. A 16-bin histogram of the hat's
- *     interior is populated in every bin — a ramp, not a pair of plateaus. So
- *     `softness` is now the ramp's *full width in N·L* and it is close to a whole
- *     unit, `terminator` sits near the geometric terminator rather than at 0.5,
- *     and `edgePixels` is only an antialias floor.
- *  2. **The dark side is a level, not a hole.** That 236/142 pair is a linear
- *     ratio of 0.34. `shadowDepth` states it, and the composite places the
- *     shaded level there after every fill has had its say, so it holds at noon,
- *     at dusk and by torchlight.
- *  3. **The shadow is still a hue shift with rising saturation.** The one thing
- *     the previous revision had right: the darkest skin on the plate is
- *     RGB(151,130,123) against a lit RGB(186,155,147), which is warmer in
- *     proportion rather than a scaled copy.
- *  4. **Metal is genuine metal.** Isotropic classes now take three's own
- *     `BRDF_GGX` for the direct highlight and the real reflection-vector probe
- *     radiance for the indirect one, unquantised. The plate's greaves sweep
- *     continuously from the purple ice below to the teal aurora above, with
- *     specular streaks at 237 sRGB over plate bodies at 59 and recesses at 4.
- *  5. **The face resists shadowing.** `faceFlatten` lifts the face's shaded
- *     *radiance* toward its lit one without touching the ramp, so a fringe
- *     cannot carve a face into darkness and the rose-tan shadow shape survives.
- *     The plate's lit face is one value to within ±3%.
- *  6. **Fur and feather have their own class.** `preset: 'fur'` compiles a
- *     Charlie/Neubelt sheen — broad, grazing-peaked, retro-reflective. The
- *     plate's fur collar spreads smoothly across p5 15 / p50 70 / p95 181 sRGB;
- *     a Blinn lobe on the same albedo gives a bimodal albedo-plus-hotspot
- *     signature, which is what reads as moulded plastic.
+ * ## What that means mechanically
  *
- * **There is no ink outline in the reference.** Four clean silhouette crossings
- * were checked against smooth backgrounds and none shows a trough below the
- * background level — see `render/Outline.js`, which now ships disabled by
- * default and keeps the machinery behind a switch.
+ *  1. **Two bands with a drawn edge.** `terminator` is the threshold in N·L
+ *     (≈ 0.5, so the shadow mass is a decisive shape rather than a sliver) and
+ *     `softness` is the transition's **half-width** in N·L (≈ 0.04). `edgePixels`
+ *     then resolves that transition to a constant width in *device pixels* —
+ *     narrowing as well as widening, which is the technique change. A gradient
+ *     that is merely steep still photographs as PBR; an edge held at ~1.3 px at
+ *     every distance is a drawn line that antialiases instead of crawling.
+ *  2. **A cast shadow joins the form shadow.** The composite intersects the band
+ *     with the key's visibility, so a shadow falling across a character lands it
+ *     in the shadow band with one contour, rather than dimming the lit band.
+ *  3. **The dark side is a stated level.** `shadowDepth` places the shaded level
+ *     at a fixed fraction of the lit one after every fill has had its say, so the
+ *     value structure holds at noon, at dusk and by torchlight.
+ *  4. **The shadow is a hue shift with rising saturation**, never a darkened
+ *     copy — §2 names that as the single most common way cel shading looks cheap.
+ *  5. **Specular is a shape.** A Blinn-Phong lobe thresholded into a hard blob
+ *     (§2), or a Kajiya-Kay band thresholded the same way for hair (§3). Metal
+ *     reads through that band plus a *quantised* environment reflection, per
+ *     REFERENCE_TARGET §1: "metal reads through a hard specular band rather than
+ *     environment reflection".
+ *  6. **The face resists shadowing.** `faceFlatten` puts the face's dark level
+ *     at 0.75 of its lit one — §2's number — so the fringe and jaw shadow keep
+ *     their drawn contour and their rose-tan hue at a step too shallow to carve
+ *     the painted eyes into darkness.
+ *  7. **Fur and feather are the one exception.** `preset: 'fur'` compiles a
+ *     Charlie/Neubelt sheen instead of a blob, because a trim's contour is meant
+ *     to read broken; a thresholded highlight on it reads as moulded plastic.
  *
- * **The rim is a whisper.** Nothing on the plates is attributable to one, so it
- * survives only because the brief requires a separation device: it is bounded
- * absolutely by `rimMax` downstream of the rig's radiance solve, which is the
- * only place a cap can hold, since `Lighting` normalises preset gains away.
+ * **The ink line is back on.** `render/Outline.js` ships enabled, at §4's weight
+ * and colour rule; that module's header carries the same ruling.
  *
  * **No noise touches a character.** The presets that describe character surfaces
  * carry `flat: true`, and a flat preset drops incoming `normalMap` /
@@ -191,17 +194,24 @@ function toVec2(v, fallback) {
 const SKIN_SHADOW_TINT = 0xe0a98f;
 
 /**
- * The face clamp, as the fraction of the lit level's radiance the face's shaded
- * level is lifted to. The readable spelling `faceFlatten: true` resolves to this.
+ * The face clamp: the face's dark level, as a fraction of its lit level. The
+ * readable spelling `faceFlatten: true` resolves to this.
  *
- * 0.80, measured rather than transcribed. The prose specs quote 0.72–0.75; the
- * plate says otherwise. Elvis's cheek on `bravely01.jpg` measures p50 178 / p95
- * 187 sRGB — the lit face is one value to within ±3% — and the darkest skin
- * anywhere on a face is 0.81 of the lit value. A painted anime face carries its
- * jaw and fringe shadow almost entirely as a *hue* shape at a very gentle value
- * break, which is exactly what this number plus the rose-tan rotation produces.
+ * ANIME_PIPELINE §2: "clamp the face's shadow term to a minimum of ~0.75 so a
+ * nose or fringe never carves the face into darkness." 0.75 is the document's
+ * number; what it is applied *to* is the one judgement call, and it is
+ * `shadowDepth` rather than the band.
+ *
+ * Flooring the band was tried and measured: it lifts the whole face toward its
+ * lit level, and on the capture that pushed the painted sclera — near-white by
+ * construction, `#F4F7FA` — past the post chain's bloom threshold, so the bloom
+ * spread over the iris and the eye vanished into a white blob. A dark *level* at
+ * 0.75 instead leaves the band switching normally, so the fringe and jaw shadow
+ * keep their drawn contour and the rose-tan rotation from `SKIN_SHADOW_TINT`,
+ * while the step between the two levels is a quarter-stop — too shallow for a
+ * fringe to cut a hole with, which is exactly what the document is asking for.
  */
-const FACE_SHADOW_FLOOR = 0.80;
+const FACE_SHADOW_DEPTH = 0.75;
 
 /**
  * Per-class rim gain.
@@ -226,40 +236,57 @@ const CHARACTER_RIM_GAIN = Object.freeze({
 });
 
 /**
- * Minimum width of the diffuse ramp, in **device pixels**.
+ * Width of the terminator, in **device pixels**.
  *
- * This is the sole remaining use of `fwidth` on the diffuse term, and its
- * direction is the opposite of the one it had. The previous revision used
- * screen-space derivatives to *narrow* the terminator to 1.3 px, which is how a
- * cel edge is made; the reference plates have no such edge, so the only job left
- * is to stop a ramp collapsing. On a character at the back of the battle stage,
- * or across a tight crease on a belt buckle, a ramp that spans a whole form in a
- * closeup can compress into one or two pixels and crawl under animation.
- * `awToonResolve` re-expands it about its own midpoint by exactly the shortfall.
+ * The number that makes the terminator a *drawn edge* rather than a steep
+ * gradient. `awToonEdge` rescales whatever transition the two-band step produced
+ * to exactly this many pixels, narrowing as well as widening — the previous
+ * revision clamped the scale at 1 so it could only ever widen, which is why a
+ * ramp that is soft in world terms stayed soft at every distance and the review
+ * measured "a smooth PBR-ish falloff with no terminator anywhere".
  *
- * 2 px is the width at which a transition antialiases cleanly at any pixel
- * ratio. Above the threshold this costs one `min` and changes nothing.
+ * 1.3 px. Below 1 the edge is a `step` and stair-steps under animation; at 2 it
+ * is visibly a soft band again at battle-camera distance. 1.3 antialiases
+ * cleanly at any pixel ratio and still reads as one line, and it is the same
+ * weight the ink outline is drawn at so the two marks agree.
  */
-const DEFAULT_EDGE_PIXELS = 2.0;
+const DEFAULT_EDGE_PIXELS = 1.3;
 
 /**
  * How much of the indirect light's *direction* a character surface trades away
  * for its own average.
  *
- * The previous revision set this to 1 implicitly — `TOON_FLAT_AMBIENT`
- * reconstructed the irradiance at zero directional order, so the hemisphere
- * fill, the probe and the grazing fresnel gave energy but no shape. That was in
- * service of keeping a hard terminator the only thing varying on the surface.
- * There is no hard terminator any more, and the plates plainly show ambient
- * direction on their figures: the white hat's shaded underside sits at 142 sRGB
- * with no key reaching it, and the ninja's trousers in `bravely05.jpg` pick up
- * the purple of the ice below.
+ * A cel character has exactly two levels, and every term that varies smoothly
+ * across the form is competing with the terminator for the job of describing it.
+ * A hemisphere fill and an environment probe both do: a figure under a strong sky
+ * gradient picks up a top-to-bottom ramp that is precisely the soft falloff this
+ * model exists to remove, and on a face it competes with the painted brow line,
+ * which has to win.
  *
- * A quarter is still worth trading. A character standing under a strong sky
- * gradient with a fully directional ambient loses the key's authority over the
- * form, and evenly-lit-from-nowhere is the failure the whole rebuild is about.
+ * Not 1, though. Trading *all* of it gives a surface lit from nowhere, which is
+ * the cut-out failure the first cast was rejected for; the residue is what keeps
+ * a character standing in the scene it is standing in. 0.6 leaves the terminator
+ * unambiguously in charge of the form while the sky still tints the dark side.
  */
-const DEFAULT_AMBIENT_FLATNESS = 0.25;
+const DEFAULT_AMBIENT_FLATNESS = 0.60;
+
+/**
+ * How many flat levels an environment reflection is allowed to break into on a
+ * character class. 0 disables quantisation entirely.
+ *
+ * Only metal carries a meaningful `envSpecular`, so in practice this is the
+ * armour control. A probe sampled along the reflection vector sweeps
+ * continuously across a curved plate, and that sweep is the loudest "physically
+ * based" cue a stylised frame can carry — it is also, on the reference plates,
+ * genuinely the strongest metal cue, which is exactly the point the two
+ * documents disagree on. Under the cel ruling REFERENCE_TARGET §1 governs: metal
+ * "reads through a hard specular band rather than environment reflection", so
+ * the reflection is levelled into a few plates and the *band* does the work.
+ *
+ * Three levels, not more: at four the steps are close enough together to read as
+ * a gradient again, which is the whole thing being avoided.
+ */
+const DEFAULT_ENV_LEVELS = 3.0;
 
 /**
  * The absolute cap on the rim's radiance, pre-tone-map, as a peak channel value.
@@ -273,9 +300,11 @@ const DEFAULT_AMBIENT_FLATNESS = 0.25;
  * `rimGain` changes it, because the solve divides the gains out again.
  *
  * At 0.28 the band lands near 172 code values on a black surface, and lower on
- * anything already lit because the headroom term takes its share first. It is
- * plainly a sheen catching the edge, it is above ART_BIBLE §6's bloom threshold
- * of 1.0 only after the surface under it contributes, and it is never a line.
+ * anything already lit because the headroom term takes its share first. Under
+ * the cel ruling the rim is drawn as a *band with an edge* rather than a fresnel
+ * wash, which makes the cap matter more, not less: a shape at a stated level
+ * reads as a lit contour, while the same shape at 215 code values reads as a
+ * blown highlight and competes with the ink line for the silhouette.
  */
 const DEFAULT_RIM_MAX = 0.28;
 
@@ -287,14 +316,19 @@ const DEFAULT_RIM_MAX = 0.28;
  *
  * Reading the fields:
  *
- *  - `terminator` / `softness` — the diffuse ramp's **midpoint** and its **full
- *    width**, both in N·L. `softness` is close to a whole unit on every class,
- *    because that is what the plates measure: light wraps most of the way round
- *    a form before the surface settles at its shaded level. A narrow value here
- *    is hard cel shading, which is the thing this table is a correction of.
- *  - `rampGamma` — bends the ramp without moving its ends. Above 1 holds the
- *    dark longer and turns into the light late; below 1 does the reverse.
- *  - `edgePixels` — the ramp's minimum width on screen, an antialias floor only.
+ *  - `terminator` / `softness` — the two-band step's **threshold** and its
+ *    **half-width**, both in N·L. ANIME_PIPELINE §2: `t ≈ 0.5`, `w ≈ 0.03–0.06`.
+ *    A threshold near 0.5 rather than at the geometric terminator is what gives
+ *    a cel figure a decisive shadow *shape* instead of a thin sliver, and a
+ *    narrow width is the single number that separates anime from stylised PBR.
+ *  - `rampGamma` — a fine bias of the terminator inside its own window; it can
+ *    move the edge at most `softness`. Above 1 holds the dark slightly longer.
+ *  - `edgePixels` — the terminator's width on screen, in device pixels. Both a
+ *    ceiling and a floor; see `DEFAULT_EDGE_PIXELS`.
+ *  - `highBand` / `highGain` — the optional third band on the lit side, §2's
+ *    "third rim band … for hair and metal only". `highBand` is its threshold in
+ *    N·L, above `terminator`; `highGain` scales the lit level inside it. Absent
+ *    on every other class, and compiled out there.
  *  - `shadowMix` — how far the albedo's chroma rotates toward `shadowTint`.
  *  - `shadowSat` — HSV saturation multiplier inside the shadow. Above 1 by
  *    definition: saturation *increases* as value drops, which is the difference
@@ -312,28 +346,37 @@ const DEFAULT_RIM_MAX = 0.28;
  *    the ratio is whatever those three terms leave over, and they lift the dark
  *    side toward the light side, which erased the form at dusk in the shipped
  *    build. The white hat on `bravely01.jpg` measures a linear 0.34 crown to
- *    shaded underside, which is where cloth sits; metal runs much deeper
- *    because its recesses on the plate measure near black (p1 = 4 sRGB against
- *    plate faces at 59).
- *  - `shadowFloor` — the face clamp: the shaded level's radiance is lifted this
- *    far toward the lit one. 0 everywhere except the face. It deliberately does
- *    *not* touch the ramp, so a flattened face still shows a full rose-tan
- *    shadow shape at a very gentle value break.
+ *    shaded underside, which is where cloth sits; metal runs deeper because its
+ *    recesses on the plate measure near black (p1 = 4 sRGB against plate faces
+ *    at 59). Under the cel ruling these run a little deeper still: with a hard
+ *    edge the dark side is a *mass*, and a mass at 0.34 of the light against a
+ *    bright meadow is what the review called a dead value structure.
+ *  - `shadowFloor` — the minimum the class's **shadow term** is held at, for a
+ *    surface where a shadow is not a stylistic choice but an error: an iris
+ *    carrying one reads as a dead eye. 0 on every class but `eye`. The *face*
+ *    clamp is `faceFlatten`, which bounds how dark the shadow may go rather than
+ *    suppressing its shape; see `FACE_SHADOW_DEPTH`.
  *  - `ambientFlatness` — how much indirect direction the class trades for its
  *    own average. See `DEFAULT_AMBIENT_FLATNESS`. Inert on a non-`flat` class.
+ *  - `envLevels` — how many flat levels the environment reflection is quantised
+ *    into. 0 disables it; see `DEFAULT_ENV_LEVELS`.
  *  - `specGain: 0` removes the highlight from the compiled program outright.
  *  - `specAlbedoMix` — how much of the surface's own colour the highlight keeps.
  *    Hair wants roughly half: a bright, slightly desaturated version of the hair
  *    colour, not a white dot. Only the anisotropic path reads it.
- *  - `specExponent` / `specThreshold` / `specSoftness` — the anisotropic lobe's
- *    tightness and the soft shoulder its falloff is centred on. The isotropic
- *    path ignores all three: it is `BRDF_GGX` driven by `roughness`, so the lobe
- *    shape is the material's own.
+ *  - `specThreshold` / `specSoftness` — the lobe value the hard-edged highlight's
+ *    boundary sits at, and a pre-antialias width. Read by **both** specular
+ *    paths, because the isotropic one is now a thresholded Blinn lobe rather
+ *    than a continuous microfacet BRDF. `specExponent` belongs to the
+ *    anisotropic path alone; the isotropic exponent is derived from `roughness`,
+ *    so that number keeps meaning the same thing here and on a stock material.
  *  - `specCeiling` — the HDR level the *highlight* is bounded at, separately
- *    from the rim. Metal carries by far the highest because the plate's armour
- *    specular genuinely clips (max 237 sRGB over a plate body at 59), and
- *    sharing one ceiling with the rim meant every attempt to calm the rim also
- *    flattened the metal.
+ *    from the rim. Metal carries the highest because armour is the one surface
+ *    whose ping is allowed to approach the clip point, and sharing one ceiling
+ *    with the rim meant every attempt to calm the rim also flattened the metal.
+ *    It is bounded well below white all the same: the review measured "clipped
+ *    speculars with no bloom", and a blob whose whole area sits at the clip point
+ *    is a hole in the frame rather than a highlight.
  *  - `sheenGain` / `sheenRoughness` / `sheenColor` — the fur and feather lobe.
  *    Present only on classes that compile `TOON_SHEEN`.
  *  - `rimWidth` / `rimCeiling` / `rimMax` — how far the rim reaches in from the
@@ -342,20 +385,37 @@ const DEFAULT_RIM_MAX = 0.28;
  *    `DEFAULT_RIM_MAX`.
  *  - `rimGain` — a *ratio* between classes, not a brightness. `Lighting`
  *    normalises the absolute level away; see `CHARACTER_RIM_GAIN`.
- *  - `flat` — this class is a character surface, so detail maps are dropped and
- *    `ambientFlatness` applies.
+ *  - `flat` — this class is a character surface, so detail maps are dropped, the
+ *    terminator is resolved into a drawn edge, and `ambientFlatness` applies.
+ *    ANIME_PIPELINE is a *character* pipeline and REFERENCE_TARGET §8.4 leaves
+ *    environments physically based, so `generic`, `leather` and `crystal` keep
+ *    the soft ramp: `world/Flora.js` shades every blade of grass and every
+ *    flower in the meadow through `generic`, and banding a whole field is not a
+ *    decision either document asks for. `cel` overrides the coupling for a
+ *    caller who genuinely wants one without the other.
  *  - `envSpecular` — gain on the environment probe's specular. Small for every
- *    dielectric; near unity on metal, because on the plates the environment
- *    reflection *is* the armour.
+ *    dielectric; high on metal, where it supplies the plate levels the hard
+ *    specular band sits on top of.
  */
 export const TOON_PRESETS = Object.freeze({
+  // A **prop** class, and the one every other preset inherits from — so its
+  // ramp is the soft one. `world/Flora.js` builds the meadow's grass, flowers,
+  // shrubs and trees on it, and the cel ruling is about the cast: banding a
+  // whole field of foliage is a change neither document asks for, and measuring
+  // it made the case plainly (the capture's luminance range collapsed from
+  // p1 15 / p95 228 to p1 41 / p95 182 — chalky, mid-only, exactly the value
+  // structure the review already objects to). `softness` here is a wide
+  // half-width and `flat: false` leaves the edge resolve as an antialias floor.
   generic: {
-    terminator: 0.10, softness: 1.00, rampGamma: 1.00, edgePixels: DEFAULT_EDGE_PIXELS,
+    terminator: 0.10, softness: 0.50, rampGamma: 1.00, edgePixels: 2.0,
     shadowMix: 0.40, shadowSat: 1.20, shadowValue: 0.90,
     shadowLevel: 0.24, shadowGain: 1.0, shadowLift: 0.16, shadowFloor: 0.0,
     shadowDepth: 0.34,
-    ambientGain: 0.90, ambientFlatness: 0.0, metalAlbedo: 0.0,
-    specColor: 0xffffff, specGain: 0.80,
+    ambientGain: 0.90, ambientFlatness: 0.0, envLevels: 0.0, metalAlbedo: 0.0,
+    // A wide `specSoftness` degrades the hard-edged shape function back into the
+    // soft shoulder a prop wants, so one code path serves both classes of
+    // surface without a second highlight model to keep in step.
+    specColor: 0xffffff, specGain: 0.80, specThreshold: 0.50, specSoftness: 0.35,
     specCeiling: 1.20,
     rimPower: 3.4, rimGain: CHARACTER_RIM_GAIN.generic, rimFloor: 0.35,
     rimWidth: 0.75, rimCeiling: 1.50, rimMax: DEFAULT_RIM_MAX,
@@ -363,77 +423,79 @@ export const TOON_PRESETS = Object.freeze({
     flat: false,
   },
 
-  // The face is the read, and the plates put that read entirely in the painted
-  // texture: drawn eyes, drawn brows, drawn mouth on an almost unshaded plane.
-  // Elvis's cheek on `bravely01.jpg` measures p50 178 / p95 187 sRGB. So the
-  // shading's whole job here is to stay out of the way — `shadowFloor` 0.80 is
-  // the measured face clamp, the shadow tint is the warm rose-tan rather than
-  // the scene's cool one, and there is no highlight at all: a specular lobe on a
-  // near-spherical chibi cranium is a hotspot that slides with the camera and
-  // reads as wet plastic. None of the plate's four faces has one.
+  // The face is the read, and ANIME_PIPELINE puts that read entirely in the
+  // painted texture: drawn eyes, drawn brows, drawn mouth on an almost unshaded
+  // plane. So the shading's whole job here is to stay out of the way. The
+  // threshold sits well below the other classes so the lit band covers most of
+  // the head, the shadow is the warm rose-tan rather than the scene's cool one
+  // (§1: the cel shadow band on skin is "a warm rose-tan", never grey and never
+  // a darkened copy), and there is no highlight at all — a specular blob on a
+  // near-spherical chibi cranium slides with the camera and reads as wet
+  // plastic.
+  //
+  // The clamp belongs to the *face* and not to the class: applied here it lands
+  // on forearms and bare shoulders too, which come out as limbs with no form.
+  // `CharacterFactory` builds the face plate with `faceFlatten: true`, so the one
+  // surface that needs it asks for it by name and the rest of the skin shades
+  // properly — the difference between an exposed arm carrying a full shadow and
+  // a cheek carrying almost none is a read the reference has and we did not.
   skin: {
-    terminator: 0.05, softness: 1.15, rampGamma: 0.85, edgePixels: DEFAULT_EDGE_PIXELS,
+    terminator: 0.30, softness: 0.07, rampGamma: 0.95, edgePixels: DEFAULT_EDGE_PIXELS,
     shadowTint: SKIN_SHADOW_TINT,
     shadowMix: 0.55, shadowSat: 1.10, shadowValue: 0.96,
-    // 0.35, not the face's 0.80. The clamp belongs to the *face*, and putting it
-    // on the class put it on forearms and bare shoulders too, which came out as
-    // limbs with no form. `CharacterFactory` builds the face plate with
-    // `faceFlatten: true`, so the one surface that needs the full clamp asks for
-    // it by name and the rest of the skin shades — which is what the plate
-    // shows: Adelle's exposed arms carry a full shadow while her cheek does not.
-    shadowLevel: 0.30, shadowGain: 1.0, shadowLift: 0.30, shadowFloor: 0.35,
-    // The shallowest dark level of the character classes. Skin is the brightest
-    // albedo the cast owns and the plate never lets it go dark.
-    shadowDepth: 0.55,
+    shadowLevel: 0.30, shadowGain: 1.0, shadowLift: 0.30, shadowFloor: 0.0,
+    // The shallowest dark level of the character classes, before the face's own
+    // clamp raises it further. Skin is the brightest albedo the cast owns and an
+    // anime face never lets it go dark.
+    shadowDepth: 0.62,
     // The most flattened ambient in the set. A face turning under a sky gradient
     // picks up a top-to-bottom ramp that competes with the painted brow line,
     // and the painted line has to win.
-    ambientGain: 0.95, ambientFlatness: 0.40,
+    ambientGain: 0.95, ambientFlatness: 0.75, envLevels: 0.0,
     specGain: 0.0,
     specCeiling: 1.00,
     // The tightest rim in the set and the lowest cap. Skin is the brightest
-    // albedo the cast owns and `shadowFloor` keeps it lit even in shadow, so it
-    // is the surface with the least headroom left — and it is the one surface
-    // where a wide band eats into the painted face.
+    // albedo the cast owns, so it is the surface with the least headroom left —
+    // and it is the one surface where a wide band eats into the painted face.
     rimPower: 3.4, rimGain: CHARACTER_RIM_GAIN.skin, rimFloor: 0.40,
-    rimWidth: 0.50, rimCeiling: 1.35, rimMax: 0.18,
+    rimWidth: 0.50, rimCeiling: 1.35, rimMax: 0.20,
     roughness: 0.62, metalness: 0.0, envMapIntensity: 0.30, envSpecular: 0.06,
     flat: true,
   },
 
-  // Hair on the plates is a carved volume with a broad, soft anisotropic sheen
-  // running across the crown — Elvis's and Gloria's both fade continuously into
-  // the hair mass rather than stopping at an edge. `aniso` picks the Kajiya-Kay
-  // lobe (constant along the strand axis, falling off across it, so it yields a
-  // band and not a dot) and `awToonSpecShape` gives it a shoulder wide enough
-  // that it cannot read as a strip of plastic laid over the head.
+  // ANIME_PIPELINE §3: chunky geometric clumps, one flat base value, and "one
+  // anisotropic highlight band running across the crown … a bright, slightly
+  // desaturated band with hard-ish edges". `aniso` picks the Kajiya-Kay lobe —
+  // constant along the strand axis, falling off across it, so it yields a band
+  // and not a dot — and `awToonSpecShape` gives that band the hard-ish edge the
+  // document asks for rather than the wide shoulder the previous revision
+  // floored it to.
+  //
+  // Hair is one of the two classes §2 allows a third band on the lit side, and
+  // it is what turns a modelled mass into a carved one: the top plane of the
+  // clump reads a step brighter than its front.
   hair: {
-    terminator: 0.10, softness: 0.95, rampGamma: 1.05, edgePixels: DEFAULT_EDGE_PIXELS,
+    terminator: 0.46, softness: 0.045, rampGamma: 1.05, edgePixels: DEFAULT_EDGE_PIXELS,
+    highBand: 0.86, highGain: 1.22,
     shadowMix: 0.42, shadowSat: 1.28, shadowValue: 0.88,
     shadowLevel: 0.22, shadowGain: 1.0, shadowLift: 0.12, shadowFloor: 0.0,
-    shadowDepth: 0.26,
-    ambientGain: 0.85, ambientFlatness: DEFAULT_AMBIENT_FLATNESS,
-    // 0.45, down from 1.05, and the ceiling down with it. The band no longer has
-    // a hard cut holding it to a shape, so its gain is now literally how bright
-    // the sheen is rather than how much of the crown clears a threshold; at the
-    // old value the whole crown went to the ceiling and read as a cream skullcap.
-    // The Kajiya-Kay lobe is unnormalised (it lives in 0..1), so 0.45 against a
-    // key at ~3 puts the band's peak just over 1.3 and the soft cap rounds its
-    // shoulder rather than flattening it.
-    specColor: SURFACE_TINT.SILK_SPEC, specGain: 0.45, specExponent: 96,
-    specThreshold: 0.50, specSoftness: 0.05, specAlbedoMix: 0.55,
-    specCeiling: 1.10,
+    shadowDepth: 0.24,
+    ambientGain: 0.85, ambientFlatness: 0.65, envLevels: 0.0,
+    // The Kajiya-Kay lobe is unnormalised and lives in 0..1, so the gain is
+    // literally how bright the band is once the threshold has decided its shape.
+    specColor: SURFACE_TINT.SILK_SPEC, specGain: 0.75, specExponent: 96,
+    specThreshold: 0.52, specSoftness: 0.04, specAlbedoMix: 0.55,
+    specCeiling: 1.30,
     aniso: true, anisoShift: 0.18,
     rimPower: 3.6, rimGain: CHARACTER_RIM_GAIN.hair, rimFloor: 0.32,
-    rimWidth: 0.62, rimCeiling: 1.50, rimMax: 0.26,
+    rimWidth: 0.62, rimCeiling: 1.50, rimMax: 0.30,
     roughness: 0.40, metalness: 0.0, envMapIntensity: 0.30, envSpecular: 0.10,
     flat: true,
   },
 
-  // Matte, and matte on purpose: the plate's garments are diffuse-dominated,
-  // and the layering that makes them rich is geometry and pattern rather than
-  // gloss. `specGain: 0` compiles the highlight out entirely, which is both the
-  // right look and the right cost on the largest surfaces in frame.
+  // Matte, and matte on purpose: §5 wants a garment reading as one flat
+  // saturated zone, and `specGain: 0` compiles the highlight out entirely, which
+  // is both the right look and the right cost on the largest surfaces in frame.
   //
   // **This is the class the garment system's patterns ride on.** A base colour
   // `map` is never dropped by the flat-class rule, and nothing in this material
@@ -442,55 +504,60 @@ export const TOON_PRESETS = Object.freeze({
   // is then shaded as one surface. Its shadow is the most saturated in the set,
   // because a garment shadow is where a painter puts the frame's richest colour.
   cloth: {
-    terminator: 0.10, softness: 1.05, rampGamma: 1.00, edgePixels: DEFAULT_EDGE_PIXELS,
+    terminator: 0.48, softness: 0.04, rampGamma: 1.00, edgePixels: DEFAULT_EDGE_PIXELS,
     shadowMix: 0.42, shadowSat: 1.30, shadowValue: 0.88,
     shadowLevel: 0.24, shadowGain: 1.0, shadowLift: 0.14, shadowFloor: 0.0,
-    // The measured value: 236 sRGB crown to 142 shaded underside on the white
-    // hat is a linear ratio of 0.34.
-    shadowDepth: 0.34,
-    ambientGain: 0.90, ambientFlatness: DEFAULT_AMBIENT_FLATNESS,
+    // Deeper than the 0.34 the soft model carried. With a hard edge the dark
+    // side is a mass rather than a gradient's tail, and a mass has to be dark
+    // enough to anchor the figure — the review measured the whole frame living
+    // between 45% and 80% luminance with nothing to anchor it.
+    shadowDepth: 0.28,
+    ambientGain: 0.90, ambientFlatness: DEFAULT_AMBIENT_FLATNESS, envLevels: 0.0,
     specGain: 0.0,
     specCeiling: 1.00,
     rimPower: 3.2, rimGain: CHARACTER_RIM_GAIN.cloth, rimFloor: 0.38,
-    rimWidth: 0.66, rimCeiling: 1.45, rimMax: 0.24,
+    rimWidth: 0.66, rimCeiling: 1.45, rimMax: 0.28,
     roughness: 0.92, metalness: 0.0, envMapIntensity: 0.28, envSpecular: 0.06,
     flat: true,
   },
 
-  // Fur, feather and shearling trim — the class the brief asks for by name, and
-  // one this table did not have. Adelle's collar on `bravely01.jpg` measures p5
-  // 15 / p50 70 / p95 181 / max 223 sRGB in a smooth unimodal spread: no hot
-  // spot, no flat mass, a broad sheen that is strongest along the silhouette of
-  // each clump. `TOON_SHEEN` is a Charlie distribution with Neubelt visibility,
-  // which peaks at grazing angles and is retro-reflective — the two properties
-  // that separate fur from moulded plastic. The GGX highlight is compiled out
-  // entirely, because one is exactly what makes it plastic.
+  // Fur, feather and shearling trim — and the one class the cel ruling
+  // deliberately does not give a hard edge to. A trim's job is a *broken*
+  // contour: a thresholded blob on a fur collar reads as moulded plastic, which
+  // is the exact signature a Blinn lobe on a dark albedo produces (a large mass
+  // near the albedo plus a small near-clipped hot spot, with nothing between).
+  // `TOON_SHEEN` is a Charlie distribution with Neubelt visibility, which peaks
+  // at grazing angles and is retro-reflective — the two properties that separate
+  // fur from plastic — and both the terminator window and its pixel width are
+  // the widest in the set so the mass softens at its edge rather than being
+  // sliced.
   fur: {
-    terminator: 0.05, softness: 1.30, rampGamma: 1.10, edgePixels: DEFAULT_EDGE_PIXELS,
+    terminator: 0.38, softness: 0.10, rampGamma: 1.10, edgePixels: 2.4,
     shadowMix: 0.40, shadowSat: 1.25, shadowValue: 0.90,
     shadowLevel: 0.22, shadowGain: 1.0, shadowLift: 0.18, shadowFloor: 0.0,
-    shadowDepth: 0.28,
-    ambientGain: 0.95, ambientFlatness: 0.15,
+    shadowDepth: 0.26,
+    ambientGain: 0.95, ambientFlatness: 0.45, envLevels: 0.0,
     specGain: 0.0,
     specCeiling: 1.00,
     sheen: true, sheenColor: SURFACE_TINT.SILK_SPEC, sheenGain: 0.85, sheenRoughness: 0.58,
     // The widest rim in the set, and the only one that earns it: a fur edge is
     // hundreds of grazing strand tips, so a back light genuinely lands on it.
     rimPower: 2.6, rimGain: CHARACTER_RIM_GAIN.fur, rimFloor: 0.35,
-    rimWidth: 0.85, rimCeiling: 1.50, rimMax: 0.30,
+    rimWidth: 0.85, rimCeiling: 1.50, rimMax: 0.32,
     roughness: 0.95, metalness: 0.0, envMapIntensity: 0.26, envSpecular: 0.05,
     flat: true,
   },
 
-  // Props and monster hides rather than a party garment, so this one keeps its
-  // detail maps and takes a broad, soft GGX highlight from its own roughness.
+  // Props and monster hides rather than a party garment, so like `generic` this
+  // is a soft class: it keeps its detail maps, keeps the antialias-floor edge
+  // resolve, and takes a broad soft highlight.
   leather: {
-    terminator: 0.10, softness: 1.00, rampGamma: 1.00, edgePixels: DEFAULT_EDGE_PIXELS,
+    terminator: 0.10, softness: 0.50, rampGamma: 1.00, edgePixels: 2.0,
     shadowMix: 0.42, shadowSat: 1.22, shadowValue: 0.88,
     shadowLevel: 0.22, shadowGain: 1.0, shadowLift: 0.14, shadowFloor: 0.0,
     shadowDepth: 0.32,
-    ambientGain: 0.90, ambientFlatness: 0.0,
-    specColor: 0xffffff, specGain: 0.70,
+    ambientGain: 0.90, ambientFlatness: 0.0, envLevels: 0.0,
+    specColor: 0xffffff, specGain: 0.70, specThreshold: 0.50, specSoftness: 0.35,
     specCeiling: 1.10,
     rimPower: 3.2, rimGain: CHARACTER_RIM_GAIN.leather, rimFloor: 0.35,
     rimWidth: 0.72, rimCeiling: 1.50, rimMax: DEFAULT_RIM_MAX,
@@ -498,47 +565,39 @@ export const TOON_PRESETS = Object.freeze({
     flat: false,
   },
 
-  // The class the whole "make it read as metal" correction is aimed at, and the
-  // one that changed most. Three things happen here that did not before:
+  // Armour and blades. REFERENCE_TARGET §1 is explicit that metal in this idiom
+  // "reads through a hard specular band rather than environment reflection", and
+  // this preset is that sentence: the tightest terminator in the set, the third
+  // lit band on the plate crowns, a narrow thresholded Blinn streak, and an
+  // environment reflection quantised into three flat plates so it supplies
+  // *levels* for the streak to sit on rather than a continuous sweep.
   //
-  //  - the direct highlight is `BRDF_GGX` at `roughness: 0.28`, which is a
-  //    narrow Fresnel-weighted streak rather than a thresholded blob;
-  //  - the indirect is the **real reflection-vector probe radiance**, not a
-  //    three-step quantisation of it. The greaves in `bravely02.jpg` sweep
-  //    continuously from the purple ice below to the teal aurora above, and that
-  //    sweep across a curved plate is the single strongest metal cue in the
-  //    reference set;
-  //  - `ambientFlatness: 0` — metal is the one class that must keep every bit of
-  //    the environment's direction, and flattening it is what left our armour
-  //    looking like painted card.
-  //
-  // The recesses come from the other end: `shadowDepth: 0.20` and the lowest
-  // `shadowLift` and `ambientGain` in the set, so a plate turning away from the
-  // key goes properly dark. On `bravely01.jpg` the knight's shadow-side plate
-  // faces read 60–80 sRGB with the gaps between them at 1–15, and the whole
-  // armour region spans p1 4 / p50 59 / p99 175 / max 237.
+  // The recesses come from the other end: the deepest `shadowDepth` in the set
+  // and the lowest `shadowLift` and `ambientGain`, so a plate turning away from
+  // the key goes properly dark and the armour carries the frame's darkest value.
   //
   // `metalAlbedo` restores part of the diffuse three zeroes at metalness 1: a
   // chibi pauldron carries a painted base colour under its reflection, and at
   // zero the armour is nothing but environment.
   metal: {
-    terminator: 0.12, softness: 0.85, rampGamma: 1.15, edgePixels: DEFAULT_EDGE_PIXELS,
+    terminator: 0.50, softness: 0.035, rampGamma: 1.15, edgePixels: DEFAULT_EDGE_PIXELS,
+    highBand: 0.88, highGain: 1.28,
     shadowMix: 0.38, shadowSat: 1.20, shadowValue: 0.84,
     shadowLevel: 0.18, shadowGain: 1.0, shadowLift: 0.06, shadowFloor: 0.0,
-    shadowDepth: 0.20,
-    ambientGain: 0.75, ambientFlatness: 0.0,
+    shadowDepth: 0.16,
+    ambientGain: 0.75, ambientFlatness: 0.35, envLevels: DEFAULT_ENV_LEVELS,
     metalAlbedo: 0.35,
-    // 1.0, because 'BRDF_GGX' is energy-normalised: the gain is a nudge on a
-    // physically-scaled lobe, not the lobe's amplitude. At 'roughness: 0.28' its
-    // peak is already ~14, so most of the streak's shape is the soft cap's
-    // shoulder, which is exactly how a clipped specular on film behaves.
-    specColor: 0xffffff, specGain: 1.00,
-    // The one class whose highlight is allowed to clip. 2.6 pre-tone-map is
-    // ~248 code values after ACES, against the plate's measured 237 peak.
-    specCeiling: 2.60,
+    // A low threshold on a very tight lobe: `roughness: 0.30` puts the Blinn
+    // exponent near 245, so the lobe is already a narrow streak and the
+    // threshold decides how much of it survives rather than how wide it is.
+    specColor: 0xffffff, specGain: 1.00, specThreshold: 0.35, specSoftness: 0.03,
+    // The highest ceiling in the character set, and still a long way under the
+    // clip point. A blob whose whole area sits at white is a hole in the frame,
+    // which is what the review measured as "clipped speculars with no bloom".
+    specCeiling: 1.60,
     rimPower: 3.6, rimGain: CHARACTER_RIM_GAIN.metal, rimFloor: 0.30,
-    rimWidth: 0.58, rimCeiling: 1.90, rimMax: 0.30,
-    roughness: 0.32, metalness: 1.0, envMapIntensity: 1.0, envSpecular: 0.85,
+    rimWidth: 0.58, rimCeiling: 1.90, rimMax: 0.34,
+    roughness: 0.30, metalness: 1.0, envMapIntensity: 1.0, envSpecular: 0.80,
     flat: true,
   },
 
@@ -546,31 +605,34 @@ export const TOON_PRESETS = Object.freeze({
   // pipeline the eye is drawn into the texture and this preset is not the
   // primary path — but where it is used, an iris must never take a shadow
   // (hence the 0.9 floor) and its catch-light is the whole point, which a tight
-  // GGX lobe at `roughness: 0.10` supplies.
+  // thresholded lobe at `roughness: 0.24` supplies as a crisp white dot rather
+  // than a soft bloom.
   eye: {
-    terminator: 0.0, softness: 1.40, rampGamma: 0.80, edgePixels: DEFAULT_EDGE_PIXELS,
+    terminator: -0.40, softness: 0.40, rampGamma: 0.80, edgePixels: DEFAULT_EDGE_PIXELS,
     shadowMix: 0.15, shadowSat: 1.10, shadowValue: 0.96,
     shadowLevel: 0.12, shadowGain: 1.0, shadowLift: 0.30, shadowFloor: 0.90,
     shadowDepth: 0.90,
-    ambientGain: 0.95, ambientFlatness: 0.30,
-    specColor: 0xffffff, specGain: 1.40,
-    specCeiling: 3.00,
+    ambientGain: 0.95, ambientFlatness: 0.50, envLevels: 0.0,
+    specColor: 0xffffff, specGain: 1.40, specThreshold: 0.30, specSoftness: 0.02,
+    specCeiling: 2.40,
     rimPower: 3.4, rimGain: 0.50, rimFloor: 0.20,
     rimWidth: 0.85, rimCeiling: 1.50, rimMax: 0.20,
-    roughness: 0.10, metalness: 0.0, envMapIntensity: 0.40, envSpecular: 0.35,
+    roughness: 0.24, metalness: 0.0, envMapIntensity: 0.40, envSpecular: 0.35,
     flat: true,
   },
 
   // Interior glow is the caller's `emissive`; this supplies the fresnel rim and
-  // a sharp highlight over the top of it. A prop class, so detail maps stay.
+  // a sharp highlight over the top of it. A prop class, so detail maps stay and
+  // the ramp is soft — a crystal is not a costume, and a hard-banded gemstone
+  // reads as painted card.
   crystal: {
-    terminator: 0.0, softness: 1.20, rampGamma: 0.90, edgePixels: DEFAULT_EDGE_PIXELS,
+    terminator: 0.0, softness: 0.60, rampGamma: 0.90, edgePixels: 2.0,
     shadowMix: 0.36, shadowSat: 1.18, shadowValue: 0.90,
     shadowLevel: 0.18, shadowGain: 1.0, shadowLift: 0.20, shadowFloor: 0.0,
     shadowDepth: 0.62,
-    ambientGain: 0.95, ambientFlatness: 0.0,
-    specColor: 0xffffff, specGain: 1.20,
-    specCeiling: 3.00,
+    ambientGain: 0.95, ambientFlatness: 0.0, envLevels: 0.0,
+    specColor: 0xffffff, specGain: 1.20, specThreshold: 0.45, specSoftness: 0.25,
+    specCeiling: 2.40,
     // The one class that wants a broad wrap rather than a sliver: on glass the
     // fresnel *is* the material, so the width stays at the identity value and
     // the band is the bare `pow(1 - N·V, k)` it always was. The cap is the
@@ -578,7 +640,7 @@ export const TOON_PRESETS = Object.freeze({
     // 1.2–1.8 and the rim must still be visible over it.
     rimPower: 1.6, rimGain: 1.60, rimFloor: 0.30,
     rimWidth: 1.00, rimCeiling: 2.00, rimMax: 0.90,
-    roughness: 0.10, metalness: 0.0, envMapIntensity: 0.9, envSpecular: 0.9,
+    roughness: 0.25, metalness: 0.0, envMapIntensity: 0.9, envSpecular: 0.9,
     flat: false,
   },
 });
@@ -635,10 +697,15 @@ const DEFAULT_RIM_CEILING = 1.50;
  *
  * The two used to share one ceiling, and that conflation is why every previous
  * attempt to calm the rim also flattened the metal. They want opposite things:
- * the reference armour's specular genuinely clips — `bravely01.jpg` measures the
- * knight's plates at p50 59 / p99 175 / p99.9 214 / max 237 sRGB — while the rim
- * must never come near it. `metal` and `crystal` carry a much higher value than
- * this default; the matte classes carry a lower one.
+ * armour is the one surface whose highlight is meant to be the brightest mark on
+ * a character, while the rim must never come near it. `metal`, `eye` and
+ * `crystal` carry a higher value than this default; the matte classes lower.
+ *
+ * None of them reaches white. A cel highlight is a *shape* of near-constant
+ * value, so a ceiling at the clip point does not give a hot core with a falloff
+ * around it — it gives a flat white patch with a drawn edge, which is a hole in
+ * the frame. That is what the review measured as "clipped speculars with no
+ * bloom", and the fix is the ceiling rather than the bloom threshold.
  */
 const DEFAULT_SPEC_CEILING = 1.20;
 
@@ -688,15 +755,23 @@ const DETAIL_MAP_KEYS = Object.freeze(['normalMap', 'roughnessMap', 'aoMap', 'bu
  *   anything into it.
  * @param {boolean} [opts.detailMaps] force detail maps on a `flat` preset. They
  *   are dropped by default on every character class.
- * @param {number} [opts.terminator] the diffuse ramp's midpoint, in N·L.
- * @param {number} [opts.softness] the diffuse ramp's **full width**, in N·L.
- *   Near 1 on every class; a narrow value is hard cel shading, which the
- *   reference plates do not have.
- * @param {number} [opts.rampGamma] bends the ramp without moving its ends.
- * @param {number} [opts.edgePixels] minimum ramp width on screen; antialias only.
- * @param {number} [opts.shadowFloor] how far the shaded level's radiance is
- *   lifted toward the lit one. `0.80` is the face value; see also `faceFlatten`.
- * @param {boolean} [opts.faceFlatten] shorthand for `shadowFloor: 0.80`.
+ * @param {boolean} [opts.cel] resolve the terminator into a drawn edge. Defaults
+ *   to the preset's character/prop classification; props keep the soft ramp.
+ * @param {number} [opts.terminator] the two-band step's threshold, in N·L.
+ *   ANIME_PIPELINE §2 puts it near 0.5.
+ * @param {number} [opts.softness] the step's **half-width**, in N·L. 0.03–0.06;
+ *   a wide value is stylised PBR, which is what the cel ruling replaced.
+ * @param {number} [opts.rampGamma] fine bias of the terminator inside its own
+ *   window; it can move the edge at most `softness`.
+ * @param {number} [opts.edgePixels] the terminator's width on screen, in device
+ *   pixels. Both a ceiling and a floor; see `DEFAULT_EDGE_PIXELS`.
+ * @param {number} [opts.highBand] threshold of the optional third band on the
+ *   lit side, in N·L. ANIME_PIPELINE §2 allows it on hair and metal only.
+ * @param {number} [opts.highGain] how much the lit level is scaled inside it.
+ * @param {number} [opts.shadowFloor] minimum the shadow *term* is held at, for
+ *   a surface that must not take a shadow at all. 0 on every class but `eye`.
+ * @param {boolean} [opts.faceFlatten] the face clamp: shorthand for
+ *   `shadowDepth: 0.75`. See `FACE_SHADOW_DEPTH`.
  * @param {THREE.ColorRepresentation} [opts.shadowTint] hue target for the
  *   shadow albedo. Defaults to the scene shadow tint (warm rose-tan on `skin`).
  * @param {number} [opts.shadowMix] 0–1, how far the albedo's chroma rotates.
@@ -705,13 +780,18 @@ const DETAIL_MAP_KEYS = Object.freeze(['normalMap', 'roughnessMap', 'aoMap', 'bu
  * @param {number} [opts.shadowLevel] luminance of the flat shadow fill.
  * @param {number} [opts.shadowLift] share of the key the shaded level keeps.
  * @param {number} [opts.shadowDepth] the shaded level, as a fraction of the lit
- *   level's peak. Stated rather than left over: 0.34 measured for cloth, 0.20
- *   for metal.
+ *   level's peak. Stated rather than left over: 0.28 for cloth, 0.16 for metal.
  * @param {number} [opts.ambientFlatness] 0–1, how much indirect *direction* the
  *   surface trades for its own average. Inert on a non-`flat` class.
+ * @param {number} [opts.envLevels] flat levels the environment reflection is
+ *   quantised into. 0 disables it; only `metal` carries one.
  * @param {number} [opts.specGain] 0 compiles the highlight out entirely.
+ * @param {number} [opts.specThreshold] the lobe value the hard-edged highlight's
+ *   boundary sits at. Read by both specular paths.
+ * @param {number} [opts.specSoftness] pre-antialias width on that boundary; the
+ *   edge itself is resolved to `edgePixels` like every other mark.
  * @param {number} [opts.specCeiling] HDR bound on the highlight, independent of
- *   the rim's. Metal carries a high one because its ping is allowed to clip.
+ *   the rim's. Metal carries the highest, still well under the clip point.
  * @param {number} [opts.sheenGain] 0 compiles the fur/feather lobe out.
  * @param {number} [opts.sheenRoughness] the Charlie lobe's width; higher is
  *   softer and more fur-like.
@@ -733,18 +813,25 @@ export function createToonMaterial(opts = {}) {
 
   const specGain = opts.specGain ?? p.specGain ?? 0;
   // A zero-gain highlight is not the same thing as no highlight. The classes the
-  // reference gives no gloss (skin and cloth above all) must not merely multiply
+  // pipeline gives no gloss (skin and cloth above all) must not merely multiply
   // the lobe by zero — the term drops out of the compiled program, so it cannot
-  // come back through a stray `updateToonUniforms` and cannot cost a `BRDF_GGX`
-  // per light per fragment on the largest surfaces in frame.
+  // come back through a stray `updateToonUniforms` and cannot cost a lobe plus a
+  // screen-space edge resolve per light per fragment on the largest surfaces in
+  // frame.
   const hasSpec = specGain > 0;
   const aniso = hasSpec && (opts.aniso ?? p.aniso ?? false);
 
   // The fur / feather lobe, compiled in on the same terms. It is deliberately
-  // independent of `hasSpec`: fur wants a sheen and no GGX highlight at all,
-  // which is the whole distinction between fur and moulded plastic.
+  // independent of `hasSpec`: fur wants a sheen and no thresholded highlight at
+  // all, which is the whole distinction between fur and moulded plastic.
   const sheenGain = opts.sheenGain ?? p.sheenGain ?? 0;
   const hasSheen = sheenGain > 0 && (opts.sheen ?? p.sheen ?? true);
+
+  // The third band of ANIME_PIPELINE §2, compiled in only where a preset or a
+  // caller names a threshold for it. Absent, the whole term — a second
+  // `smoothstep`, a second edge resolve and a `mix` — leaves the program.
+  const highBand = opts.highBand ?? p.highBand;
+  const hasHighBand = typeof highBand === 'number';
 
   // A character class never receives a procedural detail map: in this project
   // every one of them is fBm from `AssetForge`, and on a character they read as
@@ -755,14 +842,24 @@ export function createToonMaterial(opts = {}) {
   const detail = {};
   for (const key of DETAIL_MAP_KEYS) detail[key] = flat ? null : (opts[key] ?? null);
 
-  // `faceFlatten` is the readable spelling of the face clamp; `shadowFloor` is
-  // the same control with the value exposed. Resolved here rather than inline so
-  // that `faceFlatten: false` can genuinely turn the clamp *off* on a preset
-  // that carries one.
-  const shadowFloor = opts.shadowFloor
-    ?? (opts.faceFlatten === undefined
-      ? (p.shadowFloor ?? 0.0)
-      : (opts.faceFlatten ? FACE_SHADOW_FLOOR : 0.0));
+  // Whether the terminator is resolved into a *drawn edge* or merely kept from
+  // collapsing. It follows the character/prop split by default because that is
+  // the split ANIME_PIPELINE's authority actually covers, and it is separable
+  // because "no noise on this surface" and "band this surface" are two claims
+  // and a caller may reasonably make one without the other.
+  const cel = opts.cel ?? p.cel ?? flat;
+
+  // `faceFlatten` is the readable spelling of the face clamp, and it acts on the
+  // dark *level* rather than on the band; see `FACE_SHADOW_DEPTH`. An explicit
+  // `shadowDepth` still wins, so a caller can flatten a face and then state
+  // exactly how far. Resolved here rather than inline so that
+  // `faceFlatten: false` can genuinely turn the clamp *off* on a preset that
+  // carries one.
+  const shadowFloor = opts.shadowFloor ?? p.shadowFloor ?? 0.0;
+  const shadowDepth = opts.shadowDepth
+    ?? (opts.faceFlatten
+      ? FACE_SHADOW_DEPTH
+      : (p.shadowDepth ?? 0.28));
 
   // The hue the shadow rotates toward: the scene shadow tint, unless the preset
   // or the caller names another (skin's warm rose-tan is the one that matters).
@@ -814,14 +911,14 @@ export function createToonMaterial(opts = {}) {
     uRimColor: { value: chromaAt(LIGHT.RING_GLOW, 0.45) },
     uRimStrength: { value: 1.0 },
 
-    // ---- the diffuse ramp --------------------------------------------------
+    // ---- the two-band step -------------------------------------------------
     uToonTerminator: { value: opts.terminator ?? p.terminator },
     uToonSoftness: { value: opts.softness ?? p.softness },
     uToonEdgePixels: { value: opts.edgePixels ?? p.edgePixels ?? DEFAULT_EDGE_PIXELS },
     uToonRampGamma: { value: opts.rampGamma ?? p.rampGamma ?? 1.0 },
     uToonShadowFloor: { value: shadowFloor },
     uToonShadowLift: { value: opts.shadowLift ?? p.shadowLift },
-    uToonShadowDepth: { value: opts.shadowDepth ?? p.shadowDepth ?? 0.34 },
+    uToonShadowDepth: { value: shadowDepth },
 
     // ---- shadow colour: hue shift, saturation up --------------------------
     uToonShadowTint: { value: chromaUnit(shadowTint) },
@@ -842,12 +939,14 @@ export function createToonMaterial(opts = {}) {
     uToonAmbientFlatness: {
       value: opts.ambientFlatness ?? p.ambientFlatness ?? DEFAULT_AMBIENT_FLATNESS,
     },
+    uToonEnvLevels: { value: opts.envLevels ?? p.envLevels ?? 0.0 },
     uToonMetalAlbedo: { value: opts.metalAlbedo ?? p.metalAlbedo ?? 0.0 },
     uToonEnvSpecular: { value: opts.envSpecular ?? p.envSpecular },
 
     // ---- highlight and rim bounds -----------------------------------------
-    // Two separate ceilings, and the separation is the point: armour's ping is
-    // allowed to clip and the rim never may. See `DEFAULT_SPEC_CEILING`.
+    // Two separate ceilings, and the separation is the point: armour's ping runs
+    // far hotter than anything else on the cast and the rim never may. See
+    // `DEFAULT_SPEC_CEILING`.
     uToonSpecCeiling: { value: opts.specCeiling ?? p.specCeiling ?? DEFAULT_SPEC_CEILING },
     uToonRimPower: { value: opts.rimPower ?? p.rimPower },
     uToonRimGain: { value: opts.rimGain ?? p.rimGain },
@@ -868,18 +967,29 @@ export function createToonMaterial(opts = {}) {
     uniforms.uToonSpecColor = { value: toColor(opts.specColor ?? p.specColor ?? 0xffffff) };
     uniforms.uToonSpecGain = { value: specGain };
     uniforms.uToonSpecAlbedoMix = { value: opts.specAlbedoMix ?? p.specAlbedoMix ?? 0.0 };
+    // The threshold now belongs to **both** paths. Under the cel ruling the
+    // isotropic highlight is a thresholded Blinn lobe, not a continuous
+    // microfacet BRDF, so it needs the same shape controls the hair band does —
+    // and a lobe bounded in 0..1 is precisely what makes a threshold on it mean
+    // the same thing on every surface.
+    uniforms.uToonSpecThreshold = { value: opts.specThreshold ?? p.specThreshold ?? 0.5 };
+    uniforms.uToonSpecSoftness = { value: opts.specSoftness ?? p.specSoftness ?? 0.04 };
   }
 
-  // The lobe-shaping trio belongs to the anisotropic path alone. The isotropic
-  // highlight is three's own `BRDF_GGX` driven by `material.roughness`, so an
-  // exponent and a threshold would have nothing to act on there — allocating
-  // them anyway is how a caller comes to believe a number is doing something.
+  // The strand axis and the lobe's tightness belong to the anisotropic path
+  // alone. The isotropic exponent is derived from `material.roughness` in the
+  // shader, so that one number keeps meaning the same thing on a toon material
+  // and a stock one; allocating a second control for it here is how a caller
+  // comes to believe a number is doing something.
   if (aniso) {
     uniforms.uToonAnisoDirection = { value: toDirection(opts.anisoDirection, DEFAULT_ANISO_DIR) };
     uniforms.uToonAnisoShift = { value: opts.anisoShift ?? p.anisoShift ?? 0.12 };
     uniforms.uToonSpecExponent = { value: opts.specExponent ?? p.specExponent ?? 96 };
-    uniforms.uToonSpecThreshold = { value: opts.specThreshold ?? p.specThreshold ?? 0.5 };
-    uniforms.uToonSpecSoftness = { value: opts.specSoftness ?? p.specSoftness ?? 0.05 };
+  }
+
+  if (hasHighBand) {
+    uniforms.uToonHighBand = { value: highBand };
+    uniforms.uToonHighGain = { value: opts.highGain ?? p.highGain ?? 1.2 };
   }
 
   if (hasSheen) {
@@ -893,7 +1003,12 @@ export function createToonMaterial(opts = {}) {
   // The fill's level is remembered so a later `updateToonUniforms({ shadowColor })`
   // can re-derive the radiance the same way the constructor did, instead of
   // dumping a raw swatch into a uniform that expects a radiance.
-  const levels = { shadow: opts.shadowLevel ?? p.shadowLevel };
+  // `depth` rides along so `updateToonUniforms({ faceFlatten: false })` can put
+  // the class's own dark level back rather than guessing at one.
+  const levels = {
+    shadow: opts.shadowLevel ?? p.shadowLevel,
+    depth: opts.shadowDepth ?? p.shadowDepth ?? 0.28,
+  };
 
   const shared = new Set();
   if (rig) {
@@ -911,11 +1026,16 @@ export function createToonMaterial(opts = {}) {
   if (hasSpec) material.defines.TOON_SPECULAR = '';
   if (aniso) material.defines.TOON_ANISO = '';
   if (hasSheen) material.defines.TOON_SHEEN = '';
+  if (hasHighBand) material.defines.TOON_HIGH_BAND = '';
   // A character surface trades part of its indirect *direction* for the same
   // light's average — the same `flat` classification that drops the fBm detail
   // maps. How much is `uToonAmbientFlatness`; the define only decides whether
   // the surface is a candidate. See `RE_IndirectDiffuse_Toon`.
   if (flat) material.defines.TOON_FLAT_AMBIENT = '';
+  // The two-band step is drawn as an edge only on the classes the cel ruling
+  // governs; see `awToonEdge`. Without it the same code path is an antialias
+  // floor and the ramp stays soft, which is what the meadow wants.
+  if (cel) material.defines.TOON_CEL_EDGE = '';
 
   material.userData.toon = { kind: 'surface', uniforms, levels, shared, preset: presetName };
   material.userData.isToonMaterial = true;
@@ -937,7 +1057,8 @@ export function createToonMaterial(opts = {}) {
   // "characters look fine until you walk past a rock".
   const cacheKey = `aw-toon-surface|${presetName}`
     + `|${hasSpec ? (aniso ? 'aniso' : 'iso') : 'nospec'}|${hasSheen ? 'sheen' : 'nosheen'}`
-    + `|${flat ? 'flatamb' : 'amb'}`;
+    + `|${hasHighBand ? 'hiband' : 'noband'}|${flat ? 'flatamb' : 'amb'}`
+    + `|${cel ? 'cel' : 'soft'}`;
   material.customProgramCacheKey = () => cacheKey;
 
   return material;
@@ -997,15 +1118,18 @@ export function isToonMaterial(material) {
 /* -------------------------------------------------------------------------- */
 
 /** Scalar options that map straight onto a uniform. Entries whose uniform is
- *  absent (the highlight on a `specGain: 0` material, the lobe trio on an
- *  isotropic one, the sheen on anything that is not fur) are skipped rather than
- *  created: the uniform is not in the compiled program either. */
+ *  absent (the highlight on a `specGain: 0` material, the strand axis on an
+ *  isotropic one, the sheen on anything that is not fur, the third band on
+ *  anything that is not hair or metal) are skipped rather than created: the
+ *  uniform is not in the compiled program either. */
 const SCALAR_KEYS = Object.freeze({
   time: 'uToonTime',
   terminator: 'uToonTerminator',
   softness: 'uToonSoftness',
   edgePixels: 'uToonEdgePixels',
   rampGamma: 'uToonRampGamma',
+  highBand: 'uToonHighBand',
+  highGain: 'uToonHighGain',
   shadowFloor: 'uToonShadowFloor',
   shadowLift: 'uToonShadowLift',
   shadowDepth: 'uToonShadowDepth',
@@ -1016,6 +1140,7 @@ const SCALAR_KEYS = Object.freeze({
   shadowGain: 'uToonShadowGain',
   ambientGain: 'uToonAmbientGain',
   ambientFlatness: 'uToonAmbientFlatness',
+  envLevels: 'uToonEnvLevels',
   metalAlbedo: 'uToonMetalAlbedo',
   envSpecular: 'uToonEnvSpecular',
   specExponent: 'uToonSpecExponent',
@@ -1107,8 +1232,12 @@ export function updateToonUniforms(material, opts = {}) {
   if (opts.shadowTint !== undefined && u.uToonShadowTint) {
     u.uToonShadowTint.value.copy(chromaUnit(opts.shadowTint));
   }
-  if (opts.faceFlatten !== undefined && u.uToonShadowFloor) {
-    u.uToonShadowFloor.value = opts.faceFlatten ? FACE_SHADOW_FLOOR : 0.0;
+  // The face clamp acts on the dark level, so turning it off has to restore the
+  // *class's* depth rather than some notional zero — a face at `shadowDepth: 0`
+  // is a black plate. The constructor's resolved value is remembered for exactly
+  // this, since the preset name alone would not survive a caller who overrode it.
+  if (opts.faceFlatten !== undefined && u.uToonShadowDepth) {
+    u.uToonShadowDepth.value = opts.faceFlatten ? FACE_SHADOW_DEPTH : toon.levels.depth;
   }
 
   if (opts.rimColor !== undefined && u.uRimColor) {
@@ -1180,10 +1309,9 @@ export function updateToonUniforms(material, opts = {}) {
  * harness's viewport, so it is the only defensible constant to resolve the old
  * spelling against.
  *
- * Note that these adapters inherit `Outline.js`'s project-wide switch, which now
- * ships **off**: the reference plates carry no ink line, and the measurements
- * behind that are in that module's header. A caller that wants one calls
- * `setOutlineEnabled(true)` before building.
+ * These adapters inherit `Outline.js`'s project-wide switch, which ships **on**
+ * again under the ANIME_PIPELINE ruling; that module's header carries the
+ * reasoning and the evidence from both sides of it.
  */
 const OUTLINE_REFERENCE_HEIGHT = 1080;
 
@@ -1197,13 +1325,12 @@ const OUTLINE_REFERENCE_HEIGHT = 1080;
  * it wraps, which is an inversion, not a line. Naming the colour here keeps that
  * impossible.
  *
- * Raised from 0.035 to track `OUTLINE_DEFAULTS.darkness` going from 0.18 to
- * 0.30: against the bright sunlit meadow the plates actually show, a line this
- * dark reads as a black border rather than as a contour, and the two constants
- * expressing the same judgement have to move together or a hull built through
- * this adapter comes out heavier than one built directly.
+ * It tracks `OUTLINE_DEFAULTS.darkness`, which is back at ANIME_PIPELINE §4's
+ * weight: the two constants express the same judgement about how dark an ink
+ * line is, and if they drift a hull built through this adapter comes out a
+ * different weight from one built directly against `Outline.js`.
  */
-const DEFAULT_OUTLINE_LEVEL = 0.060;
+const DEFAULT_OUTLINE_LEVEL = 0.035;
 
 /**
  * Build the material for an inverted-hull outline.
