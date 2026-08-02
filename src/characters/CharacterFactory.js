@@ -1582,9 +1582,22 @@ function buildHair(parts, m, def, pal) {
         (browFloor + th - h.center.y) / h.ry, -0.98, 0.98,
       )));
     }
+    // A short free flick off the end. A fringe whose every vertex lies on the
+    // skull is a decal on the forehead: the clumps abut, the tips all land at
+    // the same latitude and the whole thing reads as one dark bar across the
+    // brow. Letting the ends leave the surface — outward and down, and further
+    // the closer the clump is to the temple — is what separates them into
+    // individual points and gives the fringe a silhouette of its own.
+    const flickK = Math.min(1, Math.abs(off) * 2.4);
+    const endP = P(theta + runTheta, end, seat(theta, end, th) + 0.06);
+    const away = new THREE.Vector3(endP.x, 0, endP.z);
+    if (away.lengthSq() > 1e-9) away.normalize(); else away.set(0, 0, 1);
+    const flick = endP.clone()
+      .addScaledVector(away, h.rx * (0.05 + 0.09 * flickK))
+      .add(new THREE.Vector3(0, -h.ry * 0.24 * flickK, 0));
     clump({
       theta, phi: root, runTheta, runPhi: end - root,
-      lift: 0.06, w, thick: th, tipRatio: 0.10, hold: 0.34,
+      lift: 0.06, via: [flick], w, thick: th, tipRatio: 0.10, hold: 0.34,
     });
   }
 

@@ -316,7 +316,7 @@ export const ROSTER = Object.freeze([
       // as one smooth unbroken dome — a helmet, not hair — and the clumps are
       // what break the outline without giving him a hairstyle he is not
       // supposed to have.
-      fringe: 2, fringeLength: 0.20, fringeSweep: 0.30, fringeSpread: 0.95, part: 0.22,
+      fringe: 3, fringeLength: 0.20, fringeSweep: 0.30, fringeSpread: 0.95, part: 0.14,
       backLength: 0.34, backWidth: 0.8,
       // Head diameters, like every other hair length. At the old 0.50 of *body*
       // height this was three and a half head-radii of mass whose top edge
@@ -557,7 +557,7 @@ export const ROSTER = Object.freeze([
     hair: Object.freeze({
       style: 'topknot',
       capScale: 1.10, capDrop: 0.48,
-      fringe: 2, fringeLength: 0.28, fringeSweep: 0.45, fringeSpread: 1.15, part: 0.18,
+      fringe: 3, fringeLength: 0.28, fringeSweep: 0.45, fringeSpread: 1.05, part: 0.12,
       // Six clumps combed *up* from the hairline into the binding ring: the
       // gather is what makes a topknot read as bound hair rather than as a hat.
       backCount: 6, topknot: 0.42, topknotWidth: 0.50,

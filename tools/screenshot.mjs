@@ -153,7 +153,10 @@ try {
     if (step.wait) await page.waitForTimeout(step.wait);
     if (step.shot) {
       const file = resolve(outDir, `${step.shot}.png`);
-      await page.screenshot({ path: file });
+      // SwiftShader renders on the CPU, so a frame costs seconds rather than
+      // milliseconds and gets slower as scene geometry grows. Playwright's 30 s
+      // default starts timing out well before anything is actually wrong.
+      await page.screenshot({ path: file, timeout: 180_000 });
       console.log(file);
     }
   }
@@ -163,7 +166,7 @@ try {
   console.error(`[harness] ${err.message}`);
   // Still capture whatever is on screen — a broken frame is diagnostic too.
   try {
-    await page.screenshot({ path: resolve(outDir, 'FAILURE.png') });
+    await page.screenshot({ path: resolve(outDir, 'FAILURE.png'), timeout: 180_000 });
   } catch {}
 } finally {
   await writeFile(resolve(outDir, 'console.log'), logs.join('\n'), 'utf8');
