@@ -185,7 +185,25 @@ const STAGE_SEED = 0x10057ade;
 const STAGE_NOISE = makeNoise(STAGE_SEED);
 
 /** Centre and extent of the levelled battle stage, in world metres. */
-const STAGE_PLATEAU = { x: 1.2, z: 1.4, inner: 9.5, outer: 30 };
+const STAGE_PLATEAU = { x: 0, z: 2.6, inner: 6.5, outer: 22 };
+
+/**
+ * The bank the meadow climbs behind the party.
+ *
+ * The plate is not shot on a table. Its flower bed sits on ground that rises
+ * away from the lens: the bed's near edge is level with the cast's boots and
+ * its far edge is a good half a character-height above their heads, which is
+ * what lets a 1.2 m lavender plant read against *sky* at the back of the bed
+ * instead of against more lavender. Without it the bed's silhouette collapses
+ * onto one flat top edge at the horizon line — every plant of the same height
+ * projects to the same screen row when the camera is at that height, which is
+ * exactly the eye-level camera this staging just committed to.
+ *
+ * Solved in z rather than in radius so the ground under the party stays dead
+ * level while the ground behind them climbs: `rise` runs from the back of the
+ * cast's depth band to the boulder wall.
+ */
+const BANK = { from: 1.2, to: -20, height: 2.35 };
 
 /**
  * The ground's analytic height field.
@@ -196,12 +214,10 @@ const STAGE_PLATEAU = { x: 1.2, z: 1.4, inner: 9.5, outer: 30 };
  * time the tessellation changes.
  *
  * The plateau is a hard requirement of the staging, not a convenience: the
- * party's staggered diagonal and the enemy mass are solved in screen space
- * against a **flat** floor, and a metre of terrain swell under one flank
- * re-sorts the whole diagonal and tilts the contact decals. It therefore
- * levels the full 9.5 m stage radius — both sides, not just the party's —
- * and ramps back into the rolling field by 30 m, which is beyond the treeline's
- * inner limit so the horizon still reads as landscape rather than as a table.
+ * party's line is solved in screen space against a **flat** floor, and a metre
+ * of terrain swell under one flank re-sorts it and tilts the contact pool. It
+ * levels the 6.5 m the cast and the near lawn occupy and ramps back into the
+ * rolling field by 22 m.
  */
 function groundHeight(x, z) {
   const n = STAGE_NOISE;
@@ -209,10 +225,13 @@ function groundHeight(x, z) {
   const ripple = n.fbm3(x * 0.055, 11, z * 0.055, { octaves: 3, gain: 0.5 }) * 0.09;
   const r = Math.hypot(x - STAGE_PLATEAU.x, z - STAGE_PLATEAU.z);
   const flat = smootherstep(STAGE_PLATEAU.inner, STAGE_PLATEAU.outer, r);
+  // Rises only *behind* the stage (decreasing z), and only outside the plateau,
+  // so the cast keeps a level floor and the meadow keeps its bank.
+  const bank = smootherstep(BANK.from, BANK.to, z) * BANK.height * flat;
   // The ripple keeps a floor even on the plateau: a mathematically level floor
-  // under a low sun is one uniform value across the bottom of frame, with no
-  // form for the grade to work on.
-  return swell * flat + ripple * Math.max(0.15, flat);
+  // is one uniform value across the bottom of frame, with no form for the
+  // grade to work on.
+  return swell * flat + bank + ripple * Math.max(0.15, flat);
 }
 
 /**
