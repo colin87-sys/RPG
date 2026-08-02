@@ -258,8 +258,22 @@ const PATH = { x0: -1.0, z0: 4.8, dx: 0.75, dz: 1.0, feather: 1.2, width: 4.5 };
  * plants the tree, and `_buildMotes` seeds the falling petals in a column
  * around it. A petal cloud that has drifted away from the tree that shed it is
  * the failure this constant exists to make impossible.
+ *
+ * **Moved back and inboard, from (−6.0, −2.2) at 3.6 m.** Two reasons, and the
+ * first is that the creature now stands where the tree used to project: at the
+ * old station the canopy covered px −301 → 417 of 1920 and the encounter owns
+ * px −57 → 249, so the frame's largest silhouette would have been read against
+ * a pink mass at the same depth-order ambiguity a review cannot resolve.
+ *
+ * The second is that the old placement was wrong against the plate anyway. The
+ * plate's blossom is a **background** mass: it sits behind the flower bed, its
+ * canopy runs off the top-left corner, and its lower edge stops well above the
+ * party's heads — measured, y 90 → 560 of 1080 with the nearest head at 326. At
+ * (−3.6, −4.5) and 3.2 m the canopy spans px 232 → 806 and y 15 → 265, which
+ * puts it above the heads (320–383) and hard against the top edge, and leaves
+ * the encounter its own column of frame.
  */
-const CHERRY = { x: -6.0, z: -2.2, height: 3.6, drift: 4.2 };
+const CHERRY = { x: -3.6, z: -4.5, height: 3.2, spread: 1.40, drift: 3.6 };
 
 /**
  * The ground's analytic height field.
@@ -523,23 +537,36 @@ function headingTo(a, b) {
 }
 
 /**
- * What the party is addressing — a point **off the right edge of frame**.
+ * What the party is addressing — a point far off the **left** edge of frame,
+ * on the bearing the staged creature stands on.
  *
- * The plate shows no enemy at all: all four figures face frame-right at a
- * threat the composition never reveals, and that off-screen address is most of
- * what stops the frame reading as a lineup. So this stage no longer builds one
- * either. What it needs instead is a stable aim point, and the requirements on
- * it are specific:
+ * The plate's party faces frame-right at a threat the composition never
+ * reveals; this stage's threat is real and at the left edge, so the whole
+ * address is mirrored. The anchor is deliberately *not* the creature itself,
+ * and the requirements that decide that are specific:
  *
  *  - **Far.** At 18 m the six slots' headings to it converge inside 6°, so the
- *    line reads as watching one thing. At 6 m they fan by 25° and the near-left
- *    figure ends up in dead profile while the far-right one is nearly frontal.
- *  - **Off frame.** 18 m out on the +X axis is `ndc` ≈ 2.8 at the stage lens,
- *    i.e. far outside the right edge, so nothing has to be modelled there.
+ *    line reads as watching one thing. Aimed at the creature 4.5 m away they fan
+ *    by 25°, and the near-left figure ends up in dead profile while the
+ *    far-right one is nearly frontal.
+ *  - **On the creature's bearing.** From the party centroid the creature lies at
+ *    −99.6° and this anchor at −92.3°: 7° apart, which at chibi head scale is
+ *    invisible. So the line reads as watching the thing that is actually there,
+ *    without inheriting the fan that watching it exactly would cost.
+ *  - **Off frame**, at `ndc` ≈ −2.8, so the aim point itself never has to be
+ *    modelled — the creature occupies the near end of the same bearing.
  *  - **At eye height**, so the look-at tilts no head up or down. 1.0 m is the
- *    cast's own eye line.
+ *    cast's own eye line, and it is also where the driftbell's eye arc sits at
+ *    the staged scale, so the party is not looking over its head.
+ *
+ * The z is the *mirror* of the previous right-hand anchor and that matters more
+ * than it looks: an anchor deeper than the line (z below the centroid's 2.70)
+ * puts every base heading past profile *away* from the lens, and `turn` then has
+ * to spend itself climbing back to square before it can open a face at all. At
+ * z = 2.0 the base headings land within 4° of profile, which is the geometry
+ * the `turn` column was measured for.
  */
-const GAZE_ANCHOR = new THREE.Vector3(18.0, 1.00, 2.00);
+const GAZE_ANCHOR = new THREE.Vector3(-18.0, 1.00, 2.00);
 
 /**
  * How much of the way to the gaze anchor the head is allowed to travel.
@@ -913,6 +940,10 @@ export class LookdevScene extends Scene {
     this.cast = [];
     /** @type {THREE.Object3D[]} Flora roots, each carrying its own `dispose`. */
     this._flora = [];
+    /** @type {ReturnType<typeof buildCreature>|null} the staged encounter. */
+    this._encounter = null;
+    this._encounterBaseY = 0;
+    this._encounterHeading = 0;
     this.focusDistance = 8;
     this._silhouette = false;
     /** @type {Map<THREE.Mesh, THREE.Material|THREE.Material[]>} matte swaps */
@@ -993,6 +1024,7 @@ export class LookdevScene extends Scene {
     this._buildScaleProxy(forge);
 
     this._buildCast(forge);
+    this._buildEncounter(forge);
 
     // Every character material was created after `addTo`, so the CSM patch has
     // to be re-applied or the party sums all four cascade lights unattenuated.
@@ -1308,7 +1340,7 @@ export class LookdevScene extends Scene {
     // the read and the tree looks dead. Clusters are instanced off the branch
     // segments they grew on, so the extra density is one draw call either way.
     plant(buildBlossomTree, CHERRY.x, CHERRY.z, {
-      height: CHERRY.height, spread: 1.25, clusters: 1200,
+      height: CHERRY.height, spread: CHERRY.spread, clusters: 1200,
     });
     plant(buildConiferTree, 5.4, -6.0, { count: 1, height: 4.6 });
     // The belt. A 34 m scatter about z = −27 reached forward to z = +7, i.e.
@@ -1319,14 +1351,24 @@ export class LookdevScene extends Scene {
     plant(buildConiferTree, 0, -44, { count: 26, radius: 20, height: 5.4 });
 
     // --- rock ---------------------------------------------------------------
-    // On the crest, not in the bed. The wall has to read *above* the lavender —
-    // it is the only thing in the plate's upper third besides the treeline and
-    // the sky — and with the bank in place that means standing it at the top of
-    // the climb rather than halfway up it. From z = −26 it spans y 75→349 of
-    // which the bed hides everything below 130, leaving exactly the band of
-    // angular grey the reference shows.
-    plant(buildBoulderCluster, -1.0, -26, { count: 11, radius: 11, size: 2.8, chips: 30 });
-    plant(buildBoulderCluster, 10.5, -22, { count: 5, radius: 5, size: 2.1, chips: 14 });
+    // **Forward from z = −26 to z = −18, and up from 2.8 m to 3.0 m.** The
+    // previous station was solved for a bed that then grew: with the bank at
+    // 3.1 m the lavender at the mass's far edge crests at screen y 115, and a
+    // 2.8 m block at z = −26 tops out at y 89 — a 26 px ribbon of grey that the
+    // shipped capture duly showed as a single pale speck near x 1200 and
+    // nothing else. The plate's boulders are the *dominant* mass of its upper
+    // third, y 20 → 230 of 1080.
+    //
+    // At z = −18 the same block tops out at y 15 and its base sits at y 201, so
+    // it clears the bed's crest by a hundred pixels of angular grey across most
+    // of the frame width. The radius comes in with it, 11 → 8: the cluster's
+    // near rim reaches `centre + radius`, and at 11 that put 3 m blocks at
+    // z = −7, i.e. inside the flower bed at four times the lavender's height.
+    // At 8 the whole scatter lives between z = −26 and −10, which is behind the
+    // bed's far half and half-buried in its near half — which is exactly how the
+    // plate's wall meets its meadow.
+    plant(buildBoulderCluster, -1.5, -18, { count: 12, radius: 8, size: 3.0, chips: 22 });
+    plant(buildBoulderCluster, 9.5, -16, { count: 5, radius: 5, size: 2.4, chips: 12 });
     // The plate keeps a few loose stones on the mown grass in the near corners.
     // Small enough to be scale cues rather than props.
     plant(buildBoulderCluster, 4.2, 5.0, { count: 3, radius: 1.1, size: 0.42, chips: 10 });
@@ -1469,7 +1511,13 @@ export class LookdevScene extends Scene {
   _buildContactShadows() {
     let minX = Infinity; let maxX = -Infinity;
     let minZ = Infinity; let maxZ = -Infinity;
-    for (const p of PARTY_PLACES) {
+    // The creature is included, and it is the reason this loop reads a list
+    // rather than PARTY_PLACES directly. It stands 1.6 m west of the leftmost
+    // party slot, i.e. outside the buffer the six figures alone would size —
+    // and the ground shader resolves everything outside the buffer to *no*
+    // occlusion, so the omission would not fail loudly, it would just quietly
+    // ship the largest thing in frame standing on nothing.
+    for (const p of [...PARTY_PLACES, ENCOUNTER_PLACE]) {
       minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
       minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
     }
@@ -1870,15 +1918,17 @@ ${shader.fragmentShader}`
       const place = places[i];
       const character = built[i];
       character.root.position.set(place.x, groundHeight(place.x, place.z), place.z);
-      // Square up to the off-frame threat, then swing `turn` radians back
-      // toward the lens. The rig's forward is **+Z** — `CharacterFactory`'s
-      // `hairlinePhi` states the convention outright, "+Z (forward) is
-      // theta = pi/2" — so `headingTo` is already in rig space. The threat is
-      // now to frame *right* (+X), i.e. a heading near +π/2, and the camera
-      // stands on +Z, so opening toward the lens is a **subtraction**. Getting
-      // that sign wrong turns the whole line away from the camera and ships six
-      // painted faces pointing off-frame.
-      character.root.rotation.y = headingTo(place, GAZE_ANCHOR) - slot.turn;
+      // Square up to the threat, then swing `turn` radians back toward the
+      // lens. The rig's forward is **+Z** — `CharacterFactory`'s `hairlinePhi`
+      // states the convention outright, "+Z (forward) is theta = pi/2" — so
+      // `headingTo` is already in rig space. The threat is to frame *left*
+      // (−X), i.e. a heading near −π/2, and the camera stands on +Z, so opening
+      // toward the lens is an **addition**. This sign is paired with
+      // GAZE_ANCHOR's and cannot be read off the `turn` column alone: getting it
+      // wrong turns the whole line away from the camera and ships six painted
+      // faces pointing off-frame, which is what the previous right-hand address
+      // used the opposite sign to avoid.
+      character.root.rotation.y = headingTo(place, GAZE_ANCHOR) + slot.turn;
       // Idle is already playing from the factory; restate it so the clip is
       // explicit at the call site and a future pose change is one edit.
       character.animator.play('idle', { fade: 0 });
@@ -1895,6 +1945,52 @@ ${shader.fragmentShader}`
     this.scene.add(group);
     this.castGroup = group;
     this.hero = this.cast[0];
+  }
+
+  /**
+   * Stage the encounter — see {@link ENCOUNTER} for every number below.
+   *
+   * `Bestiary.buildCreature` returns a merged, unrigged root whose origin sits
+   * on the ground with +Z facing, so placement is a position, a `rotation.y` and
+   * nothing else. Three things still have to be done here and none of them are
+   * the module's to do:
+   *
+   *  - **`lighting` and `forge` are passed on.** The first aliases the rig's
+   *    key/rim uniform objects into the hide material, which is what re-keys the
+   *    creature on a time-of-day change without a per-frame call; the second
+   *    binds the leather normal/roughness maps. A creature built without them
+   *    renders flat and stops tracking the clock.
+   *  - **`outline: false`.** The same reference correction `_buildCast` records:
+   *    measured across four clean silhouette crossings the plate shows no value
+   *    trough at a contour, so nothing on this stage carries an ink line. It
+   *    also drops the hull, which is the one place a vertex is paid for twice.
+   *  - **It joins the contact projector.** The buffer is sized from the staged
+   *    footprints (see `_buildContactShadows`), so the creature has to be
+   *    enrolled or the one thing in frame that is *not* touching the ground
+   *    would be the only thing without a shadow under it — and a floater with no
+   *    pool beneath it reads as a sticker rather than as a body in the scene.
+   *
+   * It faces the party's centroid rather than the gaze anchor: the anchor is
+   * 18 m out for the party's own convergence and aiming the creature at it would
+   * point it past its own target and out of frame.
+   */
+  _buildEncounter(forge) {
+    const creature = buildCreature(ENCOUNTER.id, {
+      seed: ENCOUNTER.seed,
+      height: ENCOUNTER.height,
+      lighting: this.lighting,
+      forge,
+      outline: false,
+    });
+    const place = ENCOUNTER_PLACE;
+    const y = groundHeight(place.x, place.z);
+    creature.root.position.set(place.x, y, place.z);
+    this._encounterHeading = headingTo(place, PARTY_CENTROID);
+    creature.root.rotation.y = this._encounterHeading;
+    this.scene.add(creature.root);
+    LookdevScene._markContactCasters(creature.root);
+    this._encounter = creature;
+    this._encounterBaseY = y;
   }
 
   /** 7x3 roughness/metalness grid — the standard PBR sanity check. */
@@ -2204,6 +2300,11 @@ ${shader.fragmentShader}`
     };
 
     matte(this.castGroup);
+    // The creature is a subject, not scenery: "are these shapes
+    // distinguishable" is a question about the encounter as a whole, and a
+    // creature left in full colour would also be the only lit thing in a frame
+    // whose premise is two values.
+    if (this._encounter) matte(this._encounter.root);
 
     this._matteSwap.set(this.ground, this.ground.material);
     this.ground.material = this.matteGround;
@@ -2273,6 +2374,20 @@ ${shader.fragmentShader}`
 
     const t = this.engine.elapsed;
 
+    // The creature is one merged buffer per material with no skeleton, so the
+    // root is the whole animation budget — which for something that hovers is
+    // enough. Driven off `engine.elapsed` rather than integrated, so a capture
+    // lands on the same phase every run and the contact pool below it (which
+    // renders from the live transform) matches the pose it is under.
+    if (this._encounter) {
+      const bob = Math.sin(t * ENCOUNTER.bobRate);
+      this._encounter.root.position.y = this._encounterBaseY + bob * ENCOUNTER.hover;
+      // A slow yaw drift about the facing, a third of the bob's rate so the two
+      // never lock into one period and read as a mechanism.
+      this._encounter.root.rotation.y = this._encounterHeading
+        + Math.sin(t * ENCOUNTER.bobRate * 0.31) * 0.09;
+    }
+
     // Drive the meadow's gust from the same clamped step the cloth runs on.
     // Flora falls back to a wall clock of its own if nobody claims it, which is
     // right for a scene that just drops flora in and wrong for a capture: two
@@ -2314,6 +2429,10 @@ ${shader.fragmentShader}`
     this._setSilhouette(false);
     for (const c of this.cast) c.dispose();
     this.cast.length = 0;
+    // Same contract as a character and the same reason: `buildCreature` owns
+    // three geometries and three materials that `Scene.track` never saw.
+    this._encounter?.dispose();
+    this._encounter = null;
     // Flora's builders own their own geometry and materials and hand back a
     // `dispose()` for them. `Scene.track` never saw them, so this is the only
     // place they can be released — a meadow is 200k+ triangles across a dozen
