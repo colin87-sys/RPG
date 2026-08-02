@@ -16,8 +16,11 @@
  * | meadow tufts in the bed | arch to the lavender's shoulder | 0.55–1.05 m blades |
  * | lavender plant | 0.65–0.85 × character | 1.05–1.35 m, spike is the top ~35% |
  * | lavender raceme, across | contiguous violet runs 7 px median / 18 px p90; ~0.13 × its own length | 5.4 cm on a 1.2 m spike |
- * | tulip | heads sit just under the lavender tips | 0.42–0.62 m stem, 0.085 m head |
+ * | tulip | heads sit just under the lavender tips | 0.66–1.05 m stem, 0.085 m head |
+ * | seed-head grass | panicles crest 20–40 cm above the lavender | 1.30–1.90 m, head is the top 22% |
+ * | ground cover | broad low leaves pooling between the grass | 0.16–0.36 m across |
  * | cherry blossom | 1.6–1.75 × character, canopy wider than tall (~1.15:1) | 2.9 m tall, 3.3 m across |
+ * | broadleaf | rounded crown of 5–6 lobes over a clean bole | 5–6.5 m, crown 1.1–1.2 × height |
  * | boulder wall | 2.8 × character tall, 5.4 × wide | see `props/RockForms.js` |
  * | blossom petal | ~15 px at the knight's depth → ≈ 5.7 cm | 0.055 m |
  *
@@ -71,11 +74,21 @@
  * ## Cost model
  *
  * Everything that repeats is one `InstancedMesh`, so a full meadow is single
- * digits of draw calls: grass 1, lavender 2 (spikes + basal leaves), tulips 2
- * (stems + heads), blossom tree 2 (branches + blossom clusters), conifers 2,
- * boulders 2 (merged cluster + instanced chips), flower patch 2. Density falls
- * off from the scatter centre with `falloff`, and blade size rises with radius
- * so coverage holds while the count drops.
+ * digits of draw calls per species: grass 1, ground cover 1, seed grass 1,
+ * lavender 2 (spikes + basal leaves), tulips 2 (stems + heads), blossom tree 2
+ * (branches + blossom clusters), broadleaf 2 or 3 (bark + canopy lobes, plus a
+ * leaf fringe on a hero tree only), conifers 2, boulders 2 (merged cluster +
+ * instanced chips), flower patch 2. Density falls off from the scatter centre
+ * with `falloff`, and blade size rises with radius so coverage holds while the
+ * count drops.
+ *
+ * **A species is not a preset.** The five that share `bladeGeometry` do not
+ * share a *read*: grass is a silhouette against the sky, ground cover is a plan
+ * seen from above, a seed panicle is a spindle, a lavender raceme is a column
+ * and a tulip is a goblet. Each of those needs its own droop, taper, up-blend
+ * and lever, which is why they are five builders and not one with a mode flag —
+ * a meadow that is one plant at five scales is the monoculture this module
+ * spent a round shipping.
  *
  * Procedural surface noise is legal on these — they are props, not characters —
  * and every builder accepts an `AssetForge` to bind `stone` / `bark` detail maps.
@@ -1522,13 +1535,32 @@ export function buildLavender(opts = {}) {
       clumping: opts.clumping ?? 0.7,
       mask,
     });
+    /**
+     * Basal leaves scale with the plant, and this was a genuine bug rather than
+     * a tuning miss.
+     *
+     * The leaf height was an **absolute** 0.45–0.95 m while the spike above it
+     * was whatever `height` the caller asked for. At the 1.05–1.35 m default
+     * that is invisible — the leaves sit at roughly two thirds of the spike,
+     * which is what a lavender clump looks like. Ask for a *short* drift, as the
+     * stage's knee-height foreground framing does at 0.34–0.58 m, and the same
+     * code plants 0.95 m grass around a 0.4 m flower: measured on the first
+     * capture of that drift, blades a metre tall stood two metres from the lens
+     * and covered the bottom-right quarter of the frame and three of the six
+     * party members from the waist down.
+     *
+     * Normalised against the 1.20 m the absolute range was implicitly written
+     * for, so every existing caller is unchanged to within a percent and a short
+     * drift gets short leaves.
+     */
+    const leafScale = ((hMin + hMax) * 0.5) / 1.20;
     const leaves = instanced(leafGeo, leafMat, leafPlaces.length, (i, m, c) => {
       const p = leafPlaces[i];
-      const h = rng.range(0.45, 0.95);
+      const h = rng.range(0.45, 0.95) * leafScale;
       _e.set(rng.jitter(0.28), rng.range(0, Math.PI * 2), rng.jitter(0.30));
       _q.setFromEuler(_e);
       _v3.set(p.x, heightAt(p.x, p.z) - 0.02, p.z);
-      _s3.set(rng.range(0.05, 0.085), h, h * 0.7);
+      _s3.set(rng.range(0.05, 0.085) * leafScale, h, h * 0.7);
       m.compose(_v3, _q, _s3);
       const v = rng.range(0.82, 1.14);
       c.setRGB(v * rng.range(0.94, 1.04), v, v * rng.range(0.86, 1.0));
@@ -2673,7 +2705,10 @@ export function buildBroadleafTree(opts = {}) {
       // A crown's value structure is vertical: sky-lit on top, in its own shade
       // underneath. Painting it into the albedo is what keeps the mass reading
       // as a mass when the terminator falls somewhere else entirely.
-      const u = _v3.y * 0.5 + 0.5;
+      // Clamped, because the deformation above can push a vertex past the unit
+      // sphere and an unclamped `lerp` *extrapolates* — which on the crown's top
+      // row would push the lit green past its own measured p90.
+      const u = Math.min(1, Math.max(0, _v3.y * 0.5 + 0.5));
       lobeColor.copy(deep).lerp(mid, Math.min(1, u * 1.8));
       if (u > 0.55) lobeColor.lerp(litLeaf, (u - 0.55) / 0.45 * 0.85);
       cols[v * 3] = lobeColor.r;

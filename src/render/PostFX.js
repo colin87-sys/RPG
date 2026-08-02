@@ -88,6 +88,215 @@ import { GRADES, GRADE_SCALARS, lerpGrade, bakeGradeStrip } from './shaders/colo
 /** Colour-cube edge. 32 is the film standard and costs 128 KB per grade. */
 const LUT_SIZE = 32;
 
+/**
+ * three's `ACESFilmicToneMapping` fit, its inverse, and the sRGB EOTF.
+ *
+ * `compositeShader.js` reproduces the same fit in GLSL so an un-composited frame
+ * and a graded one tone map identically; these are the CPU-side twins, and they
+ * exist so a threshold can be authored where it is meaningful — on screen — and
+ * turned into the scene radiance that produces it. The forward curve is monotone
+ * on [0, inf), so a bisection inverts it to float precision with no closed form
+ * and no wrong branch to pick. `THREE.SRGBToLinear` is not on the public `three`
+ * entry point in 0.185, so the piecewise curve is spelled out rather than reached
+ * for through a private.
+ */
+function acesFilmic(x) {
+  return THREE.MathUtils.clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0, 1);
+}
+
+function acesFilmicInverse(target) {
+  let lo = 0;
+  let hi = 16;
+  for (let i = 0; i < 64; i++) {
+    const mid = (lo + hi) * 0.5;
+    if (acesFilmic(mid) < target) lo = mid; else hi = mid;
+  }
+  return (lo + hi) * 0.5;
+}
+
+function srgbToLinear(c) {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+/**
+ * Where bloom begins, authored on screen.
+ *
+ * The threshold has to be exposure-relative or it does not mean anything. It is
+ * compared against *scene* radiance, and this build drives `toneMappingExposure`
+ * from the time-of-day table and a plate calibration together — so a fixed 1.15
+ * means "only real overspill" at one exposure and "most of the lit frame" at
+ * another. Stated as a display value and divided by the live exposure each frame,
+ * it means the same picture at every hour: nothing that resolves below 0.92 on an
+ * sRGB display can contribute a single photon to the veil.
+ *
+ * 0.92 is read off `bravely01.jpg`, which is not a bloomy image — 1.5% of it sits
+ * above 0.75 and no silhouette in it carries a halo. The only things left above
+ * this line are the sun caught on a blade edge and the specular pings on armour,
+ * which is exactly the "glints only" this workstream was asked for.
+ */
+const BLOOM_DISPLAY_THRESHOLD = 0.92;
+const BLOOM_SCENE_THRESHOLD_AT_UNIT_EXPOSURE =
+  acesFilmicInverse(srgbToLinear(BLOOM_DISPLAY_THRESHOLD));
+
+/**
+ * Chroma discipline, measured off `docs/reference/bravely01.jpg` and baked into
+ * every grade cube rather than applied as a pass.
+ *
+ * This workstream's brief asked for a ~10% global saturation cut. Measuring says
+ * the opposite, and says it in every region at once. Our shipped frame did read
+ * loud — the meadow measured 0.650 mean HSV saturation against the plate's 0.545
+ * — but the cause was exposure, not chroma: the frame sat most of a stop hot and
+ * ACES was climbing its shoulder, which reads as *candy* precisely because a
+ * bright saturated colour is a saturated colour with nowhere left to go. With
+ * `EXPOSURE_CALIBRATION` landing the histogram on the plate's, every comparable
+ * region lands consistently **under** it instead:
+ *
+ * | region             | ours  | plate | ours/plate |
+ * |--------------------|-------|-------|------------|
+ * | meadow, midground  | 0.428 | 0.545 | 0.79       |
+ * | party band         | 0.424 | 0.503 | 0.84       |
+ * | treeline / slope   | 0.365 | 0.451 | 0.81       |
+ *
+ * A ratio that flat across three unrelated materials is a global gain, not a
+ * per-hue correction, so `BASE_CHROMA` is one: 1.25 puts all three inside a few
+ * percent of the plate. Cutting instead would have taken a frame already 26%
+ * under the plate's overall 0.503 to nearly 35% under, which is the opposite of
+ * the "within 10% of bravely01" this work is judged against.
+ *
+ * **Skin is the one band held back.** A chroma gain is at its most visible on
+ * faces and hands, where a few percent too much reads instantly as sunburn, and
+ * the plate's own skin is notably restrained — Gloria's lit cheek eyedrops to
+ * (134, 120, 113), a saturation of 0.16 in a frame averaging 0.50. So the warm
+ * red-orange-amber wedge takes 1.08 while everything else takes the full gain.
+ *
+ * Band edges are smoothstepped rather than switched: the cube is trilinearly
+ * interpolated at sample time, so a discontinuity in hue here would show up as a
+ * visible seam wherever a gradient crosses it.
+ *
+ * Baking it into the cube rather than adding a pass is what makes it free: the
+ * composite already samples two LUTs, the operation is display-referred (which
+ * is the correct space for a saturation grade), and a diagnostic frame — which
+ * sets `uGradeAmount` to 0 — skips it along with the rest of the grade, exactly
+ * as it should.
+ */
+const BASE_CHROMA = 1.25;
+const SKIN_CHROMA = 1.08;
+/**
+ * The meadow's own gain, held under the frame's.
+ *
+ * The one place the flat 0.79–0.84 ratio above does not hold after the gain is
+ * applied. Measured across the change the meadow came out at 0.627 against the
+ * plate's 0.545 while the party landed at 0.550 against 0.503 — the green wedge
+ * responds harder to a chroma scale than the rest of the frame, because a
+ * yellow-green already has its blue channel near the floor and a chroma push
+ * moves it no further while lifting the other two. 1.12 puts the meadow back on
+ * the plate and leaves everything else where the global solve put it, which
+ * matters more here than anywhere: the ground and the flower bed together are
+ * the largest area in frame, and "the party fights the flowers" is the review
+ * note this band exists to answer.
+ */
+const FOLIAGE_CHROMA = 1.12;
+/** The two hue wedges, in degrees: [ramp-in start, full, full, ramp-out end].
+ *  Skin is wide enough to cover every rendered skin tone from a shadowed cheek
+ *  through a lit one, and to take the warm hair and leather beside them with it;
+ *  foliage covers yellow-green through green and stops short of the teals. */
+const SKIN_HUES = [4, 16, 48, 62];
+const FOLIAGE_HUES = [66, 82, 156, 172];
+
+/**
+ * The graded black point, as a tinted display-referred lift.
+ *
+ * `EXPOSURE_CALIBRATION` in `Lighting` lands our median and our p95 on the
+ * plate's by scaling the whole histogram, and a scale cannot also fix a *toe*:
+ * inverting the tone curve on both frames shows the plate's shadows sitting well
+ * off the floor at p5 0.111 where our ungraded frame puts them at 0.068. The
+ * plate is a soft late-morning meadow whose darkest region is a rock face still
+ * lit by open sky, not a contrasty interior, and this lift is the difference —
+ * solved rather than dialled. `f + e(1 - f)` pins white and maps black onto the
+ * floor, so one number satisfies the whole curve: at a luminance of 0.046 it
+ * takes our p5 to 0.111 against the plate's 0.111, p50 to 0.313 against 0.316
+ * and p95 to 0.632 against 0.631.
+ *
+ * Tinted rather than neutral, and cool, for the same reason every other floor in
+ * this codebase is: the plate's own deepest shadows eyedrop blue-grey, never
+ * grey. Baked into the cube alongside the chroma gain so it costs nothing, and
+ * so a diagnostic frame — which skips the grade entirely — still gets a true
+ * black to measure a silhouette against.
+ */
+const SHADOW_FLOOR = [0.038, 0.047, 0.056];
+
+/** Smoothstep-gated membership of a four-point hue window. */
+function hueBand(h, win) {
+  return THREE.MathUtils.smoothstep(h, win[0], win[1])
+    * (1 - THREE.MathUtils.smoothstep(h, win[2], win[3]));
+}
+
+/**
+ * Apply the chroma discipline to a baked LUT strip, in place.
+ *
+ * Operates on the cube's *output* values, so it composes after whatever the
+ * named grade did — which is the order an art department works in: grade first,
+ * then set the black point and hold the result inside the palette's chroma
+ * budget. Both trims live in this one walk because both are display-referred
+ * functions of colour alone, which is precisely what a colour cube is for.
+ */
+function applyChromaDiscipline(data) {
+  for (let i = 0; i < data.length; i += 4) {
+    // Lift first, trim second. `lift + e(1 - lift)` pins white and maps black
+    // onto the floor colour, so it raises the toe without touching the top of
+    // the range; running it after the chroma trim would re-introduce chroma into
+    // the shadows the trim had just taken it out of.
+    const r = SHADOW_FLOOR[0] + (data[i] / 255) * (1 - SHADOW_FLOOR[0]);
+    const g = SHADOW_FLOOR[1] + (data[i + 1] / 255) * (1 - SHADOW_FLOOR[1]);
+    const b = SHADOW_FLOOR[2] + (data[i + 2] / 255) * (1 - SHADOW_FLOOR[2]);
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const c = max - min;
+    // A neutral has no hue to classify and no chroma to trim; skipping it also
+    // keeps the cube's grey axis bit-exact, which is what stops a grade drifting
+    // its own white balance every time this runs.
+    if (c < 1e-4) {
+      writeLut(data, i, r, g, b);
+      continue;
+    }
+    let h;
+    if (max === r) h = ((g - b) / c) % 6;
+    else if (max === g) h = (b - r) / c + 2;
+    else h = (r - g) / c + 4;
+    h = (h * 60 + 360) % 360;
+
+    // The wedges do not overlap, so the two mixes compose without a partition.
+    const scale = THREE.MathUtils.lerp(
+      THREE.MathUtils.lerp(BASE_CHROMA, FOLIAGE_CHROMA, hueBand(h, FOLIAGE_HUES)),
+      SKIN_CHROMA,
+      hueBand(h, SKIN_HUES),
+    );
+    const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    writeLut(data, i, l + (r - l) * scale, l + (g - l) * scale, l + (b - l) * scale);
+  }
+}
+
+/** Quantise one graded RGB back into the cube. */
+function writeLut(data, i, r, g, b) {
+  data[i] = Math.round(THREE.MathUtils.clamp(r, 0, 1) * 255);
+  data[i + 1] = Math.round(THREE.MathUtils.clamp(g, 0, 1) * 255);
+  data[i + 2] = Math.round(THREE.MathUtils.clamp(b, 0, 1) * 255);
+}
+
+/**
+ * Ceiling on the corner falloff, whatever the active grade asks for.
+ *
+ * The grades ship vignettes up to 0.28, which through the composite's operator
+ * darkens a corner to 73% of its true value. The plate has nothing like that:
+ * `bravely01.jpg` measures its bottom-left corner at 0.560 display against 0.423
+ * at frame centre — the corners are *brighter* than the middle, because the
+ * brightest thing in the picture is the sunlit near ground and it runs right to
+ * the edge. A vignette that fought that would be inventing a lens the reference
+ * does not have. 0.12 leaves an 88% corner: enough to keep the eye off the frame
+ * edge, not enough to read as a shape.
+ */
+const VIGNETTE_MAX = 0.12;
+
 /** 35 mm full-frame sensor height. Fixes the mm→pixel scale for the CoC maths. */
 const SENSOR_HEIGHT_MM = 24;
 
@@ -107,28 +316,52 @@ const ABERRATION_STEADY = 0.0003;
 const ABERRATION_IMPACT_SPIKE = 0.004 - ABERRATION_STEADY;
 
 /**
- * The depth-keyed value structure — dark foreground, bright subject, hazy
- * background — evaluated inside the composite pass. See compositeShader.js for
- * the operator and for why a colour-only LUT structurally cannot deliver this.
+ * The depth-keyed value structure, re-derived from `docs/reference/bravely01.jpg`.
  *
- * Every figure here is derived from the measured frame the art director scored,
- * not dialled in by eye:
+ * The previous constant table was solved against the prose specs, and on the two
+ * points where those specs and the plate disagree the plate wins — the reference
+ * README says so, and measuring the plate says so louder:
  *
- *  - `subjectGain` 2.1 — the shipped lit side sat at display 0.314 (ACES input
- *    0.150); display 0.52, mid-way through the requested L 130-150, is ACES
- *    input 0.315. 0.315 / 0.150 = 2.1.
- *  - `foreLift` — luminance 0.070. The foreground ground measured display 0.071
- *    (L 18); `f + 0.071(1 - f) = 0.135` (L 34, inside the requested 30-40) gives
- *    f = 0.070. Split across the channels as a teal-black so the frame's dark
- *    border still carries the palette's hue.
- *  - `farLift` — luminance 0.148, i.e. the review's "lift the background 15%".
- *  - `farSaturation` 0.82 with `subjectSaturation` 1.22 opens a 1.5x chroma gap
- *    between cast and stage, which is the relationship REFERENCE_TARGET §3 means
- *    by "the background is a stage, never competition".
+ *  - **There is no dark foreground frame.** The spec's "dark foreground / bright
+ *    subject / hazy background" puts the near ground at the bottom of the value
+ *    range. The plate does the opposite: its near ground is the *brightest*
+ *    region in the picture (0.496 mean display over the bottom 150 rows) and its
+ *    party band is among the darkest (0.319). Our shipped frame ran the spec's
+ *    way round — foreground 0.337 against midground 0.405 — so the tier was not
+ *    subtle, it was inverted. `foreLift` is therefore retired to zero rather than
+ *    retuned: an operator that is wrong in sign has no good setting, and the near
+ *    field's brightness belongs to the key raking a sunlit meadow, which
+ *    `Lighting` now delivers.
  *
- * The band is expressed as a *ratio* of the focal distance with a metre floor,
- * so it covers the whole staggered party at the wide battle camera and collapses
- * onto one face at a closeup without either being re-authored per pose.
+ *  - **The background is hazed, not lifted.** `farLift` at luminance 0.148 plus
+ *    `farSaturation` 0.82 is a flat milk wash applied to everything past ~14 m,
+ *    and it measured exactly that: our background rocks came out at 0.539 display
+ *    and 0.194 saturation — *brighter than our own sky* and half its chroma,
+ *    which reads as fog on the lens rather than as distance. The plate's step
+ *    over the same depth is a plain mix toward its sky colour: near rock (41, 66,
+ *    93) to far rock (72, 89, 110) is `mix(near, sky, 0.178)`, predicting all
+ *    three channels to within three levels. That is a *distance-graded* operator
+ *    and a depth-zone constant cannot be one, so it now lives where it belongs —
+ *    in the scene's own `FogExp2`, which `Lighting.AERIAL_EXTINCTION_AT_RANGE`
+ *    drives to the plate's fraction at the plate's depth. Both far-tier trims
+ *    are retired to identity rather than reduced: with the fog carrying the
+ *    distance cue our background measures 0.309 saturation against the plate's
+ *    0.405 and 0.426 luminance against 0.341, i.e. still paler and flatter than
+ *    the target, so an operator whose only two moves are *lift* and *desaturate*
+ *    has nothing left to contribute here. The zonal machinery stays — it is a
+ *    shared shader and `setValueStructure` is the hook a stylised scene reaches
+ *    for — it simply has no work to do on a meadow with real air in it.
+ *
+ *  - **The subject was over-gained.** 2.1 was solved to lift a party measured at
+ *    display 0.314; the party now measures 0.428 against the plate's 0.319.
+ *    Inverting the ACES fit on both puts the correction at 0.626, i.e. 1.31 —
+ *    and the fill this rig's `Lighting` half now delivers is what pays for the
+ *    difference, which is the right place for it: a shadow side lifted by an
+ *    actual sky reads as light, the same shadow side lifted by a depth-keyed
+ *    exposure multiplier reads as a matte.
+ *
+ * `dehaze` rises with the fog density: the un-mix is what keeps the party out of
+ * the thicker air, and at 9 m the fog it is inverting is only 1.7% to begin with.
  */
 const VALUE_STRUCTURE = {
   amount: 1,
@@ -136,14 +369,14 @@ const VALUE_STRUCTURE = {
   minHalfWidth: 1.2,
   featherRatio: 0.35,
   minFeather: 1.6,
-  subjectGain: 2.1,
-  subjectContrast: 1.12,
-  subjectSaturation: 1.22,
+  subjectGain: 1.31,
+  subjectContrast: 1.08,
+  subjectSaturation: 1.18,
   subjectGrain: 0.15,
-  dehaze: 0.75,
-  foreLift: [0.043, 0.075, 0.095],
-  farLift: [0.115, 0.155, 0.175],
-  farSaturation: 0.82,
+  dehaze: 0.85,
+  foreLift: [0, 0, 0],
+  farLift: [0, 0, 0],
+  farSaturation: 1,
 };
 
 /**
@@ -403,11 +636,21 @@ class BloomPass extends Pass {
     this.prefilterUniforms = {
       tDiffuse: { value: null },
       uTexel: { value: new THREE.Vector2() },
-      // Threshold 1.0 exactly: only genuine HDR overspill blooms. If base
-      // albedo starts glowing, something upstream is emitting above 1.0 that
-      // should not be, and the fix belongs there, not here.
-      uThreshold: { value: 1.0 },
-      uKnee: { value: 0.6 },
+      // Threshold and knee together decide *what class of thing* is allowed to
+      // bloom, and the previous pair let almost anything. A knee of 0.6 against a
+      // threshold of 1.0 opens the high pass at scene radiance 0.4 — well below
+      // the level a lit diffuse surface reaches under a 2.9 key — so broad
+      // surfaces were contributing to the veil, which is what put 5.2% of our
+      // frame above display 0.75 against the plate's 1.5%.
+      //
+      // The threshold is rewritten every frame from `BLOOM_DISPLAY_THRESHOLD`
+      // and the live exposure; this is only its unit-exposure seed. The knee
+      // stays narrow — a tenth against a threshold above one, i.e. under a fifth
+      // of a stop — which is still wide enough that a highlight sliding along a
+      // moving blade ramps in rather than popping, and far too narrow for a lit
+      // diffuse surface to find its way in.
+      uThreshold: { value: BLOOM_SCENE_THRESHOLD_AT_UNIT_EXPOSURE },
+      uKnee: { value: 0.10 },
       // Firefly clamp. A single 60.0 spell-core texel would otherwise pump the
       // entire coarsest mip and strobe the whole frame.
       uClamp: { value: 24.0 },
@@ -417,15 +660,21 @@ class BloomPass extends Pass {
       tLower: { value: null },
       tHigher: { value: null },
       uTexel: { value: new THREE.Vector2() },
-      uRadius: { value: 0.72 },
+      // Narrower than the 0.72 an atmospheric dusk frame wanted. Scatter is what
+      // turns a glint into a veil, and with the threshold now admitting only
+      // glints a wide scatter would spread the few that remain across half the
+      // frame — the same broad glow, arrived at from the other direction.
+      uRadius: { value: 0.50 },
     };
     this.compositeUniforms = {
       tDiffuse: { value: null },
       tBloom: { value: null },
-      // REFERENCE_TARGET §8.5 mandates leaning harder on bloom than a realism
-      // target would; 0.42 against the art bible's 0.35 is that lean, and the
-      // wide radius keeps it a veil rather than a halo.
-      uStrength: { value: 0.42 },
+      // The reference plate is the authority here and it is not a bloomy image:
+      // a soft late-morning meadow with 1.5% of its pixels above display 0.75
+      // and no visible halo on any silhouette. 0.20 keeps a glint reading as
+      // *bright* — which is all a specular ping needs — without any of it
+      // reaching the surfaces around it.
+      uStrength: { value: 0.20 },
       uTint: { value: new THREE.Color(0.96, 1.0, 1.06) },
     };
 
@@ -784,7 +1033,7 @@ export class PostFX {
       uGradeAmount: { value: 1 },
       uGrain: { value: 0.035 },
       uGrainSeed: { value: 0 },
-      uVignette: { value: 0.28 },
+      uVignette: { value: VIGNETTE_MAX },
       uVignetteOffset: { value: 1.1 },
       // Literal display values for #0A1218: the vignette is applied *after*
       // sRGB encoding, so converting this to the linear working space (which
@@ -955,6 +1204,8 @@ export class PostFX {
 
   _bakeLut(texture, params) {
     bakeGradeStrip(params, LUT_SIZE, texture.image.data);
+    // After the named grade, never before it: see `BASE_CHROMA`.
+    applyChromaDiscipline(texture.image.data);
     texture.needsUpdate = true;
   }
 
@@ -1344,7 +1595,7 @@ export class PostFX {
     }
     this.compositeUniforms.uAberration.value = scalars.aberration + this._aberrationSpike;
     this.compositeUniforms.uGrain.value = scalars.grain;
-    this.compositeUniforms.uVignette.value = scalars.vignette;
+    this.compositeUniforms.uVignette.value = Math.min(scalars.vignette, VIGNETTE_MAX);
     this._gradeExposure = scalars.exposure;
 
     // Radial blur eases in and out — a hard switch reads as a dropped frame.
@@ -1549,6 +1800,13 @@ export class PostFX {
     // would sit a fifth of a stop apart and neither would be the true render.
     this.compositeUniforms.uExposure.value =
       this.renderer.toneMappingExposure * (diag ? 1 : (this._gradeExposure ?? 1));
+    // Bloom's high pass runs on *scene* radiance, several stages before the tone
+    // map, so its threshold has to track the exposure the frame will be graded
+    // through or it silently changes meaning every hour. See
+    // `BLOOM_DISPLAY_THRESHOLD`.
+    this.bloomPass.prefilterUniforms.uThreshold.value =
+      BLOOM_SCENE_THRESHOLD_AT_UNIT_EXPOSURE
+      / Math.max(1e-3, this.compositeUniforms.uExposure.value);
     // Quantised per frame index rather than per wall clock, so a capture at a
     // fixed frame count reproduces the same grain field exactly.
     this.compositeUniforms.uGrainSeed.value = (this._frame % 512) * 17.13;

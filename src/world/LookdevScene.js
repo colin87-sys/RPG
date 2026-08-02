@@ -144,7 +144,7 @@ const STAGE_LOOK = [STAGE.camX, STAGE_AIM_Y, STAGE.camZ - STAGE.aimDist];
 const BAY = { x: -34, z: 30 };
 
 /**
- * Where the material bar stands, and the clearing the treeline is kept out of.
+ * Where the material bar stands.
  *
  * The bar used to run *along* the bay's z axis with its camera at the end of
  * the row, so the nine cubes stacked one behind another in perspective and the
@@ -154,14 +154,15 @@ const BAY = { x: -34, z: 30 };
  * cubes at 0.95 m pitch is 7.6 m wide, and 9 m west of the grid puts the whole
  * row outside the `sphere-grid` pose's 3.4 m half-width at that depth.
  *
- * `CLEARING` then has to cover both installations: the far conifer belt
- * scatters over an annulus centred on the battle stage whose outer radius
- * swallows the bay whole, so without an explicit hole trees grow through the
- * sphere grid and the one frame whose job is reading material response becomes
- * unreadable.
+ * A `CLEARING` constant used to sit here, punching a hole in the treeline so it
+ * could not grow through the calibration installations. It is gone because the
+ * belt no longer scatters over an annulus that reaches them — every tree line is
+ * now a bounded disc well north of the stage, and `_floraMask` rejects anything
+ * at `z ≥ camZ + 1` outright, which covers the bay's z = 30 by a wide margin.
+ * A guard against a condition that can no longer arise reads as a live
+ * constraint, which is worse than no guard at all.
  */
 const BAR = { x: -43, z: 31 };
-const CLEARING = { x: -39, z: 30.5, radius: 15 };
 
 /**
  * Multiplier on the ART_BIBLE §3 fog density, via the hook Sky publishes.
@@ -503,13 +504,13 @@ const PARTY = [
  *    reads it as *large and further away*, which is the depth relationship an
  *    enemy needs, rather than as merely close.
  *  - **`ndc` −0.88, `depth` 8.20.** The pair is solved together against two hard
- *    edges. It stands at a heading of 56° off the lens, at which its projected
- *    silhouette is 2.96 m across — 0.558 of `ndc`, spanning −1.159 → −0.601 —
- *    and Auren's own silhouette starts at −0.610, so the two meet within a
- *    pixel and never overlap. The 28% of the creature past the left edge is the
- *    plate's own device (it puts its threat entirely off-frame) taken one step
- *    in. The depth is what makes that fit: at the previous staging's 5.60 the
- *    same animal covers 0.82 of `ndc` and buries the party leader.
+ *    edges. With `turnToLens` applied it stands at a heading of 42°, at which
+ *    its projected silhouette is 2.63 m across — 0.495 of `ndc`, spanning
+ *    −1.127 → −0.633 — and Auren's own silhouette starts at −0.610, so the two
+ *    clear by 22 px and never overlap. The 26% of the creature past the left
+ *    edge is the plate's own device (it puts its threat entirely off-frame)
+ *    taken one step in. The depth is what makes that fit: at the previous
+ *    staging's 5.60 the same animal covers 0.73 of `ndc` and buries the leader.
  *  - **It stands on the lawn, a metre in front of the bed's front edge.** Not an
  *    accident of the solve: at 2.05 m its belly line is 0.9 m and the bed's
  *    lavender runs to 1.5, so an animal placed *in* the flowers loses all four
@@ -531,6 +532,25 @@ const ENCOUNTER = {
   height: 2.05,
   hover: 0.014,
   bobRate: 1.05,
+  /**
+   * Degrees the animal is turned back **toward the lens** from the bearing it
+   * would face if it were simply aimed at the party's centroid.
+   *
+   * The party's own `face` column exists for exactly this reason and the enemy
+   * needs it just as much: aimed dead at the line the creature stands 56° off
+   * the lens, which is near broadside, and a 3.0 m animal seen broadside is 0.56
+   * of `ndc` — measured on the first capture, nearly half of it fell past the
+   * left edge and what remained was mostly ribcage. Turning it 14° back presents
+   * the head at 12° off the lens instead of 27°, and shortens the projected
+   * silhouette to 2.62 m (0.49 of `ndc`), which is what puts the face, both
+   * eyes, both ears and the forelegs inside the frame at once.
+   *
+   * It is also better staging than the geometry that produced it. A creature
+   * squared up to its target is posed; one caught mid-turn, still bringing its
+   * head round, is doing something — and 14° is small enough that the line still
+   * reads as being addressed by it.
+   */
+  turnToLens: 14,
   /** Fixed, so two captures of this stage dress the creature identically —
    *  `buildCreature` seeds its mottle and its tendril drift off this. */
   seed: 0x5c0a11ed,
@@ -852,10 +872,12 @@ const CAMERA_POSES = {
    *
    * Station point is east of the stage looking north-west, so the camera is
    * ~40° off the battle axis and the two frames share no geometry: here the
-   * cast is seen along the line rather than across it, the cherry tree closes
-   * the left edge and the boulder wall the top. It exists to prove the meadow
-   * is a *place* — that the bed has depth behind the line and the bank has form
-   * — rather than a backdrop painted at one bearing.
+   * cast is seen along the line rather than across it, the mid-ground boulders
+   * and the broadleaf close the left edge and the boulder wall the top. (The
+   * cherry used to do that job; it moved out to the plate's own corner station,
+   * which puts it behind this camera's left shoulder.) It exists to prove the
+   * meadow is a *place* — that the bed has depth behind the line and the bank
+   * has form — rather than a backdrop painted at one bearing.
    */
   wide: {
     pos: [7.40, 1.95, 8.90], look: [-1.20, 0.85, 0.60],
@@ -1541,15 +1563,23 @@ export class LookdevScene extends Scene {
     // behind the line, so the party read as pasted onto the meadow rather than
     // standing in it.
     //
-    // Kept short (0.30–0.55 m, i.e. knee height on a chibi) and confined to the
-    // one column of floor no figure stands on: at this depth the frame is only
-    // 2.2 m of half-width, so anything much left of centre would cross the
-    // party's own silhouettes rather than frame them.
-    plant(buildLavender, 1.55, 5.05, {
-      radius: 1.5, count: 260, height: [0.34, 0.58], hueShift: +0.6, falloff: 0.2, foliage: 0.8,
+    // **Sized against the frame, not against the plant.** At z ≈ 4.5 the lens is
+    // 3.1 m from the ground it stands on and the frame is 2.0 m of half-width,
+    // so a 0.5 m flower there covers 22% of frame *height* — the first capture
+    // of this drift put lavender and tulips over three of the six party members
+    // from the waist down and into the HUD column. 0.26–0.40 m covers 12–18%,
+    // which is a band along the bottom edge rather than a hedge, and the whole
+    // drift is pushed right to x 2.1 so its visible half sits in the corner the
+    // HUD stack already owns instead of over a face.
+    //
+    // (The other half of that failure was a real bug in `buildLavender`, whose
+    // basal leaves were an absolute height regardless of the plant's — see the
+    // note on `leafScale` there. Both had to go: shrinking the drift alone would
+    // have left metre-tall leaves around 30 cm flowers.)
+    plant(buildLavender, 2.10, 4.55, {
+      radius: 1.25, count: 150, height: [0.26, 0.40], hueShift: +0.6, falloff: 0.2, foliage: 0.7,
     });
-    plant(buildTulips, 1.35, 4.85, { radius: 1.6, count: 90, height: [0.30, 0.46] });
-    plant(buildSeedGrass, 1.9, 5.2, { radius: 1.2, count: 70, height: [0.62, 0.95] });
+    plant(buildTulips, 1.95, 4.40, { radius: 1.25, count: 60, height: [0.22, 0.34] });
 
     // --- trees --------------------------------------------------------------
     // 1200 clusters, not 420. The plate's cherry is an opaque mass of blossom
@@ -2292,7 +2322,21 @@ ${shader.fragmentShader}`
     const place = ENCOUNTER_PLACE;
     const y = groundHeight(place.x, place.z);
     creature.root.position.set(place.x, y, place.z);
-    this._encounterHeading = headingTo(place, PARTY_CENTROID);
+    // Aimed at the line, then turned back toward the lens — see
+    // `ENCOUNTER.turnToLens`. The camera bearing is measured from the creature's
+    // own station rather than assumed to be straight down -Z, for the same
+    // reason `presentationRotation` measures it for every party slot: at the
+    // left edge of a 40° frame the lens sits 30° off the world axis, and
+    // ignoring that is how a stated presentation angle ships as something else.
+    // Clamped to the gap rather than added blind: a later restaging that put the
+    // creature nearly square to the lens would otherwise have `turnToLens` carry
+    // it *past* square and start closing the far side of the head, which is the
+    // opposite of what the constant is for.
+    const camBearing = Math.atan2(STAGE.camX - place.x, STAGE.camZ - place.z);
+    const aimed = headingTo(place, PARTY_CENTROID);
+    const gap = camBearing - aimed;
+    const turn = Math.min((ENCOUNTER.turnToLens * Math.PI) / 180, Math.abs(gap));
+    this._encounterHeading = aimed + Math.sign(gap) * turn;
     creature.root.rotation.y = this._encounterHeading;
     this.scene.add(creature.root);
     LookdevScene._markContactCasters(creature.root);

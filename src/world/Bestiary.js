@@ -61,7 +61,7 @@
  *
  * The budget is the reason for that. The capture harness renders on CPU
  * SwiftShader and a recent round failed a 180 s screenshot timeout, so the whole
- * catalogue is 5.0 k triangles and 4.1 k vertices — 2024 / 1236 / 1724 for the
+ * catalogue is 5.0 k triangles and 4.1 k vertices — 2046 / 1236 / 1724 for the
  * quadruped, the floater and the insectoid. Radial counts are 4–6 on limbs and
  * 10–12 on bodies: a 6-gon leg is indistinguishable from a 16-gon leg at battle
  * distance and costs a third as much to raster and to push through the outline
@@ -1526,14 +1526,36 @@ export function buildCreature(id, opts = {}) {
     normalMap: forge ? forge.texture('leather/normal', { repeat: 2 }) : null,
     normalScale: new THREE.Vector2(0.85, 0.85),
     roughnessMap: forge ? forge.texture('leather/roughness', { repeat: 2 }) : null,
-    // Well under the preset's defaults. A creature is a dark mass by the plate
-    // measurement, and a prop-class rim at full gain lights every limb tube's
-    // own contour — which is what turned the previous enemy to chrome.
-    rimGain: 0.60,
-    rimMax: 0.20,
-    specGain: 0.18,
-    envMapIntensity: 0.20,
-    envSpecular: 0.10,
+    /**
+     * Well under the preset's defaults, and cut again after the first capture
+     * that staged this creature as the frame's subject rather than as a distant
+     * mob.
+     *
+     * Module finding 1 is the target: the plate's subject sits at **0.53 of the
+     * ground's median**, and measured on that capture the staged animal came
+     * back *lighter* than the meadow it stands on — a pale grey-lavender mass
+     * where a dark one belongs, with its authored `#2b2136` back nowhere in the
+     * result. The albedo was never the problem. A creature is built almost
+     * entirely of swept tubes, and a tube is all grazing angle: exactly the
+     * geometry `Flora` records for a blade of grass, where the rim covers the
+     * whole surface instead of its contour and the Fresnel term drives the
+     * environment specular to its F90 everywhere at once. Three white,
+     * albedo-independent terms over a dark hide is how a dark hide stops being
+     * dark.
+     *
+     * So all three come down hard rather than one of them a little: the rim to a
+     * quarter of the prop default with a ceiling at 0.09, the Blinn lobe to 0.06
+     * (an animal has no polished surface on it — the crystal growth is a
+     * separate mesh with its own material), and the environment specular to
+     * 0.03. The sky still reaches the shaded side through `envMapIntensity`,
+     * which is the term that is multiplied by the albedo and therefore the only
+     * one that can lift a flank without bleaching it.
+     */
+    rimGain: 0.22,
+    rimMax: 0.09,
+    specGain: 0.06,
+    envMapIntensity: 0.22,
+    envSpecular: 0.03,
     shadowMix: 0.52,
     lighting: opts.lighting,
   }));

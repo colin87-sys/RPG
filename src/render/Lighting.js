@@ -19,17 +19,20 @@
  *
  *  2. **FILL** — one ambient budget spent across two terms rather than two terms
  *     each spending whatever they like. A hemisphere light, never an
- *     `AmbientLight` (ART_BIBLE section 7.5: ambient above 20% kills form, and a
- *     constant term kills it entirely), and the PMREM probe, which this module
- *     owns per the ARCHITECTURE service table and which used to sit outside the
- *     budget entirely. The hemisphere's sky colour is the *actual*
- *     rendered sky zenith pushed halfway to `SHADOW_TINT`, which is the literal
- *     formula in section 2.1's shadow rule. Its ground colour is
- *     `BOUNCE_GROUND`. Both are run through a saturation floor before they
- *     reach the light, so the rule ("a white surface in full shadow must not
- *     eyedrop to zero saturation") is enforced by construction rather than by
- *     hoping the inputs were tinted. How the budget is divided, and why it is
- *     bounded against the key rather than taken as an absolute, is
+ *     `AmbientLight` (a constant term kills form entirely), and the PMREM probe,
+ *     which this module owns per the ARCHITECTURE service table. The
+ *     hemisphere's sky colour is the *actual* rendered sky zenith pushed halfway
+ *     to `SHADOW_TINT`, which is the literal formula in section 2.1's shadow
+ *     rule; its ground colour is `BOUNCE_GROUND`. Both are run through a
+ *     saturation floor and a hue window so the rule ("a white surface in full
+ *     shadow must not eyedrop to zero saturation") is enforced by construction,
+ *     and both are then **normalised to a fixed luminance** so that those rules
+ *     govern hue alone and the *level* is decided in exactly one place. That
+ *     split is not cosmetic — before it, the fill's real contribution was its
+ *     intensity times a 0.088-luminance navy, i.e. an order of magnitude under
+ *     what the budget believed it was spending, and every shadow side in the
+ *     game sat at 13% of its lit side. How much the budget is, why it is a share
+ *     of the key rather than an absolute, and what it is solved against, is
  *     `AMBIENT_KEY_SHARE`.
  *
  *  3. **RIM** — a second directional light opposite the key in azimuth, low over
@@ -95,7 +98,7 @@
  *    rim light". An earlier revision made the character rim warm amber on the
  *    argument that a teal rim on a teal mist has no hue contrast. The premise is
  *    right; the conclusion is not, because hue is not the only axis. The mist is
- *    held under `ENV_CHROMA_CEILING` and the rim is allowed
+ *    held under `HAZE_CHROMA_CEILING` and the rim is allowed
  *    `CHAR_RIM_CHROMA_CEILING`, better than 1.7× as much, and the radiance solve
  *    puts it a stop and a half above the mist in value — so the edge separates
  *    on chroma and value while the frame keeps its cool cast. A warm sliver on a
@@ -136,6 +139,15 @@
  * always visible* — idle ones simply sit at intensity 0. Acquire never fails; if
  * the pool is saturated it evicts the lowest-priority, oldest light, because a
  * missing light on a Firaga is far more visible than a dimmed torch.
+ *
+ * **Where the numbers come from.** The elevation band, the fill share, the
+ * shadow depth, the haze colour, the haze density and the exposure calibration
+ * are all fitted to `docs/reference/bravely01.jpg` and each states its
+ * measurement at its own definition. Where the plate and the prose specs
+ * disagree the plate wins — `docs/reference/README.md` says so, and on the two
+ * points where it mattered here (the exposure of the frame and the depth of the
+ * shadow band) the specs were not slightly off, they were the wrong side of the
+ * target.
  *
  * OWNED BY: render/Lighting.js.
  */
@@ -234,13 +246,22 @@ const SHADOW_DEPTH_SLACK = 2;
  * modelling. And the ground plane, which faces the light square on, takes the
  * *full* key, so the field is the brightest thing in frame and the party is not.
  *
- * Clamping the elevation to 34 degrees fixes all three geometrically rather than
- * by grading: the shadow grows to 1.8 m and fans out either side of the figure,
- * the horizontal component rises to 0.83 so the key rakes across the body and
- * writes a real warm/cool split, and the ground's own N·L drops from 0.82 to
- * 0.56 — so the field darkens by a third while the characters brighten, which is
- * exactly the "lift the subject relative to the field" the value note asks for,
- * bought without touching a single exposure.
+ * Clamping the elevation fixes all three geometrically rather than by grading:
+ * the shadow grows and fans out either side of the figure, the horizontal
+ * component rises so the key rakes across the body and writes a real warm/cool
+ * split, and the ground's own N·L drops — so the field darkens while the
+ * characters brighten, which is exactly the "lift the subject relative to the
+ * field" the value note asks for, bought without touching a single exposure.
+ *
+ * The ceiling is **40 degrees**, measured off `bravely01.jpg` rather than
+ * argued down from the geometry alone. The plate's cast shadows run short and
+ * forward-left of each figure and its terminators sit low on the torso rather
+ * than up in the hair, which is a mid-morning sun — not the 55-62 degrees the
+ * section 3 table puts overhead at the stage hour, and not the 34 an earlier
+ * revision of this file dramatised it down to either. Thirty-four raked the key
+ * so far across the body that the lit side became a narrow band on one flank;
+ * forty keeps the terminator on the chest where the plate has it while still
+ * throwing a shadow the fixed 9-degree-down battle camera can see.
  *
  * **Azimuth is untouched, and that is what keeps this honest.** The review's
  * test for a committed key is "you can point at the sun", and that is a
@@ -254,33 +275,90 @@ const SHADOW_DEPTH_SLACK = 2;
  * the body; it just keeps a floor under the stage.
  */
 const KEY_STAGE_ELEVATION_MIN_DEG = 12;
-const KEY_STAGE_ELEVATION_MAX_DEG = 34;
+const KEY_STAGE_ELEVATION_MAX_DEG = 40;
 
 /**
- * The ambient budget, as a ceiling *relative to the key*, plus an absolute floor.
+ * The daylight white balance the meadow key is held at, and the sun height band
+ * over which that hold fades in.
  *
- * ART_BIBLE section 7.5 puts the limit at "ambient above 20% kills form", and
- * the section 3 `ambient` column is written as an absolute. Those two only agree
- * at one hour. Measured on the stage frame the rig was actually producing: the
- * section 3 budget at t=0.56 is 0.517, the probe was independently carrying 0.28
- * on top of it, and the key delivered 2.45 to a lit ground plane — so the real
- * ambient share was 20% before a single bounce, and the deepest shadow the frame
- * could contain was a 4:1 step. Two stops is not a shadow, it is a tint, and it
- * is why the review measured the whole image inside a 45–80% luminance band with
- * no dark anchor anywhere in it.
+ * Measured off `docs/reference/bravely01.jpg` rather than transcribed: the
+ * plate's lit surfaces carry a gentle warm cast — the white hat's sunlit crown
+ * eyedrops to (185, 195, 206) against an underside of (132, 141, 143), so the
+ * *lit* side is barely warm at all and the frame's warmth lives in the grass
+ * and skin rather than in a hot amber key. Sampling the section 3 table at the
+ * stage hour and mixing it in linear light gives (255, 222, 195), which is a
+ * ~4900 K blackbody: the table is already almost exactly right for this hour,
+ * and the point of this band is not to *change* it but to stop it drifting out
+ * of the late-morning look as the clock moves either side of noon.
  *
- * The ceiling is therefore expressed the way `RIM_KEY_SHARE` already expresses
- * the back light's: as a share of the key, so the relationship the rule is
- * actually about holds at every hour instead of at one. At 0.15 a lit surface is
- * roughly 7:1 over its own shadow before cast occlusion, which is a true three-
- * stop drop and gives the frame a black end to structure against. The floor is
- * what stops the same rule crushing a night frame, where the key is the dim ring
- * and a 15% share would be very nearly zero: ambient is the only thing lighting
- * a moonlit scene, and section 3 raises the column to 0.35 at dusk for exactly
- * that reason.
+ * The band is therefore a clamp with a floor and a ceiling, applied only while
+ * the sun is genuinely high. `dayness` is the wrong gate for it — that term is
+ * still 0.86 at the hero dusk key, where the sun is a 1900 K disc and clamping
+ * it to 4400 K would delete the one hour the art direction is composed around.
+ * `KEY_DAYLIGHT_HEIGHT_*` is a *sun height* window instead: full authority with
+ * the sun above ~46 degrees, none below ~27, so the meadow hours are guaranteed
+ * and every low-sun hour keeps the table's colour untouched.
  */
-const AMBIENT_KEY_SHARE = 0.11;
-const AMBIENT_MIN = 0.14;
+const KEY_WHITE_MIN_K = 4400;
+const KEY_WHITE_MAX_K = 5600;
+const KEY_DAYLIGHT_HEIGHT_LOW = 0.45;
+const KEY_DAYLIGHT_HEIGHT_HIGH = 0.72;
+
+/**
+ * The ambient budget, as a target share *of the key*, plus an absolute floor.
+ *
+ * This is the number the art director's "character shadow sides are grey-black"
+ * note is actually about, and the arithmetic the previous revision was doing had
+ * gone badly wrong in a way no amount of tuning the share would have reached.
+ *
+ * The hemisphere carries a *colour* as well as a level, and that colour was
+ * `mix(skyZenith, SHADOW_TINT, 0.5)` — the section 2.1 shadow recipe, which is a
+ * dark navy-teal measuring **0.088 relative luminance**. three multiplies colour
+ * by intensity, so the fill's real contribution was `fillIntensity × 0.088`. At
+ * the stage hour the budget solved to 0.33, the probe took 0.125 of it and the
+ * hemisphere was left with 0.205 — i.e. **0.018** of actual radiance against a
+ * key delivering 1.69 to a lit ground plane. That is a fill/key ratio of about
+ * 1%, not the 11% the constant claimed, and it puts a shadow side at roughly
+ * 13% of its lit side on screen. Thirteen percent is not a cool shadow, it is a
+ * hole, and it is exactly what the review measured.
+ *
+ * Two changes make the number mean what it says. `_normaliseFill` rescales both
+ * hemisphere colours to unit luminance so the *level* lives entirely in the
+ * intensity and the *hue* entirely in the colour (which is what the shadow rule
+ * is a statement about — it constrains hue and saturation, never brightness).
+ * And the share becomes a target rather than a ceiling clamped under the section
+ * 3 `ambient` column: that column is written against a fill colour this rig no
+ * longer uses, so as an upper bound it was silently deciding the whole budget.
+ * It survives as a *floor*, which is the job it is genuinely good at — section 3
+ * raises it at night precisely when the key falls away.
+ *
+ * 0.30 is solved from the plate, not chosen. `bravely01.jpg` measures a fully
+ * unlit surface against a fully lit one twice — the white hat's underside at
+ * 0.545 display against its crown at 0.758, and the cast shadow under Gloria at
+ * 0.276 against open ground at 0.411 — i.e. **67–72% on screen**, which through
+ * the sRGB encode is a linear ratio near 0.41. Solving `φ/(1 + φ) = 0.29` for a
+ * key of 2.91 raking a ground plane at 40 degrees puts the hemisphere at 0.71
+ * with the probe taking 0.28 alongside it, and lands a torso's shadow side near
+ * 55% of its lit side on screen — the bottom of the 55–60% band this workstream
+ * was given, and a little firmer than the plate so a chibi keeps its form at the
+ * 80 px the battle camera gives it.
+ */
+const AMBIENT_KEY_SHARE = 0.34;
+const AMBIENT_MIN = 0.34;
+
+/**
+ * The ground bounce's luminance, as a share of the sky fill's.
+ *
+ * Once both hemisphere colours carry hue only, *something* has to say which of
+ * the two is brighter, and equal is the one answer that is definitely wrong: it
+ * would light a chibi's chin as hard as the top of its head and flatten exactly
+ * the form the fill is being raised to reveal. Half is the meadow's own
+ * radiometry — the field is a ~0.25-albedo diffuser seeing a bright sky and a
+ * raking sun, so it returns roughly half of what the sky above delivers — and it
+ * is what the plate shows: undersides that are warm and clearly readable
+ * (the white hat's brim at 0.545 display) but never as bright as the crown.
+ */
+const BOUNCE_SKY_SHARE = 0.5;
 
 /**
  * The PMREM probe's share of that budget, and why the rig clamps it at all.
@@ -343,49 +421,61 @@ const AMBIENT_PROBE_SHARE = 0.38;
  * The aerial-perspective floor: the fraction of a surface's radiance the haze
  * must have replaced by the far end of the rig's own shadow range.
  *
- * Point 10 of the brief asks for three value tiers — dark foreground, bright
- * subject, hazy background — and the third one does not exist unless distance
- * does something. Measured on the stage frame, `FogExp2` was running at density
- * 0.00213, which is 0.4% extinction at 30 m and 4% at 100 m: the treeline
- * rendered at full contrast and sat in the same luminance band as the party
- * standing 10 m from the lens. A background that does not recede is not a
- * background, it is wallpaper, and no amount of grading separates it from the
- * subject afterwards because the information is simply not there.
- *
  * Stated as an extinction at `shadowDistance` rather than as a density, because
  * density is a per-scene quantity with no meaning on its own — the same number
  * is imperceptible on a 20 m arena and opaque on a 300 m vista, and the rig
  * already knows how deep each scene's stage is because the scene told it.
  * Applied as a **floor**: a scene asking for more haze keeps it, so a night
- * battlefield or a storm is never fought. Thirty percent at the stage's far edge
- * puts roughly 3% on the party at 20 m — they stay crisp, which BRAVELY section
- * 5 requires — and better than half on anything past 100 m.
+ * battlefield or a storm is never fought.
+ *
+ * 0.52 is fitted to `bravely01.jpg`, which turns out to be a remarkably clean
+ * measurement because the plate contains the same material at two depths. Its
+ * near rock mass eyedrops to (41, 66, 93) and the receding rocks behind the
+ * right-hand tree to (72, 89, 110), against a sky of (181, 202, 214). Solving
+ * `far = mix(near, sky, f)` on luminance gives f = 0.178, and that single
+ * fraction then predicts all three channels to within three levels — so the
+ * plate's distance cue is a plain mix toward its own sky colour, not a
+ * desaturation and a lift applied separately.
+ *
+ * The stage sets `shadowDistance` to 60 m and stands its treeline at ~30 m, so
+ * 0.52 at 60 m is a density of 0.0144: 17% of the way to the haze at the tree
+ * belt, which is the plate's number at the plate's equivalent depth, 34% on the
+ * boulders behind it, and 1.7% on the party at 9 m — where the composite's
+ * `uDehaze` removes even that. The previous 0.30 put 8.5% on the treeline, which
+ * is under the threshold at which an eye reads depth at all, and left the
+ * background to be faked afterwards by a flat lift in the grade.
  */
+const AERIAL_EXTINCTION_AT_RANGE = 0.52;
+const AERIAL_DENSITY_K = Math.sqrt(-Math.log(1 - AERIAL_EXTINCTION_AT_RANGE));
 
 /**
- * The aerial-perspective floor: the fraction of a surface's radiance the haze
- * must have replaced by the far end of the rig's own shadow range.
+ * The colour and the on-screen value the haze converges to in daylight.
  *
- * Point 10 of the brief asks for three value tiers — dark foreground, bright
- * subject, hazy background — and the third one does not exist unless distance
- * does something. Measured on the stage frame, `FogExp2` was running at density
- * 0.00213, which is 0.4% extinction at 30 m and 4% at 100 m: the treeline
- * rendered at full contrast and sat in the same luminance band as the party
- * standing 10 m from the lens. A background that does not recede is not a
- * background, it is wallpaper, and no amount of grading separates it from the
- * subject afterwards because the information is simply not there.
+ * `FogExp2` carries one colour for every depth, so that colour *is* the frame's
+ * horizon, its distance cue and — through the scene's fully-fogged skirt — the
+ * band where the ground meets the sky. Getting it wrong is not a subtle error.
  *
- * Stated as an extinction at `shadowDistance` rather than as a density, because
- * density is a per-scene quantity with no meaning on its own — the same number
- * is imperceptible on a 20 m arena and opaque on a 300 m vista, and the rig
- * already knows how deep each scene's stage is because the scene told it.
- * Applied as a **floor**: a scene asking for more haze keeps it, so a night
- * battlefield or a storm is never fought. Thirty percent at the stage's far edge
- * puts roughly 3% on the party at 20 m — they stay crisp, which BRAVELY section
- * 5 requires — and better than half on anything past 100 m.
+ * The previous anchor was the palette's `FOG_NEAR` (#6E93A6), pulled to at least
+ * 55% in chromaticity and then capped at 0.125. Measured against
+ * the plate that is nearly twice as chromatic as it should be: `FOG_NEAR` sits
+ * 0.150 from equal energy and the plate's sky sits **0.069**, at essentially the
+ * same hue (205 against 200). A haze that saturated reads as a coloured scrim
+ * rather than as air, and because `mixChroma` preserves the incoming luminance
+ * it also inherited whatever value `Sky` happened to be painting the horizon —
+ * which on the shipped frame left the background *darker* than the sky above it,
+ * the one arrangement that cannot read as distance.
+ *
+ * So the anchor is the plate's own sky, and the value is authored where it is
+ * meaningful: on screen. `HAZE_DISPLAY_LUMA` is inverted through the same ACES
+ * fit and sRGB encode the composite grades with, and divided by the live
+ * exposure at use, exactly as `RIM_DISPLAY_CAP` is — a pre-tonemap constant
+ * cannot promise a display value while the clock is moving exposure. It is a
+ * floor rather than an assignment, and it fades out with `dayness`, so a night
+ * or storm frame keeps the dark haze its hour calls for.
  */
-const AERIAL_EXTINCTION_AT_RANGE = 0.30;
-const AERIAL_DENSITY_K = Math.sqrt(-Math.log(1 - AERIAL_EXTINCTION_AT_RANGE));
+const HAZE_SKY = 0xb5cad6;
+const HAZE_CHROMA_CEILING = 0.075;
+const HAZE_DISPLAY_LUMA = 0.72;
 
 /**
  * Rim azimuth offset from the key.
@@ -463,7 +553,7 @@ const RIM_ELEVATION_BASE_DEG = 18;
  * frame — where the key is the dim ring — from losing the environment's back
  * separation entirely; the ceiling stops a 3.0 noon key from promoting it.
  */
-const RIM_KEY_SHARE = 0.16;
+const RIM_KEY_SHARE = 0.19;
 const RIM_INTENSITY_MIN = 0.12;
 const RIM_INTENSITY_MAX = 0.45;
 
@@ -525,6 +615,33 @@ const RIM_PEAK_LUMA_FLOOR_SHARE = 0.62;
  * actually graded through.
  */
 const RIM_DISPLAY_CAP = 0.85;
+
+/**
+ * A single scalar on the section 3 exposure column, calibrated against
+ * `docs/reference/bravely01.jpg`.
+ *
+ * Everything else in this file is a *ratio* — fill against key, shadow against
+ * lit, haze against distance — and ratios say nothing about where the whole
+ * histogram sits. Measured side by side against the plate, ours sat most of a
+ * stop hot: median display 0.427 against 0.316, p95 0.754 against 0.631, and
+ * 5.2% of the frame above 0.75 against the plate's 1.5%. An image that bright
+ * cannot carry the plate's chroma either, because ACES pulls everything toward
+ * white as it climbs the shoulder — which is most of why our saturation measured
+ * 0.388 against 0.503 while our *albedo* is, if anything, louder than the
+ * plate's.
+ *
+ * 0.61 is solved on the histogram rather than dialled: inverting the ACES fit on
+ * our p95 and the plate's gives 0.62 and on the medians 0.58, with the small
+ * remaining difference being the plate's lifted black point, which `SHADOW_FLOOR`
+ * in `PostFX` supplies. Measured across the change the frame lands at median
+ * 0.316 against the plate's 0.316, p95 0.628 against 0.631, and 1.1% of pixels
+ * above 0.75 against 1.5% — i.e. nothing broad in the frame blooms any more. Applied to the *target* exposure so it eases with every
+ * other time-of-day term, and applied here rather than in the composite so that
+ * `_rimSceneCap` — which is authored on screen and inverted through this same
+ * exposure — stays true, and so a frame rendered without the post chain grades
+ * the same way.
+ */
+const EXPOSURE_CALIBRATION = 0.61;
 
 /**
  * The rim's *shape*, published to every toon material the rig lights.
@@ -674,7 +791,7 @@ const RIM_KEY_TINT = 0.2;
  *
  * The separation the mist demands is bought on *chroma and value* instead, and
  * both are already guaranteed by numbers this file owns. `_conformAtmosphere`
- * holds the haze under `ENV_CHROMA_CEILING` (0.125 from equal-energy) while
+ * holds the haze under `HAZE_CHROMA_CEILING` (0.075 from equal-energy) while
  * `CHAR_RIM_CHROMA_CEILING` lets the rim sit at 0.28; `RING_GLOW` measures
  * 0.259, so the rim carries better than 1.7× the mist's chroma at the same hue
  * family — a saturated cyan edge against a desaturated grey-teal band. On top of
@@ -755,10 +872,19 @@ const VSM_RADIUS_MAX = 3;
 /** Enough taps that the widest kernel above does not band on flat ground. */
 const VSM_BLUR_SAMPLES = 12;
 
-/** Shadows are never fully black — section 2.3 crushes blacks to ~0.02 and
- *  tints them, so leaving 6% of the key in shadow keeps form readable inside
- *  the shadow mass instead of dumping it onto the fill alone. */
-const SHADOW_INTENSITY = 0.94;
+/**
+ * How much of the key a cascade shadow removes.
+ *
+ * Paired with `AMBIENT_KEY_SHARE` and solved against the same measurement, so
+ * the two cannot drift: with the fill at φ ≈ 0.29 of the key, a cast shadow
+ * reaching the plate's measured 0.67 display (0.41 linear) needs to leave
+ * `0.41(1 + φ) − φ ≈ 0.17` of the key behind. Raising the fill without lowering
+ * this number would have overshot — a brighter fill lifts the shadow *and* the
+ * lit side, so the occlusion has to bite harder to keep the same ratio, which is
+ * the opposite of the intuition and the reason both constants are stated here
+ * with their shared solve rather than tuned one at a time.
+ */
+const SHADOW_INTENSITY = 0.83;
 
 /** Exponential-smoothing time constants, in seconds. All comfortably above the
  *  150 ms floor ART_BIBLE section 7.8 puts on any visible state change. */
@@ -785,7 +911,7 @@ const FOG_CHROMA_TOLERANCE = 0.035;
 const FOG_CHROMA_RANGE = 0.100;
 
 /**
- * Chroma ceilings, as distance from the equal-energy point.
+ * The key's chroma ceilings, as distance from the equal-energy point.
  *
  * The key's ceiling is ~1.6x `KEY_SUN`'s own chroma. Section 2.2 allows only
  * elemental magic to reach full chroma, and the key is the term that paints
@@ -796,23 +922,21 @@ const FOG_CHROMA_RANGE = 0.100;
  * takes better than half that chroma out and lands the light on `KEY_SUN`'s own
  * hue family, which is the colour section 2.1 named for it in the first place.
  *
- * The environment ceiling is deliberately *below* both fog keys (`FOG_NEAR` is
- * 0.146 from neutral, `FOG_FAR` 0.082): REFERENCE_TARGET section 3 requires
- * environment saturation to sit under character saturation, and fog is the
- * single largest area of chroma in an atmospheric frame. A character's albedo
- * has nothing to compete with if the haze it stands in is as saturated as its
- * skin — which is precisely how a salmon face plate camouflages against a
- * salmon sky.
+ * The haze's own ceiling lives with `HAZE_SKY`; it is
+ * deliberately *below* both section 2.1 fog keys (`FOG_NEAR` is 0.146 from
+ * neutral, `FOG_FAR` 0.082) because fog is the single largest area of chroma in
+ * an atmospheric frame and `bravely01.jpg` measures its sky at 0.069. A
+ * character's albedo has nothing to compete with if the haze it stands in is as
+ * saturated as its skin.
  */
 const KEY_CHROMA_CEILING = 0.24;
 const RING_CHROMA_CEILING = 0.26;
-const ENV_CHROMA_CEILING = 0.125;
 
 /**
  * The character rim's ceiling, and the only one in this file that is deliberately
  * the *highest* of the set.
  *
- * The ordering is the brief's, stated as numbers: environment 0.125 < key 0.24 <
+ * The ordering is the brief's, stated as numbers: haze 0.075 < key 0.24 <
  * character rim 0.28 < magic, which alone is unbounded (section 2.2).
  * REFERENCE_TARGET section 3 requires environment saturation to sit below
  * character saturation, and the review's blind comparison put the failure in
@@ -823,34 +947,27 @@ const ENV_CHROMA_CEILING = 0.125;
 const CHAR_RIM_CHROMA_CEILING = 0.28;
 
 /**
- * How far the conformed fog is pulled toward `FOG_NEAR` after projection.
+ * How far the conformed fog is pulled onto the haze anchor after projection.
  *
  * The gamut projection guarantees the fog lands *somewhere* on section 2.1's
  * cool-to-warm axis, and for the mauve dusk key the nearest legal point is the
  * warm end — `FOG_FAR`, parchment. That is legal and it is also wrong for this
- * frame: section 2.1 assigns `FOG_NEAR`'s cool teal to "ground level / short
- * distances", REFERENCE_TARGET section 4 makes teal the dominant hue "across
- * mist, sky, UI and rim light", and `FogExp2` carries one colour for both ends
- * of that journey. With the battle stage 10–25 m deep, the colour the player
- * actually sees integrated along every ray is the *near* one, so anchoring the
- * single available value at the warm end put a salmon haze behind a cast that
- * had nothing cool anywhere in frame to read against.
+ * frame: `FogExp2` carries one colour for both ends of the journey, and with the
+ * battle stage 10–40 m deep the colour the player actually sees integrated along
+ * every ray is the near one.
  *
- * Relaxed slightly in full daylight, where the far haze genuinely is the larger
- * share of what the camera sees through — but only slightly, and both figures
- * are far past half. That is not enthusiasm, it is geometry: `FOG_NEAR` and
- * `FOG_FAR` sit on *opposite sides* of the neutral point in chromaticity, so the
- * segment between them passes within 0.02 of equal-energy at its midpoint. A
- * half-way bias measures out as the grey-teal `#7E8889` — the same
- * neutral-crossing trap `BOUNCE_NIGHT_CHROMA` documents for the ground bounce,
- * and grey haze behind a cast is the failure the review named, not a fix for it.
- * Landing near `FOG_NEAR` itself puts the frame's largest area ~0.10 from
- * neutral at hue 199: unmistakably teal, and the re-conform that follows holds
- * it inside `ENV_CHROMA_CEILING` so the haze can never out-saturate the
- * characters standing in it.
+ * The bias is near-total in daylight and stays high at low sun. That is not
+ * enthusiasm, it is geometry: a partial mix between two anchors on *opposite*
+ * sides of the neutral point passes within 0.02 of equal energy at its midpoint,
+ * so a half-way bias measures out as a dead grey — the same neutral-crossing
+ * trap `BOUNCE_NIGHT_CHROMA` documents for the ground bounce. Landing on the
+ * anchor itself is the only way to keep the frame's largest area a *colour*.
+ * `HAZE_SKY` is inside `HAZE_CHROMA_CEILING` by construction, so the re-conform
+ * that follows is inert on this path and only bites on the dark, heavily
+ * chromatic fogs the night table produces.
  */
-const FOG_COOL_BIAS_LOW_SUN = 0.78;
-const FOG_COOL_BIAS_DAY = 0.55;
+const FOG_COOL_BIAS_LOW_SUN = 0.80;
+const FOG_COOL_BIAS_DAY = 0.92;
 
 /** How often the scene is rescanned for materials that still need CSM wiring.
  *  Meshes stream in during a mount and props spawn during play; 5 Hz is
@@ -901,6 +1018,15 @@ function lumOf(c) {
   return LR * c.r + LG * c.g + LB * c.b;
 }
 
+/** Rescale a colour to a target relative luminance, keeping its chromaticity.
+ *  A near-black colour has no chromaticity to keep, so it is left alone rather
+ *  than amplified into whatever rounding noise it happens to carry. */
+function normaliseLuminance(c, target = 1) {
+  const y = lumOf(c);
+  if (y <= 1e-4) return c;
+  return c.multiplyScalar(target / y);
+}
+
 /**
  * three's `ACESFilmicToneMapping`, and its inverse.
  *
@@ -940,6 +1066,47 @@ function srgbToLinear(c) {
 /** Scene radiance that displays at `RIM_DISPLAY_CAP` once ACES and the sRGB
  *  encode have run, at unit exposure. ~0.64 for the authored 0.85. */
 const RIM_SCENE_CAP_AT_UNIT_EXPOSURE = acesFilmicInverse(srgbToLinear(RIM_DISPLAY_CAP));
+
+/** Scene radiance the daylight haze must reach so it *displays* at
+ *  `HAZE_DISPLAY_LUMA` once ACES and the sRGB encode have run, at unit exposure.
+ *  Divided by the live exposure at use; see `HAZE_SKY`. */
+const HAZE_SCENE_LUMA_AT_UNIT_EXPOSURE = acesFilmicInverse(srgbToLinear(HAZE_DISPLAY_LUMA));
+
+/**
+ * Planckian radiator as an sRGB colour, using Helland's fit to the CIE locus.
+ *
+ * Accurate to a couple of levels over 1000–15000 K, which is far inside what a
+ * key-light white balance can be judged to, and it means `KEY_WHITE_MIN_K` and
+ * `KEY_WHITE_MAX_K` can be written as the temperatures an art director actually
+ * says out loud instead of as two hex colours nobody can check. Only ever called
+ * at module load — the two band edges are constants — so the `log` calls cost
+ * nothing per frame.
+ */
+function blackbodyColor(kelvin, out) {
+  const t = THREE.MathUtils.clamp(kelvin, 1000, 15000) / 100;
+  let r;
+  let g;
+  let b;
+  if (t <= 66) {
+    r = 255;
+    g = 99.4708025861 * Math.log(t) - 161.1195681661;
+    b = t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  } else {
+    r = 329.698727446 * Math.pow(t - 60, -0.1332047592);
+    g = 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+    b = 255;
+  }
+  return out.setRGB(
+    THREE.MathUtils.clamp(r, 0, 255) / 255,
+    THREE.MathUtils.clamp(g, 0, 255) / 255,
+    THREE.MathUtils.clamp(b, 0, 255) / 255,
+    THREE.SRGBColorSpace,
+  );
+}
+
+/** The two edges of the daylight white-balance band, resolved once. */
+const KEY_WHITE_WARM = blackbodyColor(KEY_WHITE_MIN_K, new THREE.Color());
+const KEY_WHITE_COOL = blackbodyColor(KEY_WHITE_MAX_K, new THREE.Color());
 
 /**
  * Mix two colours' *chromaticities* while keeping `out`'s luminance equal to
@@ -1097,6 +1264,17 @@ function conformChroma(color, gamut, tolerance, range) {
     g = 1 / 3 + dy * s;
   }
 
+  return setChromaXY(color, x, g, y);
+}
+
+/**
+ * Rebuild a linear colour from a chromaticity and a target luminance — the
+ * inverse of `chromaXY`, and the step every chroma correction in this file
+ * finishes with. Factored out so "the correction never changes how bright the
+ * frame is" is one piece of arithmetic rather than a promise repeated at each
+ * call site.
+ */
+function setChromaXY(color, x, g, y) {
   const b = 1 - x - g;
   const denom = LR * x + LG * g + LB * b;
   if (denom <= 1e-6) return color;
@@ -1106,6 +1284,39 @@ function conformChroma(color, gamut, tolerance, range) {
     Math.max(0, g * k),
     Math.max(0, b * k),
     THREE.LinearSRGBColorSpace,
+  );
+}
+
+/** The daylight white-balance band, as chromaticities, resolved once. */
+const _keyWarmXY = chromaXY(KEY_WHITE_WARM, new THREE.Vector2());
+const _keyCoolXY = chromaXY(KEY_WHITE_COOL, new THREE.Vector2());
+
+/**
+ * Hold a key colour inside the daylight white-balance band, in place.
+ *
+ * The band is the *segment* of the Planckian locus between `KEY_WHITE_MIN_K` and
+ * `KEY_WHITE_MAX_K`, so a key already inside it comes through untouched and one
+ * outside is pulled onto its nearest end — a 3000 K key lands on 4400 K, a
+ * 9000 K one on 5600 K, and neither is rotated off the locus in the process.
+ * Luminance is preserved exactly, so this can never change the exposure of a
+ * shot; `weight` fades the whole correction out as the sun drops, which is what
+ * keeps the hero dusk key the colour the art direction wrote for it.
+ */
+function conformTemperature(color, weight) {
+  if (weight <= 1e-3) return color;
+  const y = lumOf(color);
+  if (y <= 1e-6) return color;
+  chromaXY(color, _chromaP);
+  nearestOnSegment(
+    _chromaP.x, _chromaP.y,
+    _keyWarmXY.x, _keyWarmXY.y, _keyCoolXY.x, _keyCoolXY.y,
+    _chromaN,
+  );
+  return setChromaXY(
+    color,
+    _chromaP.x + (_chromaN.x - _chromaP.x) * weight,
+    _chromaP.y + (_chromaN.y - _chromaP.y) * weight,
+    y,
   );
 }
 
@@ -1124,12 +1335,16 @@ function conformChroma(color, gamut, tolerance, range) {
 const KEY_GAMUT_WARM = gamutFromHex([0xffffff, LIGHT.KEY_SUN, 0xff9e6b], KEY_CHROMA_CEILING);
 const KEY_GAMUT_COOL = gamutFromHex([0xffffff, LIGHT.RING_GLOW, 0xa8c8e8], RING_CHROMA_CEILING);
 
-/** Section 2.1's fog pair, as a gamut: everything from neutral out to cool teal
- *  `FOG_NEAR` and warm parchment `FOG_FAR`. `FogExp2` carries one colour, so
- *  the near/far *journey* has to be produced by the sky and the terrain behind
- *  it; what the rig can guarantee is that the single colour available lands
- *  somewhere on that cool-to-warm axis instead of off it in the magenta wedge. */
-const FOG_GAMUT = gamutFromHex([0xffffff, LIGHT.FOG_NEAR, LIGHT.FOG_FAR], ENV_CHROMA_CEILING);
+/** The legal atmosphere region: neutral, the plate's own sky `HAZE_SKY`, and
+ *  section 2.1's cool teal `FOG_NEAR` and warm parchment `FOG_FAR`. `FogExp2`
+ *  carries one colour, so the near/far *journey* is produced by distance rather
+ *  than by the colour; what the rig guarantees is that the single colour
+ *  available lands on that axis instead of off it in the magenta wedge, and that
+ *  it stays under `HAZE_CHROMA_CEILING` — which is the plate's measurement, and
+ *  tighter than either section 2.1 anchor. */
+const FOG_GAMUT = gamutFromHex(
+  [0xffffff, HAZE_SKY, LIGHT.FOG_NEAR, LIGHT.FOG_FAR], HAZE_CHROMA_CEILING,
+);
 
 /** The character rim's gamut: neutral out along the palette's cool axis, from
  *  the rim teal `RING_GLOW` to the near haze `FOG_NEAR`. The anchor is one of
@@ -1343,7 +1558,7 @@ export class Lighting {
     this._bounce = new THREE.Color(LIGHT.BOUNCE_GROUND);
     this._ringGlow = new THREE.Color(LIGHT.RING_GLOW);
     this._charRimAnchor = new THREE.Color(CHAR_RIM_ANCHOR);
-    this._fogNear = new THREE.Color(LIGHT.FOG_NEAR);
+    this._hazeAnchor = new THREE.Color(HAZE_SKY);
     this._fogScratch = new THREE.Color();
     this._hsl = { h: 0, s: 0, l: 0 };
     /** Largest `uToonRimGain` seen on a character surface in the active scene.
@@ -1867,7 +2082,7 @@ export class Lighting {
       T.keyDir.copy(sky.sunDirection).normalize();
       T.keyColor.copy(sky.sunColor);
       T.keyIntensity = Math.max(0, sky.sunIntensity);
-      T.exposure = sky.exposure;
+      T.exposure = sky.exposure * EXPOSURE_CALIBRATION;
       this._zenith.copy(sky.zenithColor);
       ambient = sky.ambientLevel;
       sunHeight = (sky.trueSunDirection ?? sky.sunDirection).y;
@@ -1885,7 +2100,7 @@ export class Lighting {
       T.keyDir.set(ce * Math.sin(azimuth), lifted, ce * Math.cos(azimuth)).normalize();
       T.keyColor.setHex(k.sun, THREE.SRGBColorSpace);
       T.keyIntensity = k.sunIntensity;
-      T.exposure = k.exposure;
+      T.exposure = k.exposure * EXPOSURE_CALIBRATION;
       this._zenith.setHex(k.zenith, THREE.SRGBColorSpace);
       ambient = k.ambient;
     }
@@ -1899,6 +2114,18 @@ export class Lighting {
     // in frame keeps the saturated colour the dome painted; only the light
     // leaving it lands back inside the amber band.
     conformChroma(T.keyColor, pickKeyGamut(T.keyColor), KEY_CHROMA_TOLERANCE, KEY_CHROMA_RANGE);
+
+    // Then the daylight white balance, gated on how high the sun genuinely is.
+    // Sampling the section 3 table at the stage hour already lands on ~4900 K, so
+    // on the frame this workstream is judged on the clamp is very nearly inert —
+    // which is the point. It exists so the meadow key cannot drift out of the
+    // late-morning band the plate shows as the clock moves, and it releases
+    // entirely below ~27 degrees so every low-sun hour keeps its authored colour.
+    // See `KEY_WHITE_MIN_K`.
+    conformTemperature(
+      T.keyColor,
+      sstep(sunHeight, KEY_DAYLIGHT_HEIGHT_LOW, KEY_DAYLIGHT_HEIGHT_HIGH),
+    );
 
     // ---- key elevation, staged -------------------------------------------
     // Azimuth is taken exactly as the dome reports it and rebuilt from the same
@@ -1943,12 +2170,23 @@ export class Lighting {
       THREE.SRGBColorSpace,
     );
 
+    // Both fill colours now carry hue only. The shadow rule and the bounce rule
+    // above are statements about *hue and saturation* — neither says how bright
+    // an ambient term is — so rescaling to unit luminance loses nothing they
+    // assert and makes `fillIntensity` the single place the level is decided.
+    // Without this the hemisphere's real contribution was its intensity times a
+    // 0.088-luminance navy, i.e. an order of magnitude under what the budget
+    // below believes it is spending. See `AMBIENT_KEY_SHARE`.
+    normaliseLuminance(T.fillSky);
+    normaliseLuminance(T.fillGround, BOUNCE_SKY_SHARE);
+
     // ---- the ambient budget, divided --------------------------------------
-    // Section 3's `ambient` column is the *whole* indirect budget — hemisphere
-    // and probe together — and it is bounded against the key so the 20% rule
-    // holds at every hour rather than at one. See `AMBIENT_KEY_SHARE`.
+    // A *target* share of the key rather than a ceiling under the section 3
+    // `ambient` column: that column is written against the old dark fill colour
+    // and in these units is only meaningful as a night floor, which is the job it
+    // keeps here. See `AMBIENT_KEY_SHARE`.
     const budget = Math.max(
-      AMBIENT_MIN, Math.min(ambient, T.keyIntensity * AMBIENT_KEY_SHARE),
+      AMBIENT_MIN, ambient, T.keyIntensity * AMBIENT_KEY_SHARE,
     );
     // The probe is clamped to its share, never raised to it: a scene that wants
     // less environment reflection than the budget allows keeps what it authored,
@@ -2168,14 +2406,34 @@ export class Lighting {
     // above, so it is idempotent rather than a per-frame ratchet toward teal.
     const bias = THREE.MathUtils.lerp(FOG_COOL_BIAS_LOW_SUN, FOG_COOL_BIAS_DAY, this._dayness);
     if (bias > 1e-3) {
-      fog.color.copy(mixChroma(fog.color, this._fogNear, bias, this._fogScratch));
-      // Re-project. The bias moves along the neutral-to-`FOG_NEAR` edge, which is
+      fog.color.copy(mixChroma(fog.color, this._hazeAnchor, bias, this._fogScratch));
+      // Re-project. The bias moves along the neutral-to-`HAZE_SKY` edge, which is
       // inside the gamut by construction, so this second pass is purely the
       // chroma ceiling — and it is needed: a dark night fog carries very little
       // luminance and lands well past the ceiling once its chromaticity is pulled
-      // all the way to the cool anchor.
+      // all the way to the anchor.
       conformChroma(fog.color, FOG_GAMUT, FOG_CHROMA_TOLERANCE, FOG_CHROMA_RANGE);
     }
+
+    // The haze's *value*, which `mixChroma` deliberately cannot set.
+    //
+    // This is the half of the distance cue the previous rig had no opinion about
+    // at all, and it is the half that decides whether a background recedes. The
+    // fog colour arrived carrying whatever luminance `Sky` was painting its
+    // horizon at, and on the shipped meadow frame that landed the far rocks
+    // *darker* than the sky above them — the one arrangement no amount of
+    // desaturation reads as distance, because aerial perspective is a mix toward
+    // the sky and a mix cannot pull a surface away from what it is mixing with.
+    //
+    // Authored on screen and inverted through the same transfer chain the frame
+    // is graded with, exactly as `RIM_DISPLAY_CAP` is, then divided by the live
+    // exposure — a scene-radiance constant cannot promise a display value while
+    // the clock is moving exposure. A floor rather than an assignment, and faded
+    // out by `dayness`, so a night or storm frame keeps its own dark air.
+    const floor = HAZE_SCENE_LUMA_AT_UNIT_EXPOSURE * this._dayness
+      / Math.max(1e-3, this._current.exposure);
+    const y = lumOf(fog.color);
+    if (y < floor) normaliseLuminance(fog.color, floor);
   }
 
   /**
