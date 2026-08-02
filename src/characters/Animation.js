@@ -1,13 +1,20 @@
 /**
  * Animation.js — procedural animation for the chibi cast.
  *
- * There are no keyframe clips anywhere in this project and there is a reason
- * beyond the no-external-assets rule: a super-deformed character has almost no
- * articulation to key. No elbows, no knees, no fingers, a face that is four
- * pixels wide in the battle camera. What actually sells motion at that scale is
- * *timing and mass* — the hips leading the shoulders, the head arriving late,
- * the weapon overshooting and settling. All of those are functions of time, and
- * a function is cheaper to author, retarget and retune than a baked curve.
+ * There are no keyframe clips anywhere in this project, and the reason is not
+ * the no-external-assets rule: it is that what sells motion on a stylised
+ * character is *timing and mass* — the hips leading the shoulders, the head
+ * arriving late, the weapon overshooting and settling — and all of those are
+ * functions of time. A function is cheaper to author, retarget and retune than
+ * a baked curve, and it retargets across a roster whose limb lengths differ by
+ * a quarter without anyone re-keying anything.
+ *
+ * This file used to justify itself instead by claiming the cast had "no elbows,
+ * no knees, no fingers" to key. That is no longer true and was never the real
+ * argument. The rig rebuilt against `docs/reference/bravely01.jpg` has a set
+ * elbow and knee that fold, a deltoid, and five digits per hand; the clips here
+ * pose all of them, and `_softenJoints` exists precisely because a joint that
+ * can be seen must never be caught straight.
  *
  * ## The evaluation pipeline
  *
@@ -156,7 +163,29 @@ class PoseWriter {
 const CLIPS = {};
 
 /**
- * Idle: a breathing weight-shift, not a static pose with a sine on it.
+ * Idle: the standing battle stance from `docs/reference/bravely01.jpg`, with a
+ * breathing weight-shift over it.
+ *
+ * ### What the plate's four figures actually do standing still
+ *
+ * Read off the hero plate, and consistent across all four:
+ *
+ * - **The feet are apart and staggered.** The knight's are about one and a half
+ *   shoulder-widths apart, the staff-mage's a little over one, and in both cases
+ *   one foot is forward of the other. Nobody stands with their heels together.
+ * - **Both knees are bent.** Softly on the mages, deeply on the knight. Not one
+ *   of the four has a locked leg, and a locked leg is most of why our cast read
+ *   as "simplified": a straight limb has no interior shape at all.
+ * - **The shoulders are turned off the hips.** Every figure faces the camera
+ *   more than their feet do. That twist is what makes a standing pose read as a
+ *   body rather than as a stack of boxes.
+ * - **The weapon is carried across the body**, diagonally, with the weapon arm's
+ *   elbow closed to around a right angle and the off arm hanging near the hip.
+ *   The upper arms stay *close* to the ribs — five to ten degrees out, not the
+ *   sixteen the old bind splay plus an outward roll was producing.
+ *
+ * All four of those are pose, not proportion, so they belong here rather than in
+ * the rig, and all four are held through the breathing rather than added to it.
  *
  * Three periods run against each other on purpose — 3.6 s breath, 11 s weight
  * shift, 7.3 s drift — so the loop never visibly repeats. A single-period idle
@@ -173,27 +202,58 @@ CLIPS.idle = {
     const shift = Math.sin(t * TAU / 11.0);
     const drift = noise1(t * 0.42, c.seed);
     const w = c.bias.weight;
+    const lead = c.leadSide;
 
     // Weight on alternating legs: the pelvis drops and rolls toward the loaded
     // side and the spine counter-curves, which is the whole read of "standing".
-    p.rot('hips', 0.012 * breath, shift * 0.055, shift * 0.075 * w);
+    // The constant `ry` terms are the plate's shoulder-over-hip twist — the hips
+    // open away from the weapon side and the chest closes back over them, so the
+    // torso carries a diagonal instead of facing squarely down +Z.
+    p.rot('hips', 0.012 * breath, lead * -0.09 + shift * 0.055, shift * 0.075 * w);
     p.pos('hips', shift * 0.008 * c.H, 0, 0);
-    p.rot('spine', 0.020 + breath * 0.016, shift * -0.030, shift * -0.045);
-    p.rot('chest', 0.008 + breath * 0.022, shift * -0.028, shift * -0.030);
-    p.rot('neck', -0.030 - breath * 0.012, drift * 0.05, shift * 0.020);
-    p.rot('head', -0.055 - breath * 0.010, drift * 0.10, shift * 0.028 + drift * 0.03);
+    p.rot('spine', 0.020 + breath * 0.016, lead * 0.07 + shift * -0.030, shift * -0.045);
+    p.rot('chest', 0.008 + breath * 0.022, lead * 0.11 + shift * -0.028, shift * -0.030);
+    p.rot('neck', -0.030 - breath * 0.012, lead * -0.05 + drift * 0.05, shift * 0.020);
+    p.rot('head', -0.045 - breath * 0.010, lead * -0.07 + drift * 0.10, shift * 0.028 + drift * 0.03);
 
     p.pair((side, s) => {
       const phase = side > 0 ? 0 : Math.PI * 0.85;
       const swing = Math.sin(t * TAU / 7.3 + phase);
-      p.rot(`arm${s}`, -0.06 + swing * 0.035, 0, side * (0.10 + shift * side * 0.05));
-      p.rot(`forearm${s}`, -0.24 - swing * 0.05, 0, side * 0.06);
-      p.rot(`hand${s}`, 0, 0, side * 0.10);
-      // The unloaded leg straightens and the loaded one takes the bend.
+      const isLead = side === lead;
+      // The bind pose already splays the arm ten degrees, so the roll here is
+      // *inward*: the plate's upper arms sit against the ribs, and the weapon
+      // arm is drawn in furthest because it is holding something across the body.
+      const tuck = isLead ? -0.10 : -0.05;
+      // The weapon arm carries: shoulder slightly forward, elbow near a right
+      // angle. The off arm hangs with the small permanent bend an unloaded arm
+      // has — a dead-straight hanging arm is the other half of the "simplified"
+      // read, and the one that shows even when the character is doing nothing.
+      const carry = isLead ? 1 : 0;
+      p.rot(`arm${s}`,
+        -0.06 - 0.22 * carry + swing * 0.035,
+        side * 0.10 * carry,
+        side * (tuck + shift * side * 0.04));
+      p.rot(`forearm${s}`, -0.30 - 0.72 * carry - swing * 0.05, 0, side * 0.06);
+      p.rot(`hand${s}`, -0.06 * carry, 0, side * 0.08);
+
+      // Stance. `open` splays the whole leg from the hip so the feet sit apart
+      // and the knees follow, rather than translating the ankles and leaving two
+      // parallel tubes; `stagger` puts the off-weapon foot forward, which is how
+      // all four plate figures are standing.
+      // 0.155 rad, not the 0.085 this first read as. Measured on the plate, the
+      // staff-mage's boots span 0.325 H outer-to-outer standing still; 0.085
+      // gave 0.234 H, which is the difference between a fighting stance and
+      // standing to attention. The splay is taken at the hip so the knee and
+      // ankle both travel — a bowed leg rather than a translated one.
+      const open = 0.155 + shift * side * 0.015;
+      const stagger = isLead ? 0.10 : -0.12;
+      // The unloaded leg straightens and the loaded one takes the bend — but
+      // neither ever locks: 0.13 rad is the floor, and the ground solve turns
+      // that into the small crouch the plate's characters actually stand in.
       const load = 0.5 + 0.5 * shift * side;
-      p.rot(`thigh${s}`, 0.02 - load * 0.05, side * 0.02, side * (0.03 + load * 0.02));
-      p.rot(`shin${s}`, load * 0.09, 0, 0);
-      p.rot(`foot${s}`, -load * 0.04, 0, 0);
+      p.rot(`thigh${s}`, stagger * 0.55 - 0.06 - load * 0.05, side * 0.03, side * open);
+      p.rot(`shin${s}`, 0.13 + load * 0.09, 0, 0);
+      p.rot(`foot${s}`, -0.07 - load * 0.04, 0, side * open * 0.35);
     });
 
     if (c.hasWeapon) p.rot('weapon', breath * 0.02, 0, drift * 0.03);
@@ -243,21 +303,46 @@ function locomotion(p, c, k) {
   if (c.hasWeapon) p.rot('weapon', -cs * k.weaponSwing, 0, s * k.weaponSwing * 0.6);
 }
 
+/**
+ * Stride length, in world units per full cycle.
+ *
+ * Measured against the **leg**, not against total height. A gait is a pendulum
+ * problem: how far a step carries you is set by how long your legs are and how
+ * far they swing, and nothing else. Expressing it as a fraction of height only
+ * worked while every character had the same head-to-leg ratio, and the roster's
+ * `legLength` multiplier already ranges 0.84–1.10 across the cast — so the short
+ * -legged characters were being asked for a stride they physically could not
+ * reach, and made up the difference by skating. 1.65 leg-lengths per cycle is
+ * the human walking ratio; 2.5 is a jog.
+ */
+const strideFor = (metrics, k) => (metrics.segments.thigh + metrics.segments.shin) * k;
+
 CLIPS.walk = {
   duration: 0,
   loop: true,
   plant: true,
   spring: 14,
   /** World units advanced per full cycle — locomotion controllers sync to this. */
-  stride(metrics) { return metrics.height * 0.62; },
+  stride(metrics) { return strideFor(metrics, 1.65); },
   fn(p, c) {
     locomotion(p, c, {
       cycle: 1.02 / c.speedScale,
-      lean: 0.045, pelvisYaw: 0.10, pelvisRoll: 0.075, shoulderYaw: 0.13,
-      lateral: 0.012, headBob: 0.020,
-      hip: 0.52, knee: 0.85, kneeBias: 0.05, ankle: 0.22, ankleBias: -0.03,
-      arm: 0.34, armBias: -0.02, armOut: 0.11, armOutSwing: 0.03,
-      forearm: 0.30, forearmBias: 0.05, weaponSwing: 0.06,
+      // Shoulder counter-yaw is up and pelvis yaw down against the old values.
+      // The torso is a third longer than it was — the head no longer eats 0.29 H
+      // of the figure — so the same angle at the chest now moves the shoulders
+      // visibly further, and the same angle at the hips moves them less relative
+      // to a longer trunk. The *displacement* is what reads, not the angle.
+      lean: 0.045, pelvisYaw: 0.085, pelvisRoll: 0.070, shoulderYaw: 0.17,
+      lateral: 0.012, headBob: 0.018,
+      // Thigh swing at ±24°, which is the human walking figure. 0.52 rad was
+      // ±30°, a march. `kneeBias` is the floor the stance leg keeps: with real
+      // knees in the mesh a locked one is now visible, and no plate figure has
+      // one.
+      hip: 0.42, knee: 0.88, kneeBias: 0.12, ankle: 0.22, ankleBias: -0.04,
+      // Negative `armOut`: the bind pose supplies ten degrees of splay and the
+      // plate's walking arms hang closer than that, not wider.
+      arm: 0.32, armBias: -0.04, armOut: -0.04, armOutSwing: 0.03,
+      forearm: 0.30, forearmBias: 0.10, weaponSwing: 0.06,
     });
   },
 };
@@ -267,15 +352,15 @@ CLIPS.run = {
   loop: true,
   plant: true,
   spring: 16,
-  stride(metrics) { return metrics.height * 0.95; },
+  stride(metrics) { return strideFor(metrics, 2.50); },
   fn(p, c) {
     locomotion(p, c, {
       cycle: 0.60 / c.speedScale,
-      lean: 0.30, pelvisYaw: 0.16, pelvisRoll: 0.10, shoulderYaw: 0.24,
-      lateral: 0.016, headBob: 0.032,
-      hip: 0.88, knee: 1.55, kneeBias: 0.16, ankle: 0.34, ankleBias: -0.06,
-      arm: 0.62, armBias: -0.30, armOut: 0.16, armOutSwing: 0.05,
-      forearm: 0.95, forearmBias: 0.35, weaponSwing: 0.10,
+      lean: 0.30, pelvisYaw: 0.14, pelvisRoll: 0.095, shoulderYaw: 0.30,
+      lateral: 0.016, headBob: 0.030,
+      hip: 0.78, knee: 1.55, kneeBias: 0.22, ankle: 0.34, ankleBias: -0.07,
+      arm: 0.58, armBias: -0.34, armOut: -0.01, armOutSwing: 0.05,
+      forearm: 0.95, forearmBias: 0.40, weaponSwing: 0.10,
     });
   },
 };
@@ -449,7 +534,10 @@ CLIPS.victory = {
         p.rot(`forearm${s}`, -0.35 * enter, 0, side * 0.25 * enter);
         p.rot(`hand${s}`, -0.15 * enter, 0, side * 0.20 * enter);
       } else {
-        p.rot(`arm${s}`, -0.10 * enter, 0, side * (0.22 + sway * 0.03) * enter);
+        // The off arm drops *against* the ribs rather than standing off them:
+        // the bind pose already carries the plate's ten degrees of splay, and a
+        // victory pose reads from the one raised arm, not from two.
+        p.rot(`arm${s}`, -0.10 * enter, 0, side * (0.06 + sway * 0.03) * enter);
         p.rot(`forearm${s}`, -0.45 * enter, 0, side * 0.12);
         p.rot(`hand${s}`, 0, 0, side * 0.12);
       }
@@ -481,10 +569,18 @@ CLIPS.ko = {
     const H = c.H;
 
     p.rot('hips', 0.55 * buckle + 0.55 * fall, 0.18 * fall, 0.22 * fall);
-    // The pelvis drop is tuned against the folded-leg trigonometry: with the
-    // thighs at -1.3 rad and the shins at +1.9 the ankles sit ~0.175 H below
-    // the hips, so anything past -0.22 H puts the boots through the floor.
-    p.pos('hips', 0.04 * H * fall, -0.17 * H * buckle - 0.045 * H * fall, -0.10 * H * fall);
+    // The pelvis drop is tuned against the folded-leg trigonometry, and it had
+    // to come up. With the thighs at -1.3 rad and the shins at +1.9, the ankles
+    // now sit about 0.183 H below the hips rather than the 0.175 H the old
+    // proportions gave — and the legs themselves are a different length — so the
+    // -0.215 H this used to fall to put the boots 0.04 H under the floor on
+    // every character. `plant` is false on this clip, deliberately (a corpse is
+    // not standing on anything), which means nothing downstream catches it: the
+    // number here is the only thing holding the body above the ground.
+    //
+    // It is also what a revive blends *out of*, so a drop that is too deep
+    // drags the feet under the floor through the whole cross-fade as well.
+    p.pos('hips', 0.04 * H * fall, -0.112 * H * buckle - 0.026 * H * fall, -0.10 * H * fall);
     p.rot('spine', 0.30 * buckle + 0.10 * fall - 0.10 * land, -0.10 * fall, -0.12 * fall);
     p.rot('chest', 0.26 * buckle + 0.12 * fall - 0.08 * land, -0.12 * fall, -0.10 * fall);
     p.rot('neck', -0.25 * buckle - 0.20 * fall, 0.10 * fall, 0);
@@ -799,6 +895,7 @@ export class Animator {
       out.set(b);
     }
 
+    this._softenJoints(out);
     if ((this._cur.clip.plant ?? false) || (this._prev && (this._prev.clip.plant ?? false))) {
       this._groundSolve(out);
     }
@@ -867,34 +964,77 @@ export class Animator {
   }
 
   /**
-   * Derive the pelvis height from the pose so the lower foot stays on the
-   * floor. Pure trigonometry on the two-link leg: the ankle sits at
-   * `hipY - L1·cos(θ_thigh) - L2·cos(θ_thigh + θ_knee)`, so the drop the body
-   * needs is the deficit of whichever ankle ends up lowest.
+   * No limb is ever allowed to lock, and none is ever allowed to hyperextend.
+   *
+   * A systematic rule rather than a floor written into eight clips, because it
+   * is a property of the *body*, not of any pose: knees bend one way and elbows
+   * bend one way, and a straight one is a pose no living thing holds. It matters
+   * now in a way it did not before — the mesh has an actual elbow and knee in it
+   * (see `CharacterFactory.buildLimb`), and a joint with volume that never flexes
+   * reads worse than no joint at all, because the eye can see what it is for.
+   *
+   * The floors are small: 3.4° at the knee and 2.9° at the elbow, applied only
+   * against the direction each joint cannot physically go. Every clip in the
+   * file already poses well past them, so this changes nothing that was authored
+   * and catches everything that was not — including the zero pose a cross-fade
+   * passes through and the neutral a look-at layer leaves behind.
+   */
+  _softenJoints(buf) {
+    for (const s of ['L', 'R']) {
+      const knee = this.index[`shin${s}`];
+      if (knee !== undefined && buf[knee * CH] < 0.06) buf[knee * CH] = 0.06;
+      const elbow = this.index[`forearm${s}`];
+      if (elbow !== undefined && buf[elbow * CH] > -0.05) buf[elbow * CH] = -0.05;
+    }
+  }
+
+  /**
+   * Derive the pelvis height from the pose so the lower foot stays on the floor.
+   *
+   * Forward kinematics on the real two-link leg, in the sagittal plane:
+   *
+   * ```
+   * ankleY = thighY + Rx(θ₁)·d₁ + Rx(θ₁+θ₂)·d₂        (y component)
+   * ```
+   *
+   * where `d₁` and `d₂` are the *bind offsets* hip→knee and knee→ankle, read
+   * straight off the rig. This used to assume `d = (0, −L, 0)` — a leg hanging
+   * dead straight — and collapsed to `hipY − L₁cos θ₁ − L₂cos(θ₁+θ₂)`. The rig
+   * now sets the knee forward off the hip→ankle chord so the joint has a hinge
+   * plane, which makes that assumption wrong in a way that silently *disables
+   * the solver*: the straight-leg formula puts the bind ankle below where it
+   * really is, so `restAnkle − lowest` came out positive at every pose, `min(0,…)`
+   * clipped it to zero, and the pelvis never dropped. Every gait would have gone
+   * flat — no weight, no bob — while looking like a tuning problem.
+   *
+   * Taking the offsets from the rig makes the identity exact instead: at a zero
+   * pose this returns the bind ankle to the last bit, whatever the pre-bend is.
    */
   _groundSolve(buf) {
-    const m = this.metrics;
-    const L1 = m.segments.thigh;
-    const L2 = m.segments.shin;
-    const hipY = m.joints.hips.y;
-    const restAnkle = m.joints.footL.y;
+    const J = this.metrics.joints;
     let lowest = Infinity;
     for (const s of ['L', 'R']) {
       const ti = this.index[`thigh${s}`];
       const si = this.index[`shin${s}`];
       if (ti === undefined || si === undefined) continue;
+      const hip = J[`thigh${s}`];
+      const knee = J[`shin${s}`];
+      const ankle = J[`foot${s}`];
       const a1 = buf[ti * CH];
-      const a2 = buf[si * CH];
-      const y = hipY - L1 * Math.cos(a1) - L2 * Math.cos(a1 + a2);
+      const a2 = a1 + buf[si * CH];
+      // Rotation about +X takes (y, z) to (y cos − z sin, y sin + z cos); only
+      // the y component matters for ground contact.
+      const y = hip.y
+        + (knee.y - hip.y) * Math.cos(a1) - (knee.z - hip.z) * Math.sin(a1)
+        + (ankle.y - knee.y) * Math.cos(a2) - (ankle.z - knee.z) * Math.sin(a2);
       if (y < lowest) lowest = y;
     }
     if (!Number.isFinite(lowest)) return;
     const hi = this.index.hips;
     if (hi === undefined) return;
-    // Only ever *lower* the pelvis. Lifting it would let a bent-knee pose
-    // hover, and a floating character is a far worse artefact than a slightly
-    // sunk foot.
-    buf[hi * CH + 4] += Math.min(0, restAnkle - lowest);
+    // Only ever *lower* the pelvis. Lifting it would let a bent-knee pose hover,
+    // and a floating character is a far worse artefact than a slightly sunk foot.
+    buf[hi * CH + 4] += Math.min(0, J.footL.y - lowest);
   }
 
   /**

@@ -1,6 +1,6 @@
 /**
  * toonSurface.js — the GLSL blocks that turn a stock `MeshStandardMaterial`
- * into the cel character shading model.
+ * into the stylised character shading model.
  *
  * ## Why patch the standard material instead of writing a ShaderMaterial
  *
@@ -14,29 +14,45 @@
  * real scene lights, real shadows and real fog, and to survive the HDR post
  * chain unchanged.
  *
- * So the physical BRDF is replaced and nothing else is.
+ * It is also why the highlight is now three's own `BRDF_GGX` rather than a
+ * hand-rolled lobe: that function is right there in the chunk we inject after,
+ * it is energy-correct, and it is what makes armour reflect like armour.
  *
  * ## The model, in the order the fragment evaluates it
  *
- *  1. **Per light** (`RE_Direct_Toon`): N·L is banded to 0 or 1 by one narrow
- *     `smoothstep`, optionally plus a brighter third band on the lit side. The
- *     banded result is accumulated *without albedo*, so the composite can decide
- *     once — not per light, in whatever order they happen to be evaluated —
- *     which albedo every term multiplies.
- *  2. **Specular** is a thresholded blob in the same pass, gated by the cel band
- *     so it cannot survive past the terminator, and compiled out entirely on the
- *     classes that must not have one.
- *  3. **Indirect** is held, not applied, for the same reason as (1). The probe
- *     reaches dielectrics as irradiance only — never as a reflection-vector
- *     lookup, which is the sliding mirror hotspot that reads as PBR — and metal
- *     as a plate-quantised reflection. On a character class the whole indirect
- *     chain is additionally evaluated at **zero directional order**
- *     (`TOON_FLAT_AMBIENT`), so it contributes light without contributing a
- *     gradient; see the comment on `RE_IndirectDiffuse_Toon` for why that is
- *     what makes the terminator an edge rather than a kink.
- *  4. **Composite**: two albedos (lit, and the hue-shifted shadow one), selected
- *     by the band; the face-flattening floor; a flat shadow fill; the mandatory
- *     rim; the battle-feedback pulse.
+ *  1. **Per light** (`RE_Direct_Toon`): N·L is turned into a *wide soft ramp*
+ *     (`awToonDiffuse`) and the ramp is **collected** — weighted by the light's
+ *     share of the key — rather than applied. A rig with four cascades, a rim
+ *     and a fill would otherwise shade one surface with six differently-oriented
+ *     ramps, and their sum is a muddle rather than a form; the reference plates
+ *     show one clear light direction per figure. Radiance is collected unbanded.
+ *  2. **Specular** in the same pass. Isotropic surfaces get `BRDF_GGX` — a real
+ *     microfacet lobe with Fresnel, so metal has a bright tight highlight and a
+ *     dark body between plates. Hair gets a Kajiya-Kay band with a soft shoulder.
+ *     Fur and feather get a Charlie/Neubelt sheen. Classes with no gloss compile
+ *     all of it out.
+ *  3. **Indirect** is held, not applied, so the composite can decide once which
+ *     albedo it multiplies. Dielectrics take the probe as irradiance; **metal
+ *     takes the real reflection-vector radiance**, which is the change that makes
+ *     a pauldron look like steel instead of painted card. On a character class
+ *     the indirect is partly flattened (`TOON_FLAT_AMBIENT` plus
+ *     `uToonAmbientFlatness`) so the ambient does not fight the key for the
+ *     form, but it is no longer flattened to zero order — the plates' figures are
+ *     plainly lit from above by their sky.
+ *  4. **Composite**: the collected ramp is resolved once, two complete surface
+ *     responses are built (lit, and the hue-shifted shadow one at a stated
+ *     fraction of the lit one), and the ramp **blends** between them. Then the
+ *     face-flattening lift, the bounded rim and the battle-feedback pulse.
+ *
+ * ## What changed, and why
+ *
+ * This file used to implement hard two-band cel shading with a 1.3-pixel
+ * terminator, a thresholded specular blob, and a three-step quantiser on the
+ * environment probe. The client's reference plates (`docs/reference/`) show none
+ * of those. See `shaders/toonCommon.js` for the measurements; the short version
+ * is that the plate's terminators are 20–26% of a form wide and continuous, its
+ * armour reflects its environment as a smooth sweep, and its highlights fall off
+ * rather than stopping.
  *
  * ## Injection points
  *
@@ -47,15 +63,15 @@
  *     the three toon response functions, then repoint the `RE_*` macros. CSM's
  *     replacement chunk calls `RE_Direct` by macro, so cascade selection,
  *     cascade fading and shadow sampling all keep working untouched and the
- *     toon response is what they feed.
+ *     toon response is what they feed. `BRDF_GGX` is declared by that same
+ *     chunk, above this injection, so it is in scope here.
  *  2. after `<lights_physical_fragment>` — reset the per-fragment accumulators.
  *     This chunk is the last thing before the lighting loop and CSM does not
  *     touch it.
  *  3. after `<lights_fragment_end>` — the composite, once, after both the direct
- *     loop and the two indirect calls have run. Placing it here and not later
- *     means `<aomap_fragment>` still occludes the ambient and the shadow fill,
- *     which is right; the rim goes into `directSpecular`, which AO does not
- *     touch, which is also right — a rim is a grazing highlight, not bounce.
+ *     loop and the two indirect calls have run. It has to be one place and not
+ *     per light: the whole model is "two levels, blended", and neither level is
+ *     knowable until every light has reported.
  *
  * OWNED BY: render/ToonMaterial.js.
  */
@@ -63,7 +79,7 @@ import { TOON_UNIFORMS_GLSL, TOON_FUNCTIONS_GLSL } from './toonCommon.js';
 
 /** Injection 1: uniforms, helpers, the toon responses, and the macro swaps. */
 export const TOON_SURFACE_PARS = /* glsl */ `
-// ---- AETHERWIND cel character model --------------------------------------
+// ---- AETHERWIND character surface model -----------------------------------
 ${TOON_UNIFORMS_GLSL}
 ${TOON_FUNCTIONS_GLSL}
 
@@ -77,18 +93,15 @@ ${TOON_FUNCTIONS_GLSL}
  * other arrangement makes the shadow colour depend on which light happened to be
  * evaluated first, which is a bug that only appears once a torch is added.
  */
-float awToonLit;            // Σ band × share — the banded term, before resolution
+float awToonLit;            // Σ ramp × share — the diffuse ramp, before resolution
 float awToonWeight;         // Σ share — the normaliser that makes it a mean
-vec3 awToonKey;             // *unbanded* direct radiance, albedo not yet applied
-vec3 awToonAmbient;         // cosine-weighted indirect irradiance
-#ifdef TOON_LIT_BAND
-  float awToonTop;          // Σ litBand × share
-#endif
+vec3 awToonKey;             // *unramped* direct radiance, albedo not yet applied
+vec3 awToonAmbient;         // indirect irradiance
 
 void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
 
   float ndl = dot( geometryNormal, directLight.direction );
-  float band = awToonBand( ndl );
+  float ramp = awToonDiffuse( ndl );
 
   // How much of the key's radiance actually arrived here.
   //
@@ -97,157 +110,133 @@ void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryP
   // product as 'uKeyColor', so dividing the post-shadow radiance by it recovers
   // the scalar the shadow map returned. For a dimmer light (the rim, a torch) it
   // degrades to that light's share of the key, which is the correct weight for a
-  // term whose only question is "is this pixel lit". Recovering it here is what
-  // lets the shadow be a *colour* below instead of a multiply toward black, and
-  // it is what the face-flattening floor is measured against.
+  // term whose only question is "how lit is this pixel".
   //
   // Summed, not maxed. CSM calls 'RE_Direct' once per cascade and splits the
   // radiance between two of them inside the fade band; taking a maximum there
   // would report the fragment as half-lit along the whole cascade boundary and
   // draw a visible seam across the character as it walks through it.
   float share = saturate( max3( directLight.color ) / max( max3( uKeyColor ), 1e-4 ) );
-  awToonLit += band * share;
+  awToonLit += ramp * share;
   awToonWeight += share;
 
-  // The radiance is accumulated **unbanded**, and that is the second half of
-  // the terminator correction.
-  //
-  // Banding each light by its own N·L — which is what this did — gives a
-  // surface as many terminators as the rig has lights, at as many angles, each
-  // one a partial step. Summed, six partial steps at six thresholds *are* a
-  // smooth ramp; the rig here runs four cascade lights, a rim light and a fill,
-  // and the review's "continuous soft airbrush ramp" is their sum. Anime has
-  // exactly one terminator, drawn where the key puts it, and every other light
-  // contributes brightness to the two masses it divides rather than a boundary
-  // of its own. So the light is collected here and divided once, in the
-  // composite, by the *dominant* band — which is what 'awToonLit / awToonWeight'
-  // recovers: a share-weighted mean in which the key, being the brightest light
-  // by construction, decides the sign.
+  // The radiance is accumulated **unramped**, and the ramp is applied once in
+  // the composite against the *dominant* light direction. Shading each light by
+  // its own N·L gives a surface as many form-defining gradients as the rig has
+  // lights, at as many angles; summed, they average out into the flat, evenly
+  // filled look the client rejected. The plates show one unambiguous key per
+  // figure with everything else acting as fill, which is what
+  // 'awToonLit / awToonWeight' recovers: a share-weighted mean in which the key,
+  // being the brightest light by construction, decides the shape.
   //
   // Cast shadows survive this intact. Three multiplies the shadow-map result
   // into 'directLight.color' before this function is called, so a shadowed
-  // fragment arrives with less radiance *and* a smaller share — it darkens, and
-  // it pulls the mean toward the shadow band, which is exactly how a cast
-  // shadow should read on a cel character: as part of the one shadow mass, not
-  // as a hole punched through the shading.
+  // fragment arrives with less radiance *and* a smaller share — it darkens and
+  // it pulls the mean toward the shadow level, which is how a cast shadow should
+  // read: as part of the one shadow mass, not as a hole punched through it.
   awToonKey += directLight.color;
-
-  #ifdef TOON_LIT_BAND
-
-    // ANIME_PIPELINE §2's optional third band, hair and metal only. Collected
-    // the same way as the terminator so it resolves to one plateau rather than
-    // one per light.
-    awToonTop += awToonLitBand( ndl ) * share;
-
-  #endif
 
   #ifdef TOON_SPECULAR
 
-    // One highlight, and it is a *shape*, not a lobe. The threshold is what
-    // turns Blinn-Phong into a drawn blob: below it there is nothing at all,
-    // above it there is full intensity, and the transition is a few hundredths
-    // wide. A soft lobe here is the single most PBR-looking thing a cel
-    // character can carry, and no amount of tuning its exponent hides it.
-    //
-    // Compiled out entirely on the classes that must not have one (skin, cloth):
-    // a zero gain would leave the term one stray uniform write away from
-    // returning, and would still cost a 'pow()' per light per fragment on the
-    // largest surfaces in frame.
     #ifdef TOON_ANISO
 
-      // Kajiya-Kay with Scheuermann's tangent shift. Sculpted hair in this style
-      // is a carved volume, not strands, so there is no tangent attribute to
-      // trust; the strand axis arrives as a world-space uniform (default +Y,
-      // i.e. hair falls) and is orthogonalised against the shading normal here.
-      // The shift along the normal slides the band off the geometric centre of
-      // the mass, which is the difference between "shiny" and "hair".
-      //
-      // The lobe is constant *along* the strand axis and falls off *across* it,
-      // so thresholding it cuts a band running perpendicular to the strands —
-      // ANIME_PIPELINE §3's "one anisotropic highlight band running across the
-      // crown". A round dot would mean the tangent frame is wrong.
+      // Sculpted hair in this style is a carved volume, not strands, so there is
+      // no tangent attribute to trust; the strand axis arrives as a world-space
+      // uniform (default +Y, i.e. hair falls) and is orthogonalised against the
+      // shading normal here. The shift along the normal slides the band off the
+      // geometric centre of the mass, which is the difference between "shiny"
+      // and "hair".
       vec3 tangent = normalize( ( viewMatrix * vec4( uToonAnisoDirection, 0.0 ) ).xyz );
       tangent = normalize( tangent - geometryNormal * dot( geometryNormal, tangent ) + geometryNormal * uToonAnisoShift );
       vec3 halfDir = normalize( directLight.direction + geometryViewDir );
-      float tdh = dot( tangent, halfDir );
-      float lobe = pow( sqrt( max( 0.0, 1.0 - tdh * tdh ) ), uToonSpecExponent );
+
+      // Shaped, not cut. The hair sheens on 'bravely01.jpg' are broad soft bands
+      // that fade into the hair mass; the previous hard 'smoothstep' gate put a
+      // flat-topped strip of plastic across every crown.
+      float awLobe = awToonSpecShape( awToonAnisoLobe( tangent, halfDir ) );
+
+      // The highlight's colour is the surface's own, lightened and desaturated
+      // toward 'uToonSpecColor' — how a hair highlight is actually painted. Pure
+      // white on a saturated hair mass reads as plastic; the albedo alone reads
+      // as a lighting artefact.
+      vec3 awSpecTint = mix( uToonSpecColor, uToonSpecColor * material.diffuseColor,
+                             clamp( uToonSpecAlbedoMix, 0.0, 1.0 ) );
+
+      // Gated by the diffuse ramp, so the band cannot survive on the dark side
+      // of the form — but by a *soft* ramp, so it fades out rather than being
+      // sliced off at a terminator that no longer exists.
+      reflectedLight.directSpecular += directLight.color * awSpecTint
+        * ( uToonSpecGain * awLobe * ramp );
 
     #else
 
-      vec3 halfDir = normalize( directLight.direction + geometryViewDir );
-      float lobe = pow( saturate( dot( geometryNormal, halfDir ) ), uToonSpecExponent );
+      // The isotropic highlight is three's own microfacet BRDF, and that is the
+      // whole of the "make metal read as metal" correction on the direct side.
+      // 'bravely02.jpg' measures the greave crowns at a near-neutral RGB
+      // (197,172,173) against recesses at (54,32,43) — a bright, narrow,
+      // slightly tinted specular over a dark body, which is a Fresnel-weighted
+      // GGX lobe and is not reproducible with a thresholded Blinn blob at any
+      // exponent. Roughness comes from the material, so 'metal' at 0.28 gets the
+      // tight streak and 'leather' at 0.6 gets a broad soft one.
+      float awNdl = saturate( ndl );
+      reflectedLight.directSpecular += directLight.color * uToonSpecColor
+        * ( BRDF_GGX( directLight.direction, geometryViewDir, geometryNormal, material )
+            * awNdl * uToonSpecGain );
 
     #endif
 
-    // The softness floor is not cosmetic: 'smoothstep' with equal edges is
-    // undefined, and a zero-width highlight edge aliases into a crawling
-    // sparkle on any curved surface anyway.
-    float specSoft = max( uToonSpecSoftness, 1e-3 );
-    float blob = smoothstep( uToonSpecThreshold - specSoft, uToonSpecThreshold + specSoft, lobe );
+  #endif
 
-    // The highlight's colour is the surface's own, lightened and desaturated
-    // toward 'uToonSpecColor' — how a hair highlight is actually painted. Pure
-    // white on a saturated hair mass reads as plastic; the albedo alone reads as
-    // a lighting artefact. 'material.diffuseColor' is the full albedo here (three
-    // keeps the metalness split in 'diffuseContribution'), so a gold blade gets a
-    // gold-white band without a second uniform.
-    vec3 specTint = mix( uToonSpecColor, uToonSpecColor * material.diffuseColor,
-                         clamp( uToonSpecAlbedoMix, 0.0, 1.0 ) );
+  #ifdef TOON_SHEEN
 
-    // Gated by the cel band itself, not by a smoothstep on N·L: a highlight that
-    // survives one pixel past the terminator is the classic toon-shader tell.
-    reflectedLight.directSpecular += directLight.color * specTint * ( uToonSpecGain * blob * band );
+    // Fur and feather trim. Additive over the diffuse rather than replacing it,
+    // and deliberately *not* gated by the ramp: Charlie's lobe peaks at grazing
+    // angles and is retro-reflective, so it is at its strongest exactly where a
+    // fur collar is backlit, which is the read the plate's collar has. Weighted
+    // by N·L only so it still dies on a surface facing fully away.
+    reflectedLight.directSpecular += directLight.color * uToonSheenColor
+      * ( awToonSheen( geometryNormal, directLight.direction, geometryViewDir )
+          * saturate( ndl ) * uToonSheenGain );
 
   #endif
 
 }
 
 /**
- * The indirect chain, evaluated at **zero directional order** on a character.
+ * The indirect chain, partly flattened on a character.
  *
- * ANIME_PIPELINE §2's terminator is a hard edge only if it is the *only* thing
- * on the surface that varies. It was not. Every character fragment was summing
- * the banded key with three continuous, normal-dependent terms, each of the same
- * order as the step the band is supposed to draw:
+ * The previous revision evaluated this at **zero** directional order on every
+ * character class, so the hemisphere fill, the probe and the grazing fresnel
+ * contributed energy but no direction at all. That was in service of keeping a
+ * hard terminator the only thing varying on the surface. There is no hard
+ * terminator any more, and the plates are unambiguous that their figures carry
+ * real sky-to-ground ambient: the white hat in 'bravely01.jpg' is bright on top
+ * and reads 142 sRGB on its shaded underside with no key light reaching it, and
+ * the ninja's trousers in 'bravely05.jpg' pick up the purple ice from below.
  *
- *  - the hemisphere fill, which is 'mix( ground, sky, 0.5 · N·up + 0.5 )' —
- *    a smooth top-to-bottom ramp across every surface, by construction;
- *  - the environment probe's irradiance, a smooth SH/mip-1 lookup on the same
- *    shading normal;
- *  - the environment fresnel's 'pow( 1 - N·V, 5 )' grazing ramp.
- *
- * On a small convex form the band still wins. On the largest smooth mass the
- * cast owns — a shoulder pauldron in a close-up — those ramps *are* the image,
- * and the review read exactly that: "a smooth continuous gradient from pale to
- * mid", i.e. the PBR falloff ANIME_PIPELINE was written to remove, with a faint
- * kink in it where the terminator is.
- *
- * The fix is not to turn the ambient down — that darkens the cast, which the
- * same review already calls the darkest thing in frame — but to strip the
- * *direction* out of it and keep the energy. Reconstructing the irradiance from
- * the light uniforms at band 0 is exactly that: the hemisphere's average of sky
- * and ground, the probe's constant SH term, and the ambient light, which is flat
- * already. Same total light, no gradient. After this the only spatial variation
- * left on a character's diffuse is the band itself, so the terminator is an edge
- * by construction rather than by tuning — which is the property the review asks
- * to verify by eye on the pauldron.
+ * So the flattening becomes a *blend* rather than a switch. 'uToonAmbientFlatness'
+ * says how much of the directional ambient to trade for its own average: 0 is
+ * physically correct, 1 is the old behaviour, and the character presets sit low.
+ * Keeping some is still worth it — a character standing under a strong sky
+ * gradient otherwise loses the key's authority over the form, which is the
+ * failure that made the first cast look evenly lit from nowhere.
  *
  * Compiled only for the classes that describe a character surface ('flat' in the
- * preset table). Props, terrain and monsters keep three's per-normal indirect.
+ * preset table). Props, terrain and monsters keep three's per-normal indirect
+ * untouched.
  */
 void RE_IndirectDiffuse_Toon( const in vec3 irradiance, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
 
-  // Held rather than applied, because the albedo it multiplies is not decided
-  // until the composite. 'uToonAmbientGain' scales it because ambient is the one
-  // term with no band in it at all: too much and it lifts the shadow mass until
-  // the terminator has no value break left to show.
+  vec3 awIrradiance = irradiance;
+
   #ifdef TOON_FLAT_AMBIENT
 
+    // The directional average of everything three summed into 'irradiance':
+    // ambient is flat already, band 0 of the probe's SH is its average, and a
+    // hemisphere light's average is the midpoint of sky and ground.
     vec3 awFlat = getAmbientLightIrradiance( ambientLightColor );
 
     #if defined( USE_LIGHT_PROBES )
-      // Band 0 of 'shGetIrradianceAt': the probe's directional average, which is
-      // the whole of it that survives flattening.
       awFlat += lightProbe[ 0 ] * 0.886227;
     #endif
 
@@ -257,13 +246,13 @@ void RE_IndirectDiffuse_Toon( const in vec3 irradiance, const in vec3 geometryPo
       }
     #endif
 
-    awToonAmbient += awFlat * RECIPROCAL_PI * uToonAmbientGain;
-
-  #else
-
-    awToonAmbient += irradiance * RECIPROCAL_PI * uToonAmbientGain;
+    awIrradiance = mix( irradiance, awFlat, clamp( uToonAmbientFlatness, 0.0, 1.0 ) );
 
   #endif
+
+  // Held rather than applied, because the albedo it multiplies is not decided
+  // until the composite.
+  awToonAmbient += awIrradiance * RECIPROCAL_PI * uToonAmbientGain;
 
 }
 
@@ -273,64 +262,46 @@ void RE_IndirectSpecular_Toon( const in vec3 radiance, const in vec3 irradiance,
   // 'RE_IndirectSpecular' rather than 'RE_IndirectDiffuse' because it wants to
   // subtract the specular's energy from it first; dropping that compensation
   // costs a few percent of brightness on a rough dielectric and buys not having
-  // a GGX split-sum evaluation on a material that has no GGX lobe left to
-  // conserve energy against.
-  //
-  // Flattened on a character for the reason given above 'RE_IndirectDiffuse_Toon'.
-  // 'getIBLIrradiance' is a mip-1 cube lookup rather than an SH evaluation, so
-  // there is no band-0 term to isolate; the two antipodal samples along world up
-  // are its directional average to the accuracy the lookup itself has, and they
-  // are constant over the surface, which is the property that matters here.
+  // a GGX split-sum evaluation on a material whose direct highlight already is
+  // one.
   vec3 awProbe = irradiance;
 
   #if defined( TOON_FLAT_AMBIENT ) && defined( USE_ENVMAP )
+    // 'getIBLIrradiance' is a mip-1 cube lookup rather than an SH evaluation, so
+    // there is no band-0 term to isolate; two antipodal samples along world up
+    // are its directional average to the accuracy the lookup itself has.
     vec3 awUpView = ( viewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz;
-    awProbe = 0.5 * ( getIBLIrradiance( awUpView ) + getIBLIrradiance( - awUpView ) );
+    vec3 awFlatProbe = 0.5 * ( getIBLIrradiance( awUpView ) + getIBLIrradiance( - awUpView ) );
+    awProbe = mix( irradiance, awFlatProbe, clamp( uToonAmbientFlatness, 0.0, 1.0 ) );
   #endif
 
   awToonAmbient += awProbe * RECIPROCAL_PI * uToonAmbientGain;
 
-  // The grazing fresnel is the third smooth ramp, and on a character it is also
-  // a *silhouette-brightening* one — it peaks exactly where the ink line has to
-  // win. Characters therefore take the environment at normal incidence, which is
-  // a constant: cel-painted armour reflects its world as a flat plate value, not
-  // as a rolled edge. Props keep the real Schlick term.
-  #ifdef TOON_FLAT_AMBIENT
+  // The real Schlick term, on characters too. The previous revision replaced it
+  // with a constant at normal incidence on every character class, to stop the
+  // grazing ramp brightening the silhouette where the ink line had to win. There
+  // is no ink line any more, and the grazing lift is a large part of why the
+  // plate's greaves and pauldrons read as polished: a metal edge turning away
+  // from the camera catches its environment, and flattening that is what left
+  // ours looking like painted card.
+  float awNdv = saturate( dot( geometryNormal, geometryViewDir ) );
+  vec3 awF = material.specularColorBlended
+    + ( vec3( material.specularF90 ) - material.specularColorBlended ) * pow( 1.0 - awNdv, 5.0 );
 
-    vec3 F = material.specularColorBlended;
-
-  #else
-
-    float dotNV = saturate( dot( geometryNormal, geometryViewDir ) );
-    vec3 F = material.specularColorBlended
-      + ( vec3( material.specularF90 ) - material.specularColorBlended ) * pow( 1.0 - dotNV, 5.0 );
-
-  #endif
-
-  // Dielectric: irradiance only. It is evaluated from the shading normal, so it
-  // varies smoothly across the surface and cannot form the sliding mirror
-  // hotspot a reflection-vector lookup does — the exact defect this replacement
-  // exists to remove. Metal: the real reflection, stepped into plates.
+  // Dielectric: irradiance only — evaluated from the shading normal, so it
+  // varies smoothly and cannot form a sliding mirror hotspot on skin or cloth.
+  // Metal: the genuine reflection-vector radiance three already computed,
+  // unquantised.
   //
-  // On a character, metal takes the *flattened* probe instead, and that is the
-  // last smooth ramp on the cast. 'awToonPlate' quantises a radiance's level
-  // into three steps but leaves its chromaticity alone, and a reflection-vector
-  // lookup's chromaticity sweeps continuously across a form — so a chibi
-  // pauldron, the largest smooth mass the cast owns, came out as an unbroken
-  // cream-to-lavender gradient with the terminator invisible inside it. That is
-  // the review's "PBR falloff wearing a chibi costume", on the one class whose
-  // shading is dominated by the probe. Cel-painted armour reflects its world as
-  // a flat plate value; the form is carried by the band and by the hard
-  // highlight, which is what ANIME_PIPELINE §5's colour blocking asks for.
-  #ifdef TOON_FLAT_AMBIENT
-    vec3 awMetalEnv = awToonPlate( awProbe * RECIPROCAL_PI );
-  #else
-    vec3 awMetalEnv = awToonPlate( radiance );
-  #endif
+  // Unquantised is the point. The previous revision pushed this through a
+  // three-step level quantiser on the theory that cel-painted armour reflects
+  // its world as flat plates. The greaves in 'bravely02.jpg' do the opposite —
+  // they sweep continuously from the purple of the ice below to the teal of the
+  // aurora above, and that continuous sweep across a curved plate is the single
+  // strongest metal cue in the whole reference set.
+  vec3 awEnv = mix( awProbe * RECIPROCAL_PI, radiance, material.metalness );
 
-  vec3 env = mix( awProbe * RECIPROCAL_PI, awMetalEnv, material.metalness );
-
-  reflectedLight.indirectSpecular += env * F * uToonEnvSpecular;
+  reflectedLight.indirectSpecular += awEnv * awF * uToonEnvSpecular;
 
 }
 
@@ -340,7 +311,7 @@ void RE_IndirectSpecular_Toon( const in vec3 radiance, const in vec3 irradiance,
 #define RE_IndirectDiffuse RE_IndirectDiffuse_Toon
 #undef RE_IndirectSpecular
 #define RE_IndirectSpecular RE_IndirectSpecular_Toon
-// ---- end cel character model ----------------------------------------------
+// ---- end character surface model ------------------------------------------
 `;
 
 /** Injection 2: per-fragment reset, immediately before the lighting loop. */
@@ -349,170 +320,153 @@ awToonLit = 0.0;
 awToonWeight = 0.0;
 awToonKey = vec3( 0.0 );
 awToonAmbient = vec3( 0.0 );
-#ifdef TOON_LIT_BAND
-  awToonTop = 0.0;
-#endif
 `;
 
 /** Injection 3: the once-per-fragment composite. */
 export const TOON_SURFACE_COMPOSITE = /* glsl */ `
 {
-  // ---- one terminator, resolved to a fixed pixel width ---------------------
-  // The share-weighted mean of every light's band. See 'RE_Direct_Toon' for why
-  // the lights are collected rather than banded individually; 'awToonEdge' for
-  // why the edge's width is stated in pixels rather than in N·L.
-  float awMean = awToonLit / max( awToonWeight, 1e-4 );
-  float awBand = awToonEdge( awMean, 0.5 );
+  // ---- one ramp, resolved once --------------------------------------------
+  // The share-weighted mean of every light's diffuse ramp. See 'RE_Direct_Toon'
+  // for why the lights are collected rather than shaded individually, and
+  // 'awToonResolve' for the gamma and the antialias floor.
+  float awShape = awToonResolve( awToonLit / max( awToonWeight, 1e-4 ) );
 
   // ---- the two albedos ----------------------------------------------------
-  // The terminator is a *hue* boundary as well as a value one, which is what
-  // makes a painted cel shadow look painted. 'awToonShadowAlbedo' does the hue
-  // shift and the saturation lift; the band chooses between the two results.
+  // The shaded side is a *hue* shift as well as a value one, which is what makes
+  // a painted shadow look painted rather than dimmed. 'awToonShadowAlbedo' does
+  // the hue rotation and the saturation lift; the ramp blends between the two
+  // results, so on the plate's evidence the hue travels continuously across the
+  // form instead of switching at a line.
   //
   // Metal restores part of its albedo first. three zeroes 'diffuseContribution'
-  // at metalness 1 because a physical metal has no diffuse lobe — but cel-shaded
-  // armour is *painted*, not simulated, and ANIME_PIPELINE §5 needs it to read as
-  // one of the character's flat colour zones with a hard band across it.
+  // at metalness 1 because a physical metal has no diffuse lobe — but a chibi
+  // pauldron carries a painted base colour under its reflection, and without
+  // this the armour is nothing but environment.
   vec3 awLitAlbedo = mix( material.diffuseContribution, material.diffuseColor,
                           material.metalness * clamp( uToonMetalAlbedo, 0.0, 1.0 ) );
   vec3 awShadeAlbedo = awToonShadowAlbedo( awLitAlbedo );
 
   // ---- the two radiances --------------------------------------------------
-  // Both masses are evaluated in full, then one is chosen. That is the change
-  // the review's first finding actually needs: a cel character does not have a
-  // light term that happens to step, it has **two levels**, and the ratio
-  // between them is art direction rather than an accident of how much ambient
-  // the scene supplies. Building them separately is what lets that ratio be
-  // stated and enforced below.
+  // Both levels are evaluated in full, then blended. A stylised character does
+  // not have a light term that happens to fall off, it has **two levels with a
+  // gradient between them**, and the ratio of those levels is art direction
+  // rather than an accident of how much ambient the scene supplies.
   //
-  // 'uToonShadowLift' is the share of the key the shadow mass keeps, so the
-  // dark side still carries the key's colour and dies with it at night; the
-  // flat fill is the scene's shadow tint, one value across the whole mass,
-  // because a gradient here would put a soft falloff back inside the band.
+  // 'uToonShadowLift' is the share of the key the shaded level keeps, so the
+  // dark side still carries the key's colour and dies with it at night; the flat
+  // fill supplies the scene's shadow hue.
   vec3 awAmbient = awToonAmbient;
   vec3 awLitRad = awToonKey * RECIPROCAL_PI + awAmbient;
   vec3 awShadeRad = awToonKey * ( RECIPROCAL_PI * clamp( uToonShadowLift, 0.0, 1.0 ) )
     + awAmbient + uToonShadowFill * uToonShadowGain;
 
-  #ifdef TOON_LIT_BAND
-
-    // The third band sits on the lit side only, so it lifts one mass and not
-    // the other — a plateau *inside* the light, never a second terminator.
-    awLitRad += awToonKey * ( RECIPROCAL_PI * uToonLitBandGain
-      * awToonEdge( awToonTop / max( awToonWeight, 1e-4 ), 0.5 ) );
-
-  #endif
-
   // ---- face flattening ----------------------------------------------------
-  // ANIME_PIPELINE §2: "Faces get flatter lighting than bodies. Anime faces
-  // deliberately resist shadowing so they stay readable — clamp the face's
-  // shadow term to a minimum of ~0.75 so a nose or fringe never carves the face
-  // into darkness."
-  //
-  // Lifting the *radiance* toward the lit mass is the whole of that clause, and
-  // it is deliberately not what this used to do. The floor used to be applied to
-  // the band itself, so at 0.75 the face's albedo was also mixed three-quarters
-  // of the way back to the lit colour and its shadow was paid an extra
-  // three-quarters of the key on top of the lift it already had — a shadow mass
-  // at 89% of the lit value carrying 25% of the shadow hue, which is a face with
-  // no shadow at all. That is measurable in the shipped frame: the closeup's
-  // cheek reads one flat value from jaw to fringe. Clamping the radiance and
-  // leaving the band alone gives the face what the reference actually shows —
-  // a full rose-tan shadow *shape* under the fringe and along the jaw, at a
-  // gentle value break the fringe cannot carve a hole with.
+  // The face is a painted texture and the shading's job is to stay out of it.
+  // Measured on 'bravely01.jpg': the lit face is one value to within ±3%
+  // (p50 178, p95 187 sRGB across Elvis's cheek), and the darkest skin anywhere
+  // on a face is RGB(151,130,123) against a lit RGB(186,155,147) — a ratio of
+  // 0.81, and warm rather than neutral. So the clamp lifts the shaded *radiance*
+  // most of the way to the lit one while leaving the ramp and the rose-tan hue
+  // rotation alone: the face keeps a soft shadow *shape* under the fringe and
+  // along the jaw, at a value break too gentle for a fringe to carve a hole with.
   awShadeRad = mix( awShadeRad, awLitRad, clamp( uToonShadowFloor, 0.0, 1.0 ) );
 
-  // ---- the guaranteed value break -----------------------------------------
-  // The shadow mass may never come within 'uToonShadowCeiling' of the lit mass.
+  // ---- the stated dark level ----------------------------------------------
+  // The shaded level is placed at exactly 'uToonShadowDepth' of the lit level's
+  // peak, measured after everything else has had its say.
   //
-  // Without this the break is whatever is left over after the hemisphere fill,
-  // the environment probe and the flat shadow fill have all been added to both
-  // masses — three terms this material does not own, each of which lifts the
-  // dark side toward the light side, and which between them erased the
-  // terminator at dusk in the shipped build. Stating the ratio makes the
-  // terminator a property of the surface class instead of a coincidence of the
-  // scene's ambient level: at noon, at dusk and by torchlight the dark mass is
-  // the same fraction of the light mass, which is exactly what a painter does
-  // and what makes the two bands read as two bands.
+  // Stating it is what makes the two levels survive the scene. The hemisphere
+  // fill, the environment probe and the flat shadow fill are three terms this
+  // material does not own, all of which lift the dark side toward the light
+  // side, and between them they used to erase the form at dusk entirely.
+  // Normalising instead of clamping means the ratio holds in both directions:
+  // at noon the fill cannot wash the dark side out, and at night the dark side
+  // cannot collapse to black. The white hat on 'bravely01.jpg' measures 236
+  // sRGB on the crown against 142 on the shaded underside — a linear ratio of
+  // 0.34, which is where the cloth and skin classes sit.
   //
-  // Measured and applied on the peak channel so the clamp scales the shadow's
-  // brightness without touching the hue 'awToonShadowAlbedo' just built.
+  // Measured and applied on the peak channel so the placement scales the shaded
+  // level's brightness without touching the hue 'awToonShadowAlbedo' just built.
   vec3 awLitOut = awLitRad * awLitAlbedo;
   vec3 awShadeOut = awShadeRad * awShadeAlbedo;
-  float awCeiling = max3( awLitOut ) * clamp( uToonShadowCeiling, 0.02, 1.0 );
-  awShadeOut *= min( 1.0, awCeiling / max( max3( awShadeOut ), 1e-5 ) );
+  float awTarget = max3( awLitOut ) * clamp( uToonShadowDepth, 0.02, 1.0 );
+  awShadeOut *= awTarget / max( max3( awShadeOut ), 1e-5 );
 
-  // Diffuse and ambient are one term now: they are two levels of the same
-  // surface response, and splitting them across three's direct/indirect
-  // accumulators would only let '<aomap_fragment>' occlude half of it.
-  reflectedLight.indirectDiffuse += mix( awShadeOut, awLitOut, awBand );
+  // Written as one term, into the direct accumulator. The two levels are a
+  // *response to the lights* — the ambient inside them is a fill, not a probe
+  // lookup — and splitting the sum across three's direct and indirect slots
+  // would let '<aomap_fragment>' occlude one half of a value the placement above
+  // just balanced.
+  reflectedLight.directDiffuse += mix( awShadeOut, awLitOut, awShape );
 
   // ---- highlight ceiling --------------------------------------------------
-  // The drawn highlight is accumulated per light inside 'RE_Direct_Toon', which
-  // cannot know what the rest of the surface will come to — so, unlike the rim
-  // below, it had no bound at all. On the two classes that carry one that is
-  // where the clipping actually lived: a pale hair mass under a hard key put the
-  // anisotropic band past 2.0, and a pauldron's ping past 3.0, where ACES has no
-  // resolution left and every hue in the shape flattens to the same neutral
-  // white. That is the review's "edges clipping to pure white rather than
-  // glowing", on the specular rather than on the rim.
+  // The highlight is accumulated per light inside 'RE_Direct_Toon', which cannot
+  // know what the rest of the surface will come to, so it needs a bound of its
+  // own. It is a *separate* bound from the rim's, and that separation is the
+  // point: the reference armour's specular is allowed to run right up to the
+  // clip point — 'bravely01.jpg' measures the knight's plates at p50 59 / p99
+  // 175 / p99.9 214 / max 237 sRGB, so the hottest streaks are three to four
+  // stops above the plate body — while the rim must never get near it. Sharing
+  // one ceiling meant every attempt to calm the rim also flattened the metal.
   //
-  // Scaling the *peak channel* back to the class ceiling bounds it exactly while
-  // leaving its chromaticity alone, so a gold blade's ping stays gold and a hair
-  // band stays the colour of lightened hair. The ceiling is the same one the rim
-  // is spent against, which is the point: it is the surface class's HDR headroom,
-  // not a per-term allowance — metal and crystal carry a higher one precisely
-  // because the art direction lets their highlights run hotter.
+  // Compressed on the *peak channel* through a soft shoulder, so a gold blade's
+  // ping stays gold and — the part that matters — a lobe overshooting the
+  // ceiling twentyfold does not come out as a flat-topped blob with a drawn
+  // edge. See 'awToonSoftCap'.
   float awSpecPeak = max3( reflectedLight.directSpecular );
-  reflectedLight.directSpecular *= min( 1.0, uToonRimCeiling / max( awSpecPeak, 1e-4 ) );
+  reflectedLight.directSpecular *=
+    awToonSoftCap( awSpecPeak, uToonSpecCeiling ) / max( awSpecPeak, 1e-5 );
 
-  // ---- mandatory rim ------------------------------------------------------
-  // REFERENCE_TARGET §1 lists this as non-negotiable: "a bright rim/back light
-  // separating them from the background in every frame". Deliberately not
-  // shadowed — the rig's rim light casts none, and a character stepping into
-  // shade must not lose the edge holding it off a fog-coloured background.
+  // ---- rim, bounded twice -------------------------------------------------
+  // The brief requires a rim as a separation device against a fog-coloured
+  // background. The reference plates do not show one — every bright silhouette
+  // band on 'bravely01.jpg' resolves to albedo (a white collar, a grey mantle),
+  // and on the sun-facing edge of Elvis's coat the surface measurably *darkens*
+  // into the silhouette, 188 → 136 → 99 → 69 → 41 sRGB, with no lift at all. So
+  // the rim stays, and it stays quiet.
   //
-  // Added against the *headroom left below a ceiling* rather than added outright,
-  // and that is the fix for the review's "edges clipping to pure white". The rim
-  // is solved by the rig to a fixed radiance, but the surface it lands on is not
-  // fixed: on a dark coat that radiance is the whole pixel, while on a lit chibi
-  // face — already near 1.0 before the rim, because the face is the brightest
-  // albedo in the cast under a face-flattening floor — the same addition lands
-  // the edge past 2.0, where ACES has nothing left to resolve and every hue in
-  // the frame flattens to the same white. Scaling by the remaining headroom
-  // makes the rim what it is meant to be: a term that lifts an edge *to* a
-  // brightness, not one that piles onto whatever brightness is already there.
+  // Two independent bounds, because one is not enough:
   //
-  // The bound is exact and worth stating, because it is the property the defect
-  // was about. With ceiling 'c', accumulated peak 's' and rim peak 'r', the
-  // result is 's + r(1 - s/c) = r + s(1 - r/c)', which for 'r <= c' rises
-  // monotonically in 's' to exactly 'c' at 's = c' and is suppressed to zero
-  // beyond it. So no fragment this material shades can be pushed above 'c' by
-  // the rim — and the presets put 'c' at 1.5–2.0, inside the band that feeds
-  // ART_BIBLE §6's soft-knee bloom (threshold 1.0, knee 0.6) without saturating.
+  //  - **Headroom.** The rim is spent against what is left below
+  //    'uToonRimCeiling' rather than added outright. With ceiling 'c',
+  //    accumulated peak 's' and rim peak 'r', the result is
+  //    's + r(1 - s/c) = r + s(1 - r/c)', which for 'r <= c' rises monotonically
+  //    in 's' to exactly 'c' and is suppressed to zero beyond it. That stops the
+  //    same rim that glows on a dark coat from blowing a lit face past the tone
+  //    curve's shoulder.
+  //  - **An absolute cap.** 'uToonRimMax' bounds the rim's own radiance before
+  //    it is added, and it is the bound that actually keeps the band off white.
+  //    'Lighting' solves 'uRimStrength' so the hottest sliver in the frame lands
+  //    at a pre-tone-map luminance of 0.55–0.92, which after ACES and the sRGB
+  //    transfer is 190–215 code values — a white edge, exactly the defect this
+  //    is a correction of. Nothing a preset can say about gain changes that,
+  //    because the rig normalises gains away; only a cap downstream of the solve
+  //    can. At the shipped 0.22–0.34 the band lands at 105–140 code values on a
+  //    black surface: visible as a sheen catching the edge, never as a line.
   //
-  // Measured on the peak channel, since that is the channel that clips, and
-  // applied to all three so the rim keeps its chromaticity as it dims — the
-  // whole point of the rig solving the rim for luminance rather than for peak.
-  // 'totalEmissiveRadiance' is included because an emissive crystal is exactly
-  // the surface that would otherwise be pushed over by its own glow plus a rim.
-  vec3 rimDirView = normalize( ( viewMatrix * vec4( uRimDirection, 0.0 ) ).xyz );
-  float awRim = awToonRim( normal, geometryViewDir, rimDirView );
+  // Deliberately not shadowed — the rig's rim light casts none, and a character
+  // stepping into shade must not lose the edge holding it off the background.
+  // 'totalEmissiveRadiance' is included in the headroom because an emissive
+  // crystal is exactly the surface that would otherwise be pushed over by its
+  // own glow plus a rim.
+  vec3 awRimDirView = normalize( ( viewMatrix * vec4( uRimDirection, 0.0 ) ).xyz );
+  float awRim = awToonRim( normal, geometryViewDir, awRimDirView );
 
   vec3 awSoFar = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse
     + reflectedLight.directSpecular + reflectedLight.indirectSpecular
     + totalEmissiveRadiance;
   float awHeadroom = 1.0 - saturate( max3( awSoFar ) / max( uToonRimCeiling, 1e-3 ) );
 
-  reflectedLight.directSpecular += uRimColor
-    * ( awRim * awHeadroom * uToonRimGain * uRimStrength );
+  vec3 awRimRad = uRimColor * ( awRim * awHeadroom * uToonRimGain * uRimStrength );
+  float awRimPeak = max3( awRimRad );
+  awRimRad *= awToonSoftCap( awRimPeak, uToonRimMax ) / max( awRimPeak, 1e-5 );
+  reflectedLight.directSpecular += awRimRad;
 
   // ---- battle feedback channel -------------------------------------------
   // A surface-wide additive tint the combat layer drives for hit flashes, limit
   // charge and status auras. Weighted toward the rim so a pulse reads as the
-  // character *glowing at its edge* rather than as a flat colour wash, which is
-  // how the reference shows charged states. Zero-cost at rest: 'uToonPulse'
-  // defaults to black and the whole term collapses.
+  // character *glowing at its edge* rather than as a flat colour wash. Zero-cost
+  // at rest: 'uToonPulse' defaults to black and the whole term collapses.
   vec3 awPulse = uToonPulse * ( 0.5 + 0.5 * sin( uToonTime * uToonPulseRate ) );
   reflectedLight.directSpecular += awPulse * ( 0.35 + 0.65 * awRim );
 }

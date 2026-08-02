@@ -1,12 +1,18 @@
 /**
- * Rig.js — chibi skeleton construction and the body metric that everything
- * else in `src/characters` measures itself against.
+ * Rig.js — skeleton construction and the body metric that everything else in
+ * `src/characters` measures itself against.
  *
  * The bone names are fixed by ARCHITECTURE.md and are not negotiable:
  * `root, hips, spine, chest, neck, head, shoulderL/R, armL/R, forearmL/R,
  * handL/R, thighL/R, shinL/R, footL/R`, plus optional `hair0..n`, `cape0..n`
- * and `weapon`. The *proportions* however are the ones from REFERENCE_TARGET
- * §1 — super-deformed, ~3.1 heads tall — not a realistic humanoid.
+ * and `weapon`.
+ *
+ * The *proportions* are measured off `docs/reference/bravely01.jpg` — see the
+ * table on `F` below. They are **not** REFERENCE_TARGET §1's, which specifies a
+ * 3.1-head super-deformed figure the plates do not contain: the client's cast is
+ * 4.7 heads tall with a real torso, a real neck and limbs that bend, and the
+ * gap between those two descriptions is most of what "our characters look
+ * nothing like them" was pointing at.
  *
  * ## Why the metric lives here and not in the factory
  *
@@ -79,51 +85,103 @@ export const BONE_PARENTS = Object.freeze({
 });
 
 /**
- * Chibi station table — every value a fraction of total height H.
+ * Station table — every value a fraction of total height H.
  *
- * These are the numbers REFERENCE_TARGET §1 constrains, transcribed once:
- * head diameter 0.32 H puts the figure at 3.1 heads; the head *mass* including
- * hair lands near 0.38 H, which is the "35–40% of total height" the reference
- * reports (it measures the silhouette, not the skull). The hips at 0.385 H
- * give a leg that is barely a third of the body — the single strongest chibi
- * cue, and the one most often got wrong by scaling a realistic rig down.
+ * ## Every number here was measured off `docs/reference/bravely01.jpg`
+ *
+ * The plate is 1920×1080 and carries four full figures. Landmarks were read at
+ * 8× magnification against a 10-pixel grid; the three usable figures agree to
+ * within 2% of body height on every station, which is what makes them a spec
+ * rather than three opinions. In source pixels, with the sole of the foot as
+ * the origin and the crown of the *skull* (not the hair) as the top:
+ *
+ * | figure            | head h | total h | heads | chin  | shoulder | waist | crotch | knee  |
+ * |-------------------|--------|---------|-------|-------|----------|-------|--------|-------|
+ * | staff-mage, adult | 100 px | 493 px  | 4.93  | .797  | .740     | .527  | .375   | .213  |
+ * | hat-mage, girl    |  84 px | 395 px  | 4.70  | .793  | .733     | .538  |   —    |   —   |
+ * | knight (crouched) |  87 px | 355 px  | 4.08* | .755  | .727     | .507  | .310*  | .220* |
+ *
+ * *the knight is in a deep battle crouch with both knees bent, which costs him
+ * about 8% of standing height and drops the crotch further than the head — his
+ * stations are a lower bound, not a disagreement.
+ *
+ * ## Where this contradicts the prose docs, the plate wins
+ *
+ * `REFERENCE_TARGET.md` §1 specifies **3.0–3.5 heads** and a head diameter of
+ * **0.32 H**. Neither survives contact with the image: the measured figures are
+ * **4.7–4.9 heads** with a skull **0.21 H** deep, and the chin lands at 0.79 H
+ * on all three. That single number is most of what the client saw. A 0.295 H
+ * head against a fixed total height leaves only 0.285 H of torso, so the
+ * shoulders sat at 0.63 H against the plate's 0.73 H; the cast read short and
+ * simplified because two-thirds of its trunk had been eaten by its skull.
+ * Shrinking the head to 0.213 H hands that 0.08 H back to the torso, and the
+ * proportion, the shoulder line and the "real anatomy" complaint move together.
+ *
+ * The hips barely move (0.400 → 0.425 H). The legs were never the problem.
  */
 const F = Object.freeze({
-  // 0.295 rather than 0.32. The silhouette head *mass* — what a critic actually
-  // measures — is the skull plus the hair shell plus whatever the style piles on
-  // top, not the skull alone. At 0.32 the measured figure came out near 2.4
-  // heads, i.e. a head mass of ~42% of height, outside REFERENCE_TARGET §1's
-  // 35–40% band and well under its 3.0–3.5 heads. Dropping the skull to 0.295
-  // and capping the hair shell's swell (see `CharacterFactory.buildHair`) puts
-  // the measured mass at ~0.34 H, which is 2.95–3.1 heads depending on style.
-  headDiameter: 0.295,
-  hipY: 0.400,
-  neckGap: 0.020,      // chin to neck joint; the neck is nearly hidden
-  spineT: 0.30,        // fraction of the hips→neck span
-  chestT: 0.66,
-  shoulderT: 0.80,
-  ankleY: 0.046,
+  // 0.213: the mean of 100/493, 84/395 and 87/355 skull-height-over-total,
+  // discarding nothing — 4.70 heads. The *silhouette* mass a critic measures is
+  // this plus the hair shell, which on the plate runs 4.0–4.4 heads; that is the
+  // band `auditCharacter` enforces, and it is not the same number.
+  headDiameter: 0.213,
+  hipY: 0.425,         // pelvis root; the crotch reads at 0.375 H, the socket above it
+  neckGap: 0.038,      // chin to neck joint — the plate has a real, visible neck
+  spineT: 0.26,        // fraction of the hips→neck span
+  chestT: 0.62,
+  shoulderT: 0.86,     // puts the deltoid crest at 0.73 H, the measured shoulder line
+  ankleY: 0.050,
 
-  shoulderX: 0.098,
-  armSplay: 0.244,     // radians off vertical for the A-pose (~14°)
-  upperArm: 0.115,
-  foreArm: 0.105,
-  thighX: 0.058,
-  upperLeg: 0.520,     // fraction of the hips→ankle drop consumed by the thigh
+  // Joint separation, *not* silhouette width. The plate's shoulder silhouette is
+  // 0.175 H (girl) to 0.21 H (adult male) across, and the deltoid mass supplies
+  // an arm radius either side of the joint — so 2 × 0.072 + 2 × 0.031 = 0.206 H.
+  // Measured against a head only 0.156 H wide, that is the 1.15–1.35 shoulder-to-
+  // head ratio the plate shows and the old rig could not reach at any width,
+  // because its head was twice as wide as it should have been.
+  shoulderX: 0.072,
+  armSplay: 0.175,     // radians off vertical for the A-pose (~10°)
+  upperArm: 0.128,
+  foreArm: 0.118,
+  // **Pre-bend.** The elbow sits this far behind the shoulder→wrist line and the
+  // knee this far in front of the hip→ankle line, as a fraction of H.
+  //
+  // A bind limb whose three joints are collinear has no hinge plane, and linear
+  // blend skinning across a straight joint is exactly the case that pinches: the
+  // two segments' influence regions are coaxial, so a bend shears the surface
+  // sideways instead of folding it and the cross-section collapses. Half a
+  // degree of set is enough to break the degeneracy, but 6–7° also *shows* — the
+  // plate's characters have visibly bent arms and soft knees standing still, and
+  // a locked-straight limb is one of the tells that reads as "simplified".
+  //
+  // The animator's ground solve does forward kinematics on the real bind offsets
+  // (see `Animation._groundSolve`), so the set costs nothing in foot placement.
+  elbowSet: 0.016,
+  kneeSet: 0.014,
+  thighX: 0.050,
+  upperLeg: 0.545,     // femur:tibia ≈ 55:45, measured knee-to-crotch vs knee-to-ankle
 
-  neckR: 0.052,
-  chestRX: 0.118, chestRZ: 0.088,
-  waistR: 0.096,
-  hipRX: 0.114, hipRZ: 0.092,
-  armR: 0.042, elbowR: 0.036, wristR: 0.029,
-  handR: 0.058,
-  thighR: 0.058, kneeR: 0.050, ankleR: 0.042,
+  // Girths. Cross-sections read off the plate at the widest ring of each region
+  // and halved; the adult male and the girl bracket every value, and the roster's
+  // `chest`/`hip`/`limb` multipliers spread the cast back out across the bracket.
+  neckR: 0.034,
+  chestRX: 0.086, chestRZ: 0.062,
+  waistR: 0.064,
+  hipRX: 0.076, hipRZ: 0.060,
+  armR: 0.031, elbowR: 0.025, wristR: 0.020,
+  // The hand is an articulated form now, not a mitten, so it is specified as a
+  // box rather than as a radius: wrist-to-fingertip, across the knuckles, and
+  // through the palm. 0.086 H is the plate's gloved hand (37 px against a 100 px
+  // head on the staff-mage) — about 80% of a realistic hand, small enough to
+  // read as stylised and far too big to disappear.
+  handLen: 0.086, handWidth: 0.046, handThick: 0.030,
+  thighR: 0.046, kneeR: 0.035, ankleR: 0.027,
   // The boot has to be visibly *wider than the ankle it caps* or the leg tube's
-  // end cap pokes through and the character reads as a flat-cut stump — the
-  // single clearest tell of an unfinished proxy. `footWidth * 0.5` is the boot's
-  // half-width in `CharacterFactory.buildBoot`, so 0.104 gives 0.052 against an
-  // ankle radius of 0.042: a 24% overhang all the way round.
-  footLen: 0.158, footWidth: 0.104, footHeight: 0.074,
+  // end cap pokes through and the character reads as a flat-cut stump. 0.070
+  // gives a half-width of 0.035 against an ankle radius of 0.027: a 30% overhang
+  // all the way round. The plate's plain shoe is 0.095–0.11 H long and the
+  // knight's armoured sabaton 0.17 H — the roster's `foot` multiplier is what
+  // separates them, so the base value sits at the unarmoured end.
+  footLen: 0.118, footWidth: 0.070, footHeight: 0.052,
 });
 
 /** Fallback so a malformed `def` still produces a body rather than throwing. */
@@ -134,6 +192,7 @@ const FALLBACK_PROPORTIONS = Object.freeze({
 });
 
 const v3 = (x, y, z) => ({ x, y, z });
+const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
 const pw = (x, e) => Math.sign(x) * Math.pow(Math.abs(x), e);
@@ -242,18 +301,21 @@ export function computeMetrics(def = {}) {
   const ankleY = H * F.ankleY;
   const legDrop = hipY - ankleY;
   const kneeY = ankleY + legDrop * (1 - F.upperLeg);
+  const kneeZ = H * F.kneeSet;
 
-  // Arms: splayed A-pose, offsets carried entirely in translation.
+  // Arms: splayed A-pose, offsets carried entirely in translation, with the
+  // elbow set back off the shoulder→wrist line so the joint has a hinge plane.
   const sx = Math.sin(F.armSplay);
   const cy = Math.cos(F.armSplay);
   const upper = H * F.upperArm * p.arm;
   const fore = H * F.foreArm * p.arm;
 
   const shoulderX = H * F.shoulderX * p.shoulder;
-  const armX = shoulderX + H * 0.020 * p.shoulder;
-  const armY = shoulderY - H * 0.034;
+  const armX = shoulderX + H * 0.016 * p.shoulder;
+  const armY = shoulderY - H * 0.026;
   const elbowX = armX + upper * sx;
   const elbowY = armY - upper * cy;
+  const elbowZ = -H * F.elbowSet;
   const wristX = elbowX + fore * sx;
   const wristY = elbowY - fore * cy;
 
@@ -282,20 +344,20 @@ export function computeMetrics(def = {}) {
 
     shoulderL: v3(shoulderX, shoulderY, 0),
     armL: v3(armX, armY, 0),
-    forearmL: v3(elbowX, elbowY, 0),
+    forearmL: v3(elbowX, elbowY, elbowZ),
     handL: v3(wristX, wristY, 0),
 
     shoulderR: v3(-shoulderX, shoulderY, 0),
     armR: v3(-armX, armY, 0),
-    forearmR: v3(-elbowX, elbowY, 0),
+    forearmR: v3(-elbowX, elbowY, elbowZ),
     handR: v3(-wristX, wristY, 0),
 
     thighL: v3(thighX, hipY - H * 0.012, 0),
-    shinL: v3(thighX * 1.04 * stance, kneeY, 0),
+    shinL: v3(thighX * 1.04 * stance, kneeY, kneeZ),
     footL: v3(thighX * 1.08 * stance, ankleY, 0),
 
     thighR: v3(-thighX, hipY - H * 0.012, 0),
-    shinR: v3(-thighX * 1.04 * stance, kneeY, 0),
+    shinR: v3(-thighX * 1.04 * stance, kneeY, kneeZ),
     footR: v3(-thighX * 1.08 * stance, ankleY, 0),
   };
 
@@ -310,7 +372,9 @@ export function computeMetrics(def = {}) {
     arm: H * F.armR * limb,
     elbow: H * F.elbowR * limb,
     wrist: H * F.wristR * limb,
-    hand: H * F.handR * p.hand,
+    // Retained under its old name because `buildCuff` and `LookdevScene` read
+    // it: the palm's half-width, which is what "hand radius" always meant.
+    hand: H * F.handWidth * 0.5 * p.hand,
     thigh: H * F.thighR * limb,
     knee: H * F.kneeR * limb,
     ankle: H * F.ankleR * limb,
@@ -322,14 +386,100 @@ export function computeMetrics(def = {}) {
     height: H * F.footHeight * p.foot,
   };
 
+  /**
+   * The hand, as a form with a palm and five digits rather than as a radius.
+   *
+   * The plate shows gloved hands closed around a haft with the fingers visibly
+   * separated — four across the front of the grip and a thumb opposed over
+   * them. That is the difference between a character *holding* a weapon and a
+   * weapon parented near a mitten, and it is legible at battle distance because
+   * the finger gaps are the only interior detail on the whole limb.
+   *
+   * Proportions are the standard hand canon compressed toward the palm: the
+   * knuckle line at 52% of hand length (a realistic hand is 55%), so the digits
+   * stay chunky enough to survive the downscale.
+   */
+  const hand = {
+    length: H * F.handLen * p.hand,
+    width: H * F.handWidth * p.hand,
+    thickness: H * F.handThick * p.hand,
+  };
+  hand.palm = hand.length * 0.52;
+  hand.finger = hand.length - hand.palm;
+  hand.fingerR = hand.width * 0.118;
+  hand.thumbR = hand.width * 0.150;
+
+  /**
+   * The grip: one definition of where a held haft passes through a fist.
+   *
+   * This exists because two things have to agree about it and used to be
+   * authored separately — the weapon socket in `buildChainMetrics` and the
+   * fingers in `CharacterFactory.buildHand`. When they disagree by even a
+   * finger radius the hand closes on empty air beside the haft, which is
+   * precisely the "weapon floating near the hand" read the client rejected.
+   *
+   * `axis` points from the fingertips back past the wrist, i.e. roughly +Y, so
+   * a weapon authored along +Y from a grip at the origin (`buildWeapon`'s
+   * convention) runs up through the fist with no per-weapon correction. The
+   * centre is pushed off the hand's own axis along the palm normal by half the
+   * palm's thickness plus most of the haft radius, which is where the bore of a
+   * closed fist actually is — inside the curled fingers, not on the bone.
+   */
+  const gripOf = (side) => {
+    const sfx = side > 0 ? 'L' : 'R';
+    const w = joints[`hand${sfx}`];
+    const e = joints[`forearm${sfx}`];
+    const len = Math.hypot(w.x - e.x, w.y - e.y, w.z - e.z) || 1;
+    const u = { x: (w.x - e.x) / len, y: (w.y - e.y) / len, z: (w.z - e.z) / len };
+    // Palm normal: +Z with the hand axis projected out, so the offset is exactly
+    // perpendicular to the haft however the A-pose is splayed.
+    const d = u.z;
+    const n = { x: -u.x * d, y: -u.y * d, z: 1 - u.z * d };
+    const nl = Math.hypot(n.x, n.y, n.z) || 1;
+    const radius = hand.thickness * 0.46;
+    const along = hand.palm * 0.56;
+    const off = (hand.thickness * 0.5 + radius * 0.34) / nl;
+    return Object.freeze({
+      center: v3(
+        w.x + u.x * along + n.x * off,
+        w.y + u.y * along + n.y * off,
+        w.z + u.z * along + n.z * off,
+      ),
+      axis: v3(-u.x, -u.y, -u.z),
+      normal: v3(n.x / nl, n.y / nl, n.z / nl),
+      radius,
+    });
+  };
+  const grip = Object.freeze({ L: gripOf(1), R: gripOf(-1) });
+
   const head = {
     center: v3(0, headCY, 0),
-    // Slightly wider than tall, slightly shallow front-to-back: REFERENCE
-    // §1 calls the head "near-spherical, slightly wider than tall", and the
-    // shallow Z is what keeps a 3/4 battle-camera view from reading as a ball.
-    rx: headR * 1.06,
+    /**
+     * The skull is **narrower than it is tall**, and the plate is unambiguous
+     * about it. REFERENCE §1's "near-spherical, slightly wider than tall" is one
+     * of the transcription errors the plates exist to correct.
+     *
+     * Measured on the hat-mage, the cleanest face in `bravely01.jpg`: chin at
+     * y = 434, skull crown at y = 350, so 84 px tall; the visible skin runs
+     * x = 636 → 690 in a three-quarter view with the far side under hair, which
+     * puts the full skull between 58 and 62 px. That is a width-to-height ratio
+     * of **0.69–0.74**. The staff-mage gives 0.70 by the same construction. It
+     * is not a stylisation quirk either — a real head is 15 cm across and 23 cm
+     * chin-to-crown, i.e. 0.65 — and anime widens it only a little.
+     *
+     * At `rx = 1.06 ry` the old skull was 45% wider than the plate's, which is
+     * the direct cause of two of the client's complaints at once: the head read
+     * as an oversized ball, and the shoulders read as narrow *because they were
+     * being compared to it*. 0.80 sits at the generous end of the measured band
+     * — the stylisation direction, and it leaves the face plate room.
+     *
+     * `rz` follows the skull's own aspect rather than the camera's: real head
+     * depth is about 1.12 × its width, and the plate's three-quarter views show
+     * that depth clearly in how far the cheek carries before the jaw turns.
+     */
+    rx: headR * 0.80,
     ry: headR,
-    rz: headR * 0.97,
+    rz: headR * 0.90,
     radius: headR,
     chinY,
     crownY,
@@ -344,14 +494,41 @@ export function computeMetrics(def = {}) {
     eV: 0.94,
     /**
      * Radial profile along the head's vertical parameter `v` in [0,1]
-     * (0 = chin, 1 = crown). Narrows the lower third into a jaw and widens the
-     * upper middle into a cranium; both are small, because REFERENCE §1 wants
-     * "near-spherical", but without them the head is a ball and the character
-     * reads as a doll rather than as a person drawn small.
+     * (0 = chin, 1 = crown): the jaw taper and the cranium swell.
+     *
+     * ### Why the jaw taper moved down and got harder
+     *
+     * The painted mouth lands at 0.79 of head height (`FACE_LAYOUT.mouthY`
+     * resolved against the plate), so everything below `v ≈ 0.21` is bare
+     * chin. The old taper spread a gentle 20% narrowing across the whole
+     * bottom **third**, which meant the widest part of that blank region was
+     * still 92% of full head width: the review's "large blank cream ovoid with
+     * roughly 30% of head height below the mouth carrying zero information".
+     * A blank region is only a defect if it is *big*, so the fix is to make it
+     * small — 32% of narrowing packed into the bottom quarter, on a near-linear
+     * curve so the cheek stays full right down to the mouth line and then the
+     * silhouette turns in hard. That is a jaw with a chin under it rather than
+     * the bottom of an egg, and it removes the dead mass without moving a
+     * single painted feature.
+     *
+     * ### Why the cranium swell shrank
+     *
+     * `skullDepth` — which every hair, collar and cloth clearance in the
+     * project is measured against — is a plain *ellipsoid* metric: it ignores
+     * both `profile` and `eV`. So every clearance constant downstream is
+     * optimistic by however much this function and the superellipse exponent
+     * inflate the real surface, and at the old 4.5% swell the crown scalp sat
+     * near 1.06 in that metric while the hair shell's inner wall floor was
+     * 1.045 — i.e. the scalp could legitimately stand *outside* the hair over
+     * the crown. Holding the swell to 2% keeps the true surface inside the
+     * 1.045 the clearance solvers assume (2% swell × the ≤2.1% the `eV = 0.94`
+     * superellipse adds ≈ 1.041), so the margins are honest rather than
+     * nominal. The crown reads flatter for it, which is the direction
+     * REFERENCE §1 wants anyway.
      */
     profile(v) {
-      const jaw = 1 - Math.pow(clamp01((0.34 - v) / 0.34), 1.6) * 0.20;
-      const cranium = 1 + Math.pow(clamp01((v - 0.55) / 0.30), 2) * 0.045;
+      const jaw = 1 - Math.pow(clamp01((0.26 - v) / 0.26), 1.25) * 0.32;
+      const cranium = 1 + Math.pow(clamp01((v - 0.52) / 0.28), 2) * 0.020;
       return jaw * cranium;
     },
   };
@@ -369,14 +546,26 @@ export function computeMetrics(def = {}) {
   //  - **The plate is square in world units.** `FaceTexture` draws into a square
   //    canvas and positions every feature as a fraction of it, so a plate with
   //    any other aspect stretches the eyes and nothing downstream can correct
-  //    for it. Height sets the scale: 1.90 head-radii runs from just below the
-  //    crown to just past the chin, which is the region a drawn face occupies.
+  //    for it.
+  //  - **The scale is solved from the skull's *width*, not its height.** It used
+  //    to be a fixed 1.90 ry, which was safe only while the skull was wider than
+  //    it was tall. It is not: the plate's head measures 0.80 wide for 1.00 tall
+  //    (see `head.rx`), so a plate 0.95 ry to either side of the nose would have
+  //    asked for an `x` a fifth past the temple — the texture's outer columns
+  //    smeared down the side of the face, which is the exact defect
+  //    `face.halfX`'s ceiling exists to make unreachable. Deriving the square
+  //    from `rx` means the widest painted feature lands just inside the skull's
+  //    own silhouette at *any* head aspect, which is where the plate's eyes sit.
   //  - **The vertical placement is solved from the layout table.**
   //    `FACE_LAYOUT.eyeY` puts the painted eye line 56% down the square, and
   //    that has to coincide with the anatomical eye line — so the plate's top
   //    edge is *derived* from the eye line, not guessed at. Retune either and
   //    they stay locked together.
-  const faceSize = head.ry * 1.90;
+  //
+  // 2.28 rather than 2.00 so the square's outer 12% a side is blank margin: the
+  // plate's own rim has to bury itself inside the skull, and it must do that in
+  // texture the painter left empty.
+  const faceSize = head.rx * 2.28;
   // 0.12 ry below the head's centre, which puts the painted pair **exactly 56%
   // of the way from crown to chin** — `FACE_LAYOUT.eyeY`'s number, measured on
   // the skull rather than on the texture.
@@ -419,16 +608,20 @@ export function computeMetrics(def = {}) {
      * saturation entirely rather than tuning around it.
      *
      * The width ceiling is a separate and harder rule. `buildFacePlate` writes
-     * `u = 0.5 + ox / size`, so a `halfX` above `size / 2` — 0.95 ry — asks the
-     * sampler for a `u` outside [0, 1]. At `ClampToEdge` that is a band of the
-     * texture's outermost column smeared down each side of the face, which is
-     * the "mask-like band" the review found; at any repeating wrap it would be a
-     * second pair of eyes wrapped onto the temple. 0.94 keeps every vertex
-     * strictly inside the texture with a margin, so neither is reachable from
-     * any roster value.
+     * `u = 0.5 + ox / size`, so a `halfX` above `size / 2` asks the sampler for
+     * a `u` outside [0, 1]. At `ClampToEdge` that is a band of the texture's
+     * outermost column smeared down each side of the face, which is the
+     * "mask-like band" the review found; at any repeating wrap it would be a
+     * second pair of eyes wrapped onto the temple.
+     *
+     * Both extents are therefore expressed against the *plate*, not against the
+     * skull, and both sit strictly inside half of it: 0.95 rx is 0.417 of the
+     * square, and 0.47 of the square is 0.94 of `size / 2`. No head aspect and
+     * no roster value can push either past the edge, which is what makes the
+     * texture clamp a backstop rather than the fix.
      */
-    halfX: head.ry * 0.94,
-    halfY: head.ry * 0.88,
+    halfX: head.rx * 0.95,
+    halfY: Math.min(head.ry * 0.88, faceSize * 0.47),
     /**
      * How far the plate is flattened toward a plane, 0–1.
      *
@@ -541,17 +734,26 @@ export function computeMetrics(def = {}) {
     joints,
     girth,
     foot,
+    hand,
+    grip,
     head,
     ear,
     hairline: Object.freeze(hairline),
     eye,
     face,
+    // True 3D segment lengths, not the vertical drops they used to be. The
+    // elbow and knee are set off their chords now, so `legDrop × upperLeg`
+    // under-reports the femur by about 0.3% — small, but it is the number the
+    // animator's ground solve and every limb sweep measure themselves against,
+    // and there is no reason for it to be an approximation.
     segments: {
-      upperArm: upper, foreArm: fore,
-      thigh: legDrop * F.upperLeg, shin: legDrop * (1 - F.upperLeg),
+      upperArm: dist(joints.armL, joints.forearmL),
+      foreArm: dist(joints.forearmL, joints.handL),
+      thigh: dist(joints.thighL, joints.shinL),
+      shin: dist(joints.shinL, joints.footL),
       torso,
     },
-    chains: buildChainMetrics(def, { head, joints, girth, H }),
+    chains: buildChainMetrics(def, { head, joints, girth, grip, H }),
   });
 }
 
@@ -564,7 +766,7 @@ export function computeMetrics(def = {}) {
  * a bone rotation. Producing them here keeps the rest lengths and the bone
  * offsets from ever disagreeing.
  */
-function buildChainMetrics(def, { head, joints, girth, H }) {
+function buildChainMetrics(def, { head, joints, girth, grip, H }) {
   const chains = { hair: [], cape: [], weapon: null };
 
   const hair = def.hair ?? {};
@@ -616,12 +818,25 @@ function buildChainMetrics(def, { head, joints, girth, H }) {
   const weapon = def.weapon ?? null;
   if (weapon) {
     const mount = weapon.mount ?? 'handR';
+    // The socket is the *bore of the fist*, solved once in `computeMetrics`, not
+    // a hand-authored offset from the wrist. That is what puts the haft between
+    // the fingers and the thumb instead of beside them.
+    const held = (sfx) => {
+      const w = joints[`hand${sfx}`];
+      const g = grip[sfx];
+      return { parent: `hand${sfx}`, position: v3(g.center.x - w.x, g.center.y - w.y, g.center.z - w.z) };
+    };
     if (mount === 'back') {
       chains.weapon = { parent: 'chest', position: v3(0, girth.chestZ * 0.6, -girth.chestZ * 1.25) };
+    } else if (mount === 'handL' || mount === 'handR') {
+      chains.weapon = held(mount.endsWith('L') ? 'L' : 'R');
     } else if (joints[mount]) {
-      chains.weapon = { parent: mount, position: v3(0, -girth.hand * 0.10, girth.hand * 0.35) };
+      // A weapon socketed on a limb rather than held — Bramm's forearm piston.
+      // Measured off the *limb*, not off `girth.hand`: the mount has to clear the
+      // surface it is strapped to, and the hand is on the other end of it.
+      chains.weapon = { parent: mount, position: v3(0, -girth.wrist * 0.4, girth.elbow * 1.35) };
     } else {
-      chains.weapon = { parent: 'handR', position: v3(0, 0, girth.hand * 0.35) };
+      chains.weapon = held('R');
     }
   }
 
@@ -698,52 +913,92 @@ export function buildRig(def, metrics = computeMetrics(def)) {
 /**
  * The bone segments used for analytic skinning, as `{ index, a, b, sigma }`.
  *
- * `sigma` is the falloff radius of that segment's influence and is derived from
- * the limb's own girth rather than being a constant: a fat thigh must capture
- * vertices further from its axis than a wrist does, or the wrist steals the
- * forearm's surface and the elbow shears. Torso segments get a deliberately
- * generous sigma so the chest/spine/hips blend is soft — a chibi torso is one
- * continuous mass and any visible banding across it reads as a modelling error.
+ * `sigma` is the falloff radius of that segment's influence. `CharacterFactory`
+ * weights a vertex by `exp(-(d/sigma)²)` on the perpendicular distance to the
+ * segment, clamped along it — so past a joint the weight decays as
+ * `exp(-(s/sigma)²)` in the axial overshoot `s`, and **sigma is therefore the
+ * half-width of the blend zone across that joint**, not a vague "influence".
+ * Everything below follows from reading it that way.
+ *
+ * ## Why the limb sigmas came down from 1.4–1.5 r to 1.15 r
+ *
+ * At 1.5 r the blend across an elbow was three limb-diameters wide, which is
+ * most of the forearm. Linear blend skinning shrinks a cross-section by roughly
+ * `cos(θ/2)` wherever two bones share it evenly, so a wide blend does not
+ * *reduce* the pinch — it smears a 30% volume loss along the whole segment and
+ * the limb reads as boneless rubber, which is exactly the "too simplified" the
+ * client saw. At 1.15 r the loss is confined to about one diameter either side
+ * of the joint, where `CharacterFactory` now puts an explicit elbow and knee
+ * ball to fill it. Crease where the anatomy creases; hold volume elsewhere.
+ *
+ * ## Why the torso sigmas stay generous
+ *
+ * A trunk is one continuous mass and any visible band across it reads as a
+ * modelling error, so hips/spine/chest keep a blend as wide as they are thick.
+ *
+ * ## `sigmaScale`
+ *
+ * Garments hang *off* the body — a coat panel can sit an inch clear of the leg
+ * that should drive it — so they are solved against the same segments widened
+ * uniformly. Without it every vertex past the body's own falloff drops through
+ * to the solver's nearest-bone fallback and binds rigidly, which is how a
+ * swinging coat tail ends up moving in stair-steps.
  *
  * @param {object} rig result of {@link buildRig}
+ * @param {number} [sigmaScale=1] uniform widening of every falloff
  * @returns {Array<{index:number, name:string, a:THREE.Vector3, b:THREE.Vector3, sigma:number}>}
  */
-export function skinSegments(rig) {
+export function skinSegments(rig, sigmaScale = 1) {
   const { metrics, order, rest } = rig;
   const g = metrics.girth;
+  const hand = metrics.hand;
   const H = metrics.height;
 
-  // name -> [tip position, influence radius]. A segment runs from the bone to
+  // name -> [tip position, blend half-width]. A segment runs from the bone to
   // its "tip"; leaf bones get a synthetic tip along their natural extension so
   // hands and feet still have an axis rather than collapsing to a point.
   const J = metrics.joints;
   const tips = {
-    hips: [J.spine, g.hipX * 1.35],
-    spine: [J.chest, g.waist * 1.5],
-    chest: [J.neck, g.chestX * 1.35],
-    neck: [J.head, g.neck * 2.2],
-    head: [{ x: 0, y: metrics.head.crownY, z: 0 }, metrics.head.rx * 1.6],
+    hips: [J.spine, g.hipX * 1.30],
+    spine: [J.chest, g.waist * 1.45],
+    chest: [J.neck, g.chestX * 1.30],
+    neck: [J.head, g.neck * 2.0],
+    head: [{ x: 0, y: metrics.head.crownY, z: 0 }, metrics.head.rx * 1.7],
 
-    shoulderL: [J.armL, g.arm * 2.0], shoulderR: [J.armR, g.arm * 2.0],
-    armL: [J.forearmL, g.arm * 1.5], armR: [J.forearmR, g.arm * 1.5],
-    forearmL: [J.handL, g.elbow * 1.5], forearmR: [J.handR, g.elbow * 1.5],
-    handL: [extend(J.forearmL, J.handL, g.hand * 1.6), g.hand * 1.7],
-    handR: [extend(J.forearmR, J.handR, g.hand * 1.6), g.hand * 1.7],
+    // The shoulder gets the *same* 1.15 rule as every other joint, and this is
+    // the one that used to be wrong by the largest margin. `shoulderL → armL` is
+    // a stub about one arm-radius long, so a sigma of 1.9 r reached the better
+    // part of the way down the humerus: the whole upper arm was blended roughly
+    // evenly between a bone that moves with the arm and a bone that moves with
+    // the chest, and lifting the arm sheared it flat. Measured, the surface kept
+    // 2–34% of its width at 90°; at 1.15 r it keeps 88–96%. The deltoid mass
+    // that genuinely wants a wide blend is a separate surface bound across
+    // `chest`, `shoulder` and `arm`, which is where that blend belongs.
+    shoulderL: [J.armL, g.arm * 1.15], shoulderR: [J.armR, g.arm * 1.15],
+    armL: [J.forearmL, g.arm * 1.15], armR: [J.forearmR, g.arm * 1.15],
+    forearmL: [J.handL, g.elbow * 1.15], forearmR: [J.handR, g.elbow * 1.15],
+    // The hand's axis now runs to the knuckle line rather than to a synthetic
+    // point past the wrist, because there is a palm there to own. The fingers
+    // beyond it are inside `hand.width` of that axis and follow it rigidly,
+    // which is what a closed grip does.
+    handL: [extend(J.forearmL, J.handL, hand.palm), hand.width * 0.80],
+    handR: [extend(J.forearmR, J.handR, hand.palm), hand.width * 0.80],
 
-    thighL: [J.shinL, g.thigh * 1.5], thighR: [J.shinR, g.thigh * 1.5],
-    shinL: [J.footL, g.knee * 1.4], shinR: [J.footR, g.knee * 1.4],
-    footL: [{ x: J.footL.x, y: J.footL.y * 0.4, z: J.footL.z + metrics.foot.length * 0.55 }, metrics.foot.width * 1.5],
-    footR: [{ x: J.footR.x, y: J.footR.y * 0.4, z: J.footR.z + metrics.foot.length * 0.55 }, metrics.foot.width * 1.5],
+    thighL: [J.shinL, g.thigh * 1.15], thighR: [J.shinR, g.thigh * 1.15],
+    shinL: [J.footL, g.knee * 1.15], shinR: [J.footR, g.knee * 1.15],
+    footL: [{ x: J.footL.x, y: J.footL.y * 0.4, z: J.footL.z + metrics.foot.length * 0.55 }, metrics.foot.width * 1.3],
+    footR: [{ x: J.footR.x, y: J.footR.y * 0.4, z: J.footR.z + metrics.foot.length * 0.55 }, metrics.foot.width * 1.3],
   };
 
   const out = [];
+  const floor = H * 0.012;
   for (let i = 0; i < order.length; i++) {
     const name = order[i];
     const spec = tips[name];
     if (!spec) continue; // root, hair*, cape* and weapon are bound explicitly.
     const a = rest[name].world;
     const b = new THREE.Vector3(spec[0].x, spec[0].y, spec[0].z);
-    out.push({ index: i, name, a, b, sigma: Math.max(spec[1], H * 0.02) });
+    out.push({ index: i, name, a, b, sigma: Math.max(spec[1], floor) * sigmaScale });
   }
   return out;
 }

@@ -101,6 +101,16 @@ const FOG_FAR = 0xc4b49a;
 const SUN_DISC_RADIANCE = 26;
 
 /**
+ * Display luminance the sunward horizon core is solved onto — linear, after
+ * ACES, before the sRGB encode. 0.88 encodes to roughly 241/255: a genuine
+ * highlight in frame, with enough headroom left that bloom has somewhere to
+ * spill without the skyline clipping into a flat white bar. Without it a dusk
+ * frame peaks around 203/255 and reads as two stacked fills with no light in
+ * it, which is exactly the note this constant exists to answer.
+ */
+const HORIZON_CORE_LUMA = 0.88;
+
+/**
  * Weather presets. No preset drops cloud coverage below 0.20: REFERENCE_TARGET
  * section 4 is explicit that the reference frames always carry visible cloud
  * structure, so "clear" here means fair-weather cumulus, not an empty sky.
@@ -220,6 +230,11 @@ const LR = 0.2126;
 const LG = 0.7152;
 const LB = 0.0722;
 
+/** Rec.709 luminance of a linear RGB triple held in a plain array. */
+function luma3(c) {
+  return LR * c[0] + LG * c[1] + LB * c[2];
+}
+
 /* -------------------------------------------------------------------------- */
 
 export class Sky {
@@ -274,6 +289,8 @@ export class Sky {
     this._transmit = [0, 0, 0];
     this._tint = [1, 1, 1];
     this._target = [0, 0, 0];
+    this._coreBase = [0, 0, 0];
+    this._coreChroma = [0, 0, 0];
     this._vecA = new THREE.Vector3();
     this._vecB = new THREE.Vector3();
     this._colA = new THREE.Color();
@@ -310,6 +327,7 @@ export class Sky {
       uZenithTint: { value: new THREE.Vector3(1, 1, 1) },
       uHorizonTint: { value: new THREE.Vector3(1, 1, 1) },
       uHorizonSunward: { value: 1 },
+      uHorizonCore: { value: new THREE.Vector3(0, 0, 0) },
 
       uSunTint: { value: new THREE.Color(0xffead0) },
       uSunAngularRadius: { value: 0.011 },
@@ -540,6 +558,44 @@ export class Sky {
     return out;
   }
 
+  /**
+   * Solve the additive radiance that lands the skyline on `targetLum` display
+   * luminance after ACES, given the radiance `base` already there and a
+   * unit-luminance chroma to add along.
+   *
+   * Additive rather than multiplicative, and therefore a different solver from
+   * `_solveTint`: the tints re-key chroma and cannot manufacture a highlight
+   * the scattering integral never produced. Bisection rather than fixed-point
+   * because ACES is monotonic along a fixed positive direction, so the bracket
+   * is guaranteed and the iteration cannot oscillate. Returns 0 when the
+   * horizon is already at or above target, which is what keeps this silent at
+   * noon instead of blowing the skyline out.
+   */
+  _solveHorizonCore(base, chroma, targetLum, exposure) {
+    acesFilmic(base, exposure, this._shown);
+    if (luma3(this._shown) >= targetLum) return 0;
+
+    let lo = 0;
+    let hi = 1;
+    // ACES saturates at 1.0, so a bracket always exists; the cap is only there
+    // so a pathological exposure cannot spin this loop.
+    for (let i = 0; i < 24; i++) {
+      for (let c = 0; c < 3; c++) this._trial[c] = base[c] + chroma[c] * hi;
+      acesFilmic(this._trial, exposure, this._shown);
+      if (luma3(this._shown) >= targetLum) break;
+      lo = hi;
+      hi *= 2;
+    }
+    for (let i = 0; i < 20; i++) {
+      const mid = 0.5 * (lo + hi);
+      for (let c = 0; c < 3; c++) this._trial[c] = base[c] + chroma[c] * mid;
+      acesFilmic(this._trial, exposure, this._shown);
+      if (luma3(this._shown) < targetLum) lo = mid;
+      else hi = mid;
+    }
+    return 0.5 * (lo + hi);
+  }
+
   /** Write a unit direction into the shared probe scratch and return it. */
   _probeDir(x, y, z) {
     const inv = 1 / Math.max(1e-6, Math.hypot(x, y, z));
@@ -621,6 +677,9 @@ export class Sky {
     // horizon key actually describes, since a dusk sky is only orange on the
     // side the sun is on. The shader blends this tint back toward the zenith
     // tint away from the sun so the anti-solar sky keeps its own physics.
+    // (The dome's sampling clamp lifts a horizon ray by under 0.2 degrees,
+    // which is comfortably inside the 1.5 the probe already chooses, so the two
+    // still describe the same band.)
     const toward = this._vecA.set(sun.x, 0, sun.z);
     if (toward.lengthSq() < 1e-6) toward.set(0, 0, 1);
     toward.normalize().multiplyScalar(Math.cos(0.026));
@@ -634,6 +693,32 @@ export class Sky {
     // With the sun down there is no sunward side worth preserving, so the
     // horizon key applies all the way round the skyline.
     u.uHorizonSunward.value = sstep(sun.y, -0.10, 0.05);
+
+    // --- the highlight the frame hangs on ------------------------------------
+    // Solved against exactly what the shader paints at the skyline in the sun's
+    // azimuth: the same probe radiance, through the same horizon tint. Chroma
+    // is the horizon key warmed toward the sun, normalised to unit luminance so
+    // the solved gain is a pure magnitude.
+    for (let c = 0; c < 3; c++) this._coreBase[c] = this._physical[c] * this._tint[c];
+    this._colA.copy(this.horizonColor).lerp(this._sunColor, 0.45);
+    const chromaLum = Math.max(1e-4, LR * this._colA.r + LG * this._colA.g + LB * this._colA.b);
+    this._coreChroma[0] = this._colA.r / chromaLum;
+    this._coreChroma[1] = this._colA.g / chromaLum;
+    this._coreChroma[2] = this._colA.b / chromaLum;
+    // The core is a low-sun phenomenon and belongs to no other hour: it fades
+    // out as the sun climbs past ~25 degrees (where the bright part of the sky
+    // is around the sun, not on the skyline under it) and is dead at night,
+    // where a warm band on the horizon would simply be a lie.
+    const coreFade = (1 - sstep(sun.y, 0.10, 0.45)) * sstep(sun.y, -0.20, -0.02) * wx.sunMul;
+    const coreGain = coreFade > 1e-3
+      ? this._solveHorizonCore(this._coreBase, this._coreChroma, HORIZON_CORE_LUMA, this.exposure)
+        * coreFade
+      : 0;
+    u.uHorizonCore.value.set(
+      this._coreChroma[0] * coreGain,
+      this._coreChroma[1] * coreGain,
+      this._coreChroma[2] * coreGain,
+    );
 
     // --- sun disc ------------------------------------------------------------
     // disc = transmittance * tint, and tint = reported / normalised

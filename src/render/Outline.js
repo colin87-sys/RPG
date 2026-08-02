@@ -1,22 +1,53 @@
 /**
- * Outline.js — the inverted-hull ink line (ANIME_PIPELINE §4).
+ * Outline.js — the inverted-hull ink line. **Off by default; see below.**
  *
- * ## Why this exists
+ * ## Why this is disabled
  *
- * The first cast was rejected as "AI slop [that] looks nothing like anime", and
- * `docs/ANIME_PIPELINE.md` names four causes. This module is one of them: "no
- * outlines, or too subtle to see". Flat saturated colour and a hard terminator
- * still read as *stylised low-poly* without an ink line around the silhouette;
- * the line is what makes a 3D frame read as drawn. It is not a post-process edge
- * filter — those key off depth and normal discontinuities, so they miss the
- * inside of a silhouette and shimmer on a moving character. It is geometry.
+ * `docs/ANIME_PIPELINE.md` names a missing ink line as one of four causes of the
+ * first cast's rejection, and this module was written to supply one. The
+ * client's actual reference screenshots then arrived in `docs/reference/`, and
+ * they do not have one. That is not an impression; it was measured on four
+ * silhouette crossings chosen for a clean background, and an inverted hull is
+ * trivially detectable — a 2 px shell at 0.18× albedo puts a 2–4 px trough well
+ * *below* the background level in front of every lit edge:
  *
- * ## The technique, and the four ways it goes wrong
+ *  - `bravely01.jpg`, the white hat against dark foliage at y=330: background
+ *    runs 50–83 sRGB, the last pixels before the hat read 57 69 83 72 83 77 113,
+ *    then 177 inside. No pixel dips below the background band at all.
+ *  - `bravely01.jpg`, Seth's pauldron against bright lavender at x=350: 114 68
+ *    27 22 — three pixels from background to armour, monotonic, no pre-edge dip.
+ *  - `bravely02.jpg`, a white boot against smooth purple ice at y=470: ice 155,
+ *    a single pixel at 141 (−9%, one pixel wide, i.e. antialiasing or a contact
+ *    darkening), then 201 234 236.
+ *  - `bravely05.jpg`, the ninja's hair against a smooth sky at y=140: sky 37,
+ *    the darkest edge pixel 34. Three code values on a 37 background, one pixel.
+ *
+ * A drawn ink line is not a subtle effect and none of those is one. The client's
+ * note is the same finding in words — "we added a heavy ink outline and hard cel
+ * banding; the plate has neither" — so `OUTLINE_DEFAULTS.enabled` ships `false`
+ * and the machinery stays behind {@link setOutlineEnabled}.
+ *
+ * Nothing here is deleted. The hull is correctly welded, correctly skinned and
+ * correctly parented, and this is exactly the sort of art direction that gets
+ * revisited; deleting a working implementation to express a default is how a
+ * project ends up rebuilding it badly six weeks later. Turning it on gives a far
+ * lighter line than it used to — `width` 1.0 px rather than 2.0 and `darkness`
+ * 0.30 rather than 0.18, which is roughly the strength of the contact darkening
+ * the plates *do* show at some material boundaries, rather than the marker
+ * stroke the previous default drew.
+ *
+ * ## What it is
+ *
+ * Not a post-process edge filter — those key off depth and normal
+ * discontinuities, so they miss the inside of a silhouette and shimmer on a
+ * moving character. It is geometry.
+ *
+ * ## The technique, and the five ways it goes wrong
  *
  * Duplicate the mesh, render it with `side: BackSide` (three culls front faces),
  * and push every vertex out along its normal. The shell is hidden inside the
  * character everywhere except where it pokes past the silhouette, where it reads
- * as a line of constant weight. Four details decide whether that looks like an
+ * as a line of constant weight. Five details decide whether that looks like an
  * inked drawing or like a mistake:
  *
  * 1. **The push is in view space, scaled by view depth.** A world-space offset
@@ -24,19 +55,33 @@
  *    battle stage and a marker stroke on one in a closeup. Scaling by the
  *    frustum's height at the vertex's own depth makes the line a constant number
  *    of *pixels* — `updateOutlineScale` derives the factor from the camera and
- *    the viewport, and `shaders/outlineHull.js` applies it.
+ *    the viewport, and `shaders/outlineHull.js` applies it in the view plane.
  * 2. **The hull is skinned by the same skeleton.** A hull that is not skinned
  *    stays in bind pose and the character walks out of its own outline. Here the
  *    hull is a `SkinnedMesh` sharing the source's `skeleton`, `bindMatrix` and
  *    `bindMode`, and it is pushed along a normal that three's own
  *    `skinnormal_vertex` chunk has deformed — not along a re-derived one.
- * 3. **The push follows *welded* normals.** `CharacterFactory` runs
- *    `toCreasedNormals`, so vertices are split at every hard edge and their
+ * 3. **The push follows *welded* normals, within a cone.** `CharacterFactory`
+ *    runs `toCreasedNormals`, so vertices are split at every hard edge and their
  *    normals diverge. Pushing along those tears the shell open at each crease —
  *    a gap in the line exactly at a hair clump's point or a boot's corner, which
  *    is where the silhouette is doing the most work. `buildOutlineGeometry`
- *    computes a position-welded average into an `aOutlineNormal` attribute.
- * 4. **The line is not black.** §4 asks for a heavily darkened, saturated
+ *    computes a position-welded average into an `aOutlineNormal` attribute, and
+ *    limits it to a cone so that two *unrelated* surfaces sharing a position —
+ *    a clump bedded on a skull, a sleeve sunk into a torso — are not averaged
+ *    into a direction that points into the body. The same attribute carries the
+ *    miter scale that keeps the line one weight across a crease.
+ * 4. **The push is lateral — view-space XY, never Z.** Back-face culling alone
+ *    does not guarantee the hull loses to the surface it wraps. Pushed along the
+ *    full 3D normal, the shell moves toward the camera wherever the surface
+ *    faces the lens, and on geometry thinner than that motion — a tunic layer, a
+ *    cape panel, a hair clump, i.e. most of a chibi character — it overtakes the
+ *    surface and occludes it. The cast shipped that way: what looked like "no
+ *    outline anywhere and desaturated beige-grey costumes" was the outline,
+ *    drawn at character size. Offsetting in XY alone makes the line exactly the
+ *    requested number of pixels wide *and* leaves the shell's depth identical to
+ *    the surface's, so it cannot occlude anything at any thickness.
+ * 5. **The line is not black.** The rule is a heavily darkened, saturated
  *    version of the albedo underneath, so hair takes a dark-warm line and cloth
  *    a dark-cool one. `outlineColorFor` is that transform, and it is exposed per
  *    material.
@@ -48,13 +93,15 @@
  * transparent, depth-write-disabled line — would leave the outline as a hole in
  * the depth buffer, and DOF would compute its circle of confusion there from
  * whatever lies *behind* the character. The result is a character crisply in
- * focus wearing a background-blurred halo. Writing depth is also why no
- * polygon offset is needed: the hull is drawn first (`renderOrder - 1`), so
- * where it meets the surface at the silhouette the surface's own `LEQUAL` test
- * wins and there is nothing to z-fight over.
+ * focus wearing a background-blurred halo. It is safe to write depth because
+ * the shell is offset laterally only, so its depth is the surface's own: the
+ * hull is drawn first (`renderOrder - 1`) and the surface's `LEQUAL` test wins
+ * every pixel they contest, with `depthGuard` breaking the float-error ties.
  *
  * ## Contract
  *
+ *   setOutlineEnabled( on )                         // off by default
+ *   isOutlineEnabled()                              -> boolean
  *   buildOutline( mesh, opts )                      -> THREE.Mesh | null
  *   buildOutlines( root, opts )                     -> THREE.Mesh[]
  *   updateOutlineScale( mesh, camera, viewportHeight )
@@ -88,23 +135,36 @@ import {
  * Art defaults for the line. Frozen and exported so a debug panel or a capture
  * scenario can read the shipped values instead of guessing them.
  *
- * `width` is in **device pixels**, which is what "constant screen-space weight"
- * means and what ANIME_PIPELINE §4 asks for: 1.5–2.5 px at 1080p. 2.0 sits in
- * the middle — unmistakably an ink line at battle distance, still short of the
- * cartoon border a heavier value gives a chibi character whose whole body is
- * only ~80 px tall.
+ * `enabled` is `false`, and it is the headline: the reference plates carry no
+ * ink line and the measurements are in the module header.
  *
- * `darkness` and `saturation` are §4's colour rule. 0.18 in linear light is
- * heavily darkened; pushing saturation up on the way down is what stops the
- * darkening from also draining the hue and landing on the near-black line the
- * document rules out. 1.25 rather than the 1.55 this shipped at, because the
- * saturation identity clamps: on any garment darker than mid — which is most of
- * this cast — 1.55 drove two of the three channels to exactly zero, so a navy
- * coat, a teal sash and a violet cape all resolved to the same single-channel
- * line and §4's "dark-warm on hair, dark-cool on cloth" distinction was thrown
- * away by the very term meant to protect it. `floor` keeps a very dark albedo —
- * a deep navy, which crushes to black inside a code value at this level — off
- * zero, so no pure black lands on the subject (ART_BIBLE §2.3).
+ * The rest describe the line a caller gets if they turn it back on, and they are
+ * a long way from where they were. `width` is in **device pixels**, which is
+ * what "constant screen-space weight" means. 1.0 px, not the 2.0 this shipped
+ * at: the strongest edge darkening anywhere in `docs/reference/` is a single
+ * pixel about 9% under its background, so a two-pixel mark at 82% under is two
+ * orders of the wrong thing. One pixel with a light `darkness` is the closest
+ * this technique gets to what the plates actually show.
+ *
+ * `darkness` and `saturation` are the colour rule: a heavily darkened, saturated
+ * version of the albedo underneath, so hair takes a dark-warm line and cloth a
+ * dark-cool one. 0.30 rather than 0.18 for the same reason as the width —
+ * against a bright meadow a 0.18 line is a black border, and a border is what
+ * the client rejected. Pushing saturation up on the way down stops the darkening
+ * from also draining the hue and landing on a neutral near-black. 1.25 rather
+ * than the 1.55 this shipped at, because the saturation identity clamps: on any
+ * garment darker than mid — most of this cast — 1.55 drove two of the three
+ * channels to exactly zero, so a navy coat, a teal sash and a violet cape all
+ * resolved to the same single-channel line, and the very term meant to protect
+ * the per-surface hue threw it away. `floor` keeps a very dark albedo — a deep
+ * navy, which crushes to black inside a code value at this level — off zero, so
+ * no pure black lands on the subject (ART_BIBLE §2.3).
+ *
+ * `depthGuard` is a tie-breaker, in multiples of the lateral push. The shell is
+ * offset in view-space *XY only* (see `shaders/outlineHull.js`), so it can never
+ * move toward the camera and can never occlude the surface it wraps; all this
+ * has left to settle is the float error between two coplanar triangles offset
+ * laterally, which half a line width covers with room to spare.
  *
  * `fog: false`, and it is the correction the review demanded rather than a
  * convenience. This project's environment is built on heavy mist, and the mist
@@ -117,12 +177,25 @@ import {
  * the atmosphere may lift it.
  */
 export const OUTLINE_DEFAULTS = Object.freeze({
-  width: 2.0,
-  darkness: 0.18,
+  enabled: false,
+  width: 1.0,
+  darkness: 0.30,
   saturation: 1.25,
   floor: 0.008,
   fog: false,
+  depthGuard: 0.5,
 });
+
+/**
+ * Whether {@link buildOutline} produces anything.
+ *
+ * Module state rather than a per-call option because it is a project-wide art
+ * decision, and the two call sites that build character hulls
+ * (`CharacterFactory`, `LookdevScene`) pass a line *width* without asking
+ * whether there should be a line at all. A switch here reaches both without
+ * either of them having to know the answer.
+ */
+let _enabled = OUTLINE_DEFAULTS.enabled;
 
 /**
  * Reference projection used until `updateOutlineScale` is first called: a 50°
@@ -161,6 +234,52 @@ const SKIP_FLAG = 'noOutline';
  *  far above the float error a merge or a bind-pose transform introduces. */
 const WELD_TOLERANCE = 1e-4;
 
+/**
+ * How far apart two normals at one position may be and still be averaged.
+ *
+ * `cos 100°`. The welder exists to close the splits `toCreasedNormals` makes at
+ * a hard edge, and a *crease* is two faces of the same solid meeting at an
+ * angle: 30–60° on a hair clump's point, a full 90° on a boot's corner or a
+ * blade's spine. What it must not do is average normals belonging to two
+ * surfaces that merely happen to touch, and a character is full of those — a
+ * merged shading class is a hundred separate parts, and every clump bedded on
+ * the skull, every sleeve sunk into a torso and every strap crossing a coat puts
+ * two unrelated, often *opposed*, normals inside the same 0.1 mm bucket. A hair
+ * over that pair of right angles is therefore the right place to draw the line:
+ * it admits every genuine crease and rejects everything facing backwards.
+ *
+ * Averaging without it produced the measured defect. Across the shipped cast,
+ * 8–18% of hair, cloth and metal vertices had a welded normal more than 57° off
+ * their own shading normal, and the worst were fully reversed (dot −0.9). A
+ * vertex pushed along a reversed normal travels into the body while its
+ * neighbours travel out, which tears the shell open — the review's "broken
+ * [line], visible along the upper back and shoulder, dropping to dotted
+ * fragments along the rear legs and belly".
+ */
+const WELD_CONE = -0.17;
+
+/**
+ * The averaged direction must keep at least this much of the vertex's own
+ * normal, or the vertex keeps its own instead.
+ *
+ * `cos 78°`. The cone above bounds each *contributor*; this bounds the *result*,
+ * and the two are not the same guarantee — a vertex where five surfaces meet can
+ * take five admissible normals and still average to something almost tangential.
+ * A tangential push slides a vertex along the surface instead of out of it,
+ * which is a tear rather than a line. Falling back to the shading normal there
+ * gives a locally correct offset and, at worst, a hairline seam at one vertex.
+ */
+const WELD_MIN_AGREEMENT = 0.2;
+
+/**
+ * Floor on the miter scale, as `cos θ` between the welded and shading normals.
+ *
+ * `cos 60°` = 0.5, so the correction is capped at 2×. See `weldedNormals` for
+ * what it corrects; the cap keeps a pathological vertex from throwing a spike
+ * the length of a limb.
+ */
+const MITER_LIMIT = 0.5;
+
 /* -------------------------------------------------------------------------- */
 /* Colour                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -173,7 +292,7 @@ function toColor(v) {
 }
 
 /**
- * ANIME_PIPELINE §4's line colour, evaluated on the CPU.
+ * The line colour, evaluated on the CPU.
  *
  * Identical maths to `OUTLINE_TINT` in the shader — deliberately, so a flat hull
  * and a per-vertex-coloured one cannot drift apart — and the ordering is the
@@ -188,8 +307,8 @@ function toColor(v) {
  *
  * @param {THREE.ColorRepresentation} albedo the surface colour underneath.
  * @param {Object} [opts]
- * @param {number} [opts.darkness=0.18] value multiplier.
- * @param {number} [opts.saturation=1.55] HSV saturation multiplier.
+ * @param {number} [opts.darkness=0.30] value multiplier.
+ * @param {number} [opts.saturation=1.25] HSV saturation multiplier.
  * @param {number} [opts.floor=0.008] minimum peak channel, so no line is black.
  * @returns {THREE.Color}
  */
@@ -224,29 +343,88 @@ function fallbackColor(level) {
 /* Geometry                                                                   */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Position-welded vertex normals.
- *
- * Every vertex at the same location is given the average of the *distinct*
- * shading normals meeting there — which is the normal the surface would have
- * had before `toCreasedNormals` split it, and therefore the one direction that
- * pushes both sides of a crease to the same point and keeps the shell closed.
- *
- * Distinct is the operative word. A plain sum weights each smoothing group by
- * how many triangles happen to touch the corner, which on a non-indexed box
- * gives the corner `(1,1,2)` instead of `(1,1,1)` purely because one face's
- * triangulation fans through it twice. That is the tessellation's opinion, not
- * the surface's, and it skews the line's thickness around exactly the hard
- * corners that carry a chibi silhouette. Collapsing duplicates first makes the
- * result depend only on the shape.
- *
- * Normals that cancel — the two sides of a zero-thickness card — leave no
- * usable average, and those vertices keep their own normal so the two faces
- * push apart instead of collapsing into each other.
- */
 /** Scratch, so per-character geometry maths allocates nothing. */
 const _v3 = new THREE.Vector3();
 
+/**
+ * Is this geometry wound inside-out?
+ *
+ * The divergence theorem on a triangle soup: `Σ a · (b × c) / 6` is the enclosed
+ * volume, positive when the winding — and therefore every normal
+ * `computeVertexNormals` or `toCreasedNormals` derives from it — faces outward.
+ * A geometry assembled from swept sections whose parametrisation happens to run
+ * the other way comes out negative, and *everything* downstream is then
+ * reversed: the surface is lit from inside, and an inverted hull pushed along
+ * those normals deflates instead of inflating, so the line simply does not
+ * exist. The boss in the shipped frame measures −0.19 here, which is both why it
+ * reads as "a single flat unshaded blue value with no form" and why its outline
+ * survives only as dotted fragments.
+ *
+ * A hull cannot fix the shading — that is the source geometry's problem — but it
+ * has no excuse for inheriting the fault, so `buildOutlineGeometry` flips the
+ * normals it pushes along when this reports an inversion.
+ *
+ * Two details are load-bearing. The sum is taken **about the geometry's own
+ * centroid**, not about the object origin: the identity is origin-independent
+ * only for a *closed* surface, and a merged shading class is a hundred parts of
+ * which several are open shells, so an origin at the feet of a 1.1 m character
+ * lets the open boundaries dominate the sum and invert its sign. And **every**
+ * triangle is counted rather than a sample, for the same reason — with open
+ * boundaries in the sum there is no guarantee that a stride keeps the sign. It
+ * is a few thousand triangles, once, at build time.
+ */
+function windingIsInverted(position, index) {
+  const triangles = Math.floor((index ? index.count : position.count) / 3);
+  if (triangles < 1) return false;
+  const at = (k) => (index ? index.getX(k) : k);
+
+  let ox = 0, oy = 0, oz = 0;
+  for (let i = 0; i < position.count; i++) {
+    ox += position.getX(i); oy += position.getY(i); oz += position.getZ(i);
+  }
+  ox /= position.count; oy /= position.count; oz /= position.count;
+
+  let volume = 0;
+  for (let t = 0; t < triangles; t++) {
+    const a = at(t * 3);
+    const b = at(t * 3 + 1);
+    const c = at(t * 3 + 2);
+    const ax = position.getX(a) - ox, ay = position.getY(a) - oy, az = position.getZ(a) - oz;
+    const bx = position.getX(b) - ox, by = position.getY(b) - oy, bz = position.getZ(b) - oz;
+    const cx = position.getX(c) - ox, cy = position.getY(c) - oy, cz = position.getZ(c) - oz;
+    volume += ax * (by * cz - bz * cy) + ay * (bz * cx - bx * cz) + az * (bx * cy - by * cx);
+  }
+  return volume < 0;
+}
+
+/**
+ * Position-welded push normals, plus the miter scale each one needs.
+ *
+ * Returns a `vec4` attribute: `xyz` is the direction to push along, `w` is how
+ * far to push relative to the requested line weight.
+ *
+ * **xyz — closing the creases.** `CharacterFactory` runs `toCreasedNormals`, so
+ * a vertex on a hard edge exists two or three times with divergent normals.
+ * Pushing each copy along its own normal opens a gap in the shell exactly at a
+ * hair clump's point or a boot's corner, which is where the silhouette does most
+ * of its work. Averaging the *distinct* normals within `WELD_CONE` of the
+ * vertex's own recovers the direction that carries every copy to the same place.
+ *
+ * Distinct is deliberate: a plain sum weights each smoothing group by how many
+ * triangles happen to touch the corner, which on a non-indexed box gives
+ * `(1,1,2)` instead of `(1,1,1)` purely because one face's triangulation fans
+ * through it twice. That is the tessellation's opinion, not the surface's.
+ *
+ * The cone is the correction this function was rewritten for; see `WELD_CONE`.
+ *
+ * **w — keeping the line one weight.** A vertex on a 90° crease is pushed along
+ * the 45° bisector, so the two faces meeting there only move `cos 45° = 0.71`
+ * of the requested distance *in their own planes* and the line thins at every
+ * corner. This is the same problem a stroked polyline has at a joint and it has
+ * the same answer: divide by the cosine between the push direction and the
+ * face's own normal. `MITER_LIMIT` caps the correction so a near-degenerate
+ * vertex cannot throw a spike.
+ */
 function weldedNormals(geometry, tolerance) {
   const position = geometry.getAttribute('position');
   let normal = geometry.getAttribute('normal');
@@ -263,10 +441,15 @@ function weldedNormals(geometry, tolerance) {
     normal = tmp.getAttribute('normal');
   }
 
+  // One sign for the whole geometry, applied to the *shading* normals before
+  // anything is averaged, so the cone test and the miter both operate on
+  // outward-facing directions whichever way the source was wound.
+  const flip = windingIsInverted(position, geometry.index) ? -1 : 1;
+
   const count = position.count;
-  const out = new Float32Array(count * 3);
+  const out = new Float32Array(count * 4);
+  const own = new Float32Array(count * 3);
   const bucketOf = new Int32Array(count);
-  const sums = [];
   const distinct = [];
   const buckets = new Map();
   const q = 1 / tolerance;
@@ -277,50 +460,55 @@ function weldedNormals(geometry, tolerance) {
       + `${Math.round(position.getZ(i) * q)}`;
     let b = buckets.get(key);
     if (b === undefined) {
-      b = sums.length;
+      b = distinct.length;
       buckets.set(key, b);
-      sums.push(0, 0, 0);
       distinct.push([]);
     }
     bucketOf[i] = b;
 
     const len = Math.hypot(normal.getX(i), normal.getY(i), normal.getZ(i)) || 1;
-    const nx = normal.getX(i) / len;
-    const ny = normal.getY(i) / len;
-    const nz = normal.getZ(i) / len;
+    const nx = (normal.getX(i) / len) * flip;
+    const ny = (normal.getY(i) / len) * flip;
+    const nz = (normal.getZ(i) / len) * flip;
+    own[i * 3] = nx; own[i * 3 + 1] = ny; own[i * 3 + 2] = nz;
 
-    // `b` is the flat offset into `sums`, so `b / 3` is the bucket's ordinal.
-    const seen = distinct[b / 3];
+    const seen = distinct[b];
     let duplicate = false;
     for (let k = 0; k < seen.length; k += 3) {
       if (nx * seen[k] + ny * seen[k + 1] + nz * seen[k + 2] > 0.9999) { duplicate = true; break; }
     }
-    if (duplicate) continue;
-
-    seen.push(nx, ny, nz);
-    sums[b] += nx;
-    sums[b + 1] += ny;
-    sums[b + 2] += nz;
+    if (!duplicate) seen.push(nx, ny, nz);
   }
 
   for (let i = 0; i < count; i++) {
-    const b = bucketOf[i];
-    let x = sums[b];
-    let y = sums[b + 1];
-    let z = sums[b + 2];
-    let len = Math.hypot(x, y, z);
-    if (len < 1e-6) {
-      x = normal.getX(i);
-      y = normal.getY(i);
-      z = normal.getZ(i);
-      len = Math.hypot(x, y, z) || 1;
+    const nx = own[i * 3], ny = own[i * 3 + 1], nz = own[i * 3 + 2];
+    const seen = distinct[bucketOf[i]];
+
+    // Averaged per vertex rather than per bucket, because the cone is measured
+    // against *this* vertex's normal: two faces of one crease each pull in the
+    // other, while a third surface that merely passes through the same point is
+    // excluded from both. A single bucket-wide average cannot express that.
+    let x = 0, y = 0, z = 0;
+    for (let k = 0; k < seen.length; k += 3) {
+      if (nx * seen[k] + ny * seen[k + 1] + nz * seen[k + 2] < WELD_CONE) continue;
+      x += seen[k]; y += seen[k + 1]; z += seen[k + 2];
     }
-    out[i * 3] = x / len;
-    out[i * 3 + 1] = y / len;
-    out[i * 3 + 2] = z / len;
+
+    let len = Math.hypot(x, y, z);
+    // Two rejections, both to the vertex's own normal: a degenerate average
+    // (only reachable on denormal input, since the cone always admits the
+    // vertex itself), and one that has drifted too far to still be an outward
+    // push. See `WELD_MIN_AGREEMENT`.
+    if (len > 1e-6) { x /= len; y /= len; z /= len; }
+    if (len < 1e-6 || x * nx + y * ny + z * nz < WELD_MIN_AGREEMENT) { x = nx; y = ny; z = nz; }
+
+    out[i * 4] = x;
+    out[i * 4 + 1] = y;
+    out[i * 4 + 2] = z;
+    out[i * 4 + 3] = 1 / Math.max(x * nx + y * ny + z * nz, MITER_LIMIT);
   }
 
-  return new THREE.BufferAttribute(out, 3);
+  return new THREE.BufferAttribute(out, 4);
 }
 
 /**
@@ -335,6 +523,9 @@ function weldedNormals(geometry, tolerance) {
  * `dispose()` on this geometry would delete GPU buffers the *source* is still
  * drawing from, so the shared names are recorded here and `disposeOutline`
  * detaches them first.
+ *
+ * `aOutlineNormal` is a `vec4`: the welded push direction and, in `w`, the miter
+ * scale. See {@link weldedNormals}.
  *
  * @param {THREE.BufferGeometry} source
  * @param {Object} [opts]
@@ -416,14 +607,16 @@ export function buildOutlineGeometry(source, opts = {}) {
  * @param {boolean} [opts.vertexColors=false] derive the line per fragment from
  *   the hull's colour attribute instead. This is what gives a single merged
  *   character mesh a dark-warm line on hair and a dark-cool one on cloth.
- * @param {number} [opts.width=2] line weight in device pixels.
- * @param {number} [opts.darkness] / [opts.saturation] / [opts.floor] §4 tint
+ * @param {number} [opts.width=1] line weight in device pixels.
+ * @param {number} [opts.darkness] / [opts.saturation] / [opts.floor] tint
  *   controls; meaningful with `vertexColors`, folded into the colour otherwise.
  * @param {boolean} [opts.fog=false] let the atmosphere lift the line. Off by
  *   default; see `OUTLINE_DEFAULTS`.
  * @param {THREE.Texture} [opts.alphaMap] / [opts.alphaTest] cutout, inherited
  *   from the source material so an alpha-tested card is outlined at its cut
  *   edge rather than at the edge of its quad.
+ * @param {number} [opts.depthGuard=0.5] tie-breaking nudge away from the camera,
+ *   as a multiple of the lateral push; see `OUTLINE_DEFAULTS`.
  * @param {boolean} [opts.weldedNormals=true] push along the `aOutlineNormal`
  *   attribute that {@link buildOutlineGeometry} adds. Materials and geometry are
  *   decoupled here — a caller may share one material across hulls it built
@@ -441,7 +634,7 @@ export function createOutlineMaterial(opts = {}) {
     floor: opts.floor ?? OUTLINE_DEFAULTS.floor,
   };
 
-  // With one flat albedo the §4 transform has a single answer, so it is
+  // With one flat albedo the tint transform has a single answer, so it is
   // evaluated once here and the fragment stage never sees it: the material's
   // own `color` *is* the line colour, which is both cheaper and the property an
   // author expects to find when they go looking for it. Only a hull whose albedo
@@ -474,6 +667,7 @@ export function createOutlineMaterial(opts = {}) {
   const uniforms = {
     uOutlineDepthScale: { value: 0 },
     uOutlineConstant: { value: 0 },
+    uOutlineDepthGuard: { value: Math.max(opts.depthGuard ?? OUTLINE_DEFAULTS.depthGuard, 0) },
   };
   if (vertexColors) {
     uniforms.uOutlineDarkness = { value: tint.darkness };
@@ -567,6 +761,30 @@ function isSkipped(node) {
 }
 
 /**
+ * Turn the ink line on or off for everything built from here on.
+ *
+ * The reference plates show no outline, so this ships `false`; see the module
+ * header for the measurements. It is a *build-time* switch and deliberately not
+ * a live one: an inverted hull is geometry, so turning it on after a character
+ * has been assembled cannot conjure the hulls that were never created, and
+ * turning it off afterwards would leave orphaned meshes for `disposeOutline` to
+ * find. Call it before the cast is built — a scene that wants ink sets it in its
+ * constructor.
+ *
+ * @param {boolean} [on=true]
+ * @returns {boolean} the state now in effect.
+ */
+export function setOutlineEnabled(on = true) {
+  _enabled = !!on;
+  return _enabled;
+}
+
+/** Whether {@link buildOutline} will currently produce a hull. */
+export function isOutlineEnabled() {
+  return _enabled;
+}
+
+/**
  * Mark an object, a subtree or a material as not to be outlined.
  *
  * ANIME_PIPELINE §4: "Skip outlines on the eyes; the painted lash line already
@@ -607,6 +825,8 @@ export function setOutlineSkip(target, skip = true) {
  *
  * @param {THREE.Mesh} mesh source mesh, static or skinned.
  * @param {Object} [opts] forwarded to {@link createOutlineMaterial}, plus:
+ * @param {boolean} [opts.enabled] override the project-wide switch for this one
+ *   hull. Defaults to {@link isOutlineEnabled}, which is `false`.
  * @param {THREE.Material|THREE.Material[]} [opts.material] a shared material to
  *   use instead of deriving one per source material. Not disposed by
  *   {@link disposeOutline}.
@@ -616,6 +836,11 @@ export function setOutlineSkip(target, skip = true) {
  *   geometry or has opted out.
  */
 export function buildOutline(mesh, opts = {}) {
+  // Ahead of every other test, including the geometry one: with the line off
+  // this must cost a boolean read per mesh and allocate nothing. `opts.enabled`
+  // lets one caller — a stylised set piece, a debug capture — opt back in
+  // without disturbing the project default.
+  if (!(opts.enabled ?? _enabled)) return null;
   if (!mesh?.isMesh || !mesh.geometry || isSkipped(mesh)) return null;
 
   const sources = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -637,7 +862,7 @@ export function buildOutline(mesh, opts = {}) {
     tolerance: opts.tolerance,
   });
 
-  // One outline material per source material, so §4's per-surface colour rule
+  // One outline material per source material, so the per-surface colour rule
   // can actually be honoured: the line inherits the albedo it sits against, and
   // hair, cloth and metal each get their own. They all compile to the same
   // program, so the cost is a uniform block apiece, not a shader apiece.
@@ -720,7 +945,7 @@ export function buildOutline(mesh, opts = {}) {
  */
 export function buildOutlines(root, opts = {}) {
   const hulls = [];
-  if (!root) return hulls;
+  if (!root || !(opts.enabled ?? _enabled)) return hulls;
 
   const skip = typeof opts.skip === 'function'
     ? opts.skip
@@ -822,7 +1047,8 @@ export function updateOutlineScale(mesh, camera, viewportHeight) {
  * `updateOutlineScale`.
  *
  * @param {THREE.Object3D|THREE.Material|null} target
- * @param {number} pixels 1.5–2.5 is the ANIME_PIPELINE §4 range at 1080p.
+ * @param {number} pixels 1.0 is the shipped weight; anything past ~1.5 reads as
+ *   a border rather than as a contour against a bright background.
  */
 export function setOutlineWidth(target, pixels) {
   if (!(pixels >= 0)) return;

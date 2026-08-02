@@ -38,7 +38,7 @@ import * as THREE from 'three';
 import { Rng } from '../core/GameState.js';
 import { makeNoise, smoothstep, smootherstep, clamp, mix, ipow, hash1 } from './noise.js';
 import {
-  hexToLinear, linearToByte, luminance, mixHex, hueRotate,
+  hexToLinear, linearToByte, luminance, mixHex, hueRotate, chromaClamp, saturationRatio,
   ELEMENT, SURFACE_SPEC, SURFACE_TINT, TEAL_BLACK, element, elementRamp, toonRamp,
 } from './Palette.js';
 
@@ -88,6 +88,50 @@ function texFromCanvas(canvas, { srgb = false, wrap = THREE.RepeatWrapping, mips
 /** Wrapped index helper; every field in this file is toroidal. */
 function wrapi(i, n) {
   return i < 0 ? i + n : i >= n ? i - n : i;
+}
+
+/**
+ * Texels per cycle the *highest* octave of a field must keep. Four is the
+ * practical floor for a value-noise lattice: below it the lattice cells stop
+ * being resolved by the sample grid and the octave degenerates into per-texel
+ * hash, which is uncorrelated between neighbours and therefore survives every
+ * stage of minification as shimmer.
+ */
+const MIN_TEXELS_PER_CYCLE = 4;
+
+/**
+ * The largest octave count a band-limited fBm may use at this resolution.
+ *
+ * The terrain moiré this exists to kill was not a filtering failure — it was
+ * baked into the source maps. `fbm2` doubles its period per octave, so grass's
+ * `{period: 12, octaves: 4}` put its top octave at 96 cycles across a 256 map
+ * (2.7 texels/cycle) and sand's `{period: 200}` grain field at 1.3, both at or
+ * past the map's own Nyquist limit *before* any camera got involved. No mip
+ * chain can recover a signal that was aliased at generation time: the top mip
+ * already contains the fold-back, and every level below it inherits a different
+ * random fold, which is exactly the crawling red/green interference the review
+ * measured across the mid-ground.
+ *
+ * So the constraint is enforced here rather than trusted to hand-picked
+ * constants. Every ground field asks this function how many octaves it may
+ * spend, and the answer is derived from the map it is being written into.
+ *
+ * Returns fbm2 options, so a caller writes `n.fbm2(u, v, bandLimited(size, 12,
+ * 4, { z: 3.3 }))` and cannot express an out-of-band field by accident. The base
+ * period is clamped too: an octave count of one does not save a generator that
+ * asked for a 200-cycle grain field in the first place.
+ *
+ * @param {number} size map resolution in texels
+ * @param {number} period lattice period of the first octave
+ * @param {number} octaves octaves the generator would like
+ * @param {Object} [extra] gain, z, lacunarity — passed through untouched
+ */
+function bandLimited(size, period, octaves, extra = {}) {
+  const maxPeriod = Math.max(1, Math.floor(size / MIN_TEXELS_PER_CYCLE));
+  const base = Math.min(Math.max(1, Math.round(period)), maxPeriod);
+  const room = maxPeriod / base;
+  const allowed = room < 2 ? 1 : Math.floor(Math.log2(room)) + 1;
+  return { ...extra, period: base, octaves: Math.max(1, Math.min(octaves, allowed)) };
 }
 
 /**
@@ -221,10 +265,19 @@ function aoFromHeight(height, w, h, strength) {
  * Texels with zero alpha are excluded from the measurement — a cutout's
  * transparent background is not part of the material and would otherwise drag
  * the range and compress everything visible into the top of the band.
+ *
+ * `maxSat` is the second half of the contract and applies to the ground
+ * surfaces only. Fitting luminance holds chroma *ratios* exactly, so a band fit
+ * on its own can hand back a surface that is perfectly in-band and still the
+ * most saturated object in the frame — which is what the terrain was. The
+ * ceiling is applied after the fit because collapsing chroma about the
+ * luminance axis leaves luminance untouched, so the two constraints compose in
+ * this order and only this order.
  */
-function fitAlbedoBand(buf, band) {
+function fitAlbedoBand(buf, band, maxSat = 0) {
   const [lo, hi] = band;
   const a = buf.albedo;
+  const ratio = maxSat > 0 ? saturationRatio(maxSat) : 0;
   let min = Infinity;
   let max = -Infinity;
   for (let i = 0; i < buf.n; i++) {
@@ -240,6 +293,7 @@ function fitAlbedoBand(buf, band) {
       const y = luminance(a[i * 3], a[i * 3 + 1], a[i * 3 + 2]) || 1e-5;
       const k = mid / y;
       a[i * 3] *= k; a[i * 3 + 1] *= k; a[i * 3 + 2] *= k;
+      if (ratio > 0) chromaClamp(a, i * 3, ratio);
     }
     return;
   }
@@ -254,6 +308,7 @@ function fitAlbedoBand(buf, band) {
     a[i * 3] *= k;
     a[i * 3 + 1] *= k;
     a[i * 3 + 2] *= k;
+    if (ratio > 0) chromaClamp(a, i * 3, ratio);
   }
 }
 
@@ -1028,14 +1083,26 @@ function genCrystal(buf, n, rng, opts) {
  * wave numbers (7, 2) so the sinusoid is exactly periodic across the tile, and
  * the crest positions are pushed around by a warp field so they meander like
  * real dune ripples instead of marching in parade.
+ *
+ * The grain field was `{period: 200}` — 1.3 texels per cycle on a 256 map, so
+ * every texel drew an independent sample and the "grain" was white noise
+ * multiplied straight into the albedo. That is the same defect the terrain
+ * review caught on grass, and it is worse here because sand's albedo band is
+ * the brightest of the three. Band-limited it becomes a real grain field; the
+ * per-texel mica glints below are still per-texel, which is correct, because
+ * they are a sparse *roughness* event and not a colour signal.
  */
 function genSand(buf, n, rng) {
   const { w, h } = buf;
-  const lightS = hexToLinear(0xe0c191, [0, 0, 0]);
-  const darkS = hexToLinear(0xa8794c, [0, 0, 0]);
-  const shadowS = hexToLinear(0x6b5a4e, [0, 0, 0]);
+  const lightS = hexToLinear(0xd6c3a4, [0, 0, 0]);
+  const darkS = hexToLinear(0xa89578, [0, 0, 0]);
+  const shadowS = hexToLinear(0x776a5c, [0, 0, 0]);
   const spec = SURFACE_SPEC.sand;
   const col = [0, 0, 0];
+
+  const meanderField = bandLimited(w, 3, 3, { gain: 0.55, z: 2.9 });
+  const duneField = bandLimited(w, 2, 3, { gain: 0.6, z: 13.8 });
+  const grainField = bandLimited(w, 32, 2, { gain: 0.5, z: 61.2 });
 
   for (let y = 0; y < h; y++) {
     const v = (y + 0.5) / h;
@@ -1043,19 +1110,19 @@ function genSand(buf, n, rng) {
       const i = y * w + x;
       const u = (x + 0.5) / w;
 
-      const meander = n.fbm2(u, v, { period: 3, octaves: 3, gain: 0.55, z: 2.9 });
+      const meander = n.fbm2(u, v, meanderField);
       const ripple = Math.sin((u * 7 + v * 2) * TAU + meander * 4.5);
       // Ripples are asymmetric — a shallow windward slope and a steep lee face.
       const shaped = Math.pow(ripple * 0.5 + 0.5, 1.7) * 2 - 1;
-      const dune = n.fbm2(u, v, { period: 2, octaves: 3, gain: 0.6, z: 13.8 });
-      const grain = n.fbm2(u, v, { period: 200, octaves: 2, gain: 0.5, z: 61.2 });
+      const dune = n.fbm2(u, v, duneField);
+      const grain = n.fbm2(u, v, grainField);
       const sparkleSeed = hash1(i, 5);
 
       buf.height[i] = shaped * 0.5 + dune * 0.4 + grain * 0.1;
 
-      mix3(darkS, lightS, clamp(0.5 + shaped * 0.4 + dune * 0.5, 0, 1), col);
-      mix3(col, shadowS, clamp(-shaped * 0.35, 0, 1) * 0.5, col);
-      const shade = 0.94 + grain * 0.12;
+      mix3(darkS, lightS, clamp(0.5 + shaped * 0.3 + dune * 0.35, 0, 1), col);
+      mix3(col, shadowS, clamp(-shaped * 0.35, 0, 1) * 0.4, col);
+      const shade = 0.96 + grain * 0.08;
       col[0] *= shade; col[1] *= shade; col[2] *= shade;
 
       buf.albedo[i * 3] = col[0];
@@ -1071,27 +1138,57 @@ function genSand(buf, n, rng) {
 }
 
 /**
- * Grass: stamped blades over a soil base. An analytic streak field cannot
- * produce blade *tips*, and tips are the entire silhouette read of grass at a
- * grazing camera angle — so blades are drawn as tapered strokes with a per-clump
- * direction field, ~900 of them, which is still only a few million texel writes.
+ * Grass: stamped tussocks over a soil base, band-limited, with the blade signal
+ * living in the height field rather than in the albedo.
+ *
+ * The previous build stamped 2400 blades of 4–8.5% tile length and wrote each
+ * one's full colour into the albedo — a near-black soil at Y ≈ 0.03 against a
+ * lit blade at Y ≈ 0.30, adjacent, at roughly two texels of separation. That is
+ * a 10:1 contrast edge repeating at close to the map's Nyquist limit, tiled 400
+ * times across a 900 m stage, and it is the mid-ground moiré carpet the review
+ * put first on the list. Three changes, and the split between them is the point:
+ *
+ * 1. **Feature scale up, count down.** ~950 tussocks at 8–16% tile length. At
+ *    LookdevScene's 2.25 m tiling that is a 18–36 cm clump rather than a 9 cm
+ *    blade, which puts the dominant albedo frequency an octave and a half below
+ *    where it was and comfortably under Nyquist at battle-camera distance.
+ *
+ * 2. **Contrast moves out of albedo and into height.** The tips still rise the
+ *    full amount in the height field — the normal map, and therefore the lit
+ *    read of the near ground, is unchanged — but the albedo only *modulates*
+ *    around the clump's own value by a few percent. A normal map degrades
+ *    gracefully under minification because the ground shader already relaxes it
+ *    toward geometric past 14 m; a high-contrast albedo does not, and there is
+ *    nowhere for that energy to go but interference.
+ *
+ * 3. **Soil and blade share one hue family.** Two greens and a dry straw at low
+ *    chroma, over a soil that is a darkened member of the same family rather
+ *    than an unrelated brown. REFERENCE §3 wants a stage, and a stage does not
+ *    hold two competing hues at maximum separation.
  */
 function genGrass(buf, n, rng) {
   const { w, h } = buf;
   const spec = SURFACE_SPEC.grass;
-  const soil = hexToLinear(0x3b3226, [0, 0, 0]);
-  const bladeA = hexToLinear(0x6f9448, [0, 0, 0]);
-  const bladeB = hexToLinear(0x40663a, [0, 0, 0]);
-  const bladeDry = hexToLinear(0xa89246, [0, 0, 0]);
+  // A muted, slightly cool family. `fitAlbedoBand`'s chroma ceiling would pull
+  // saturated source colours down anyway, but authoring in-band keeps the
+  // relative colour design intact instead of letting the clamp flatten it.
+  const soil = hexToLinear(0x4a4a3d, [0, 0, 0]);
+  const bladeA = hexToLinear(0x7d8a64, [0, 0, 0]);
+  const bladeB = hexToLinear(0x59684d, [0, 0, 0]);
+  const bladeDry = hexToLinear(0x8d8663, [0, 0, 0]);
   const col = [0, 0, 0];
+
+  // 6 cycles at 256 texels leaves the top octave at 10.7 texels/cycle. The old
+  // field ran four octaves off a period of 12 and finished at 2.7.
+  const soilField = bandLimited(w, 6, 3, { gain: 0.5, z: 3.3 });
 
   for (let y = 0; y < h; y++) {
     const v = (y + 0.5) / h;
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const u = (x + 0.5) / w;
-      const dirt = n.fbm2(u, v, { period: 12, octaves: 4, gain: 0.5, z: 3.3 });
-      const shade = 0.7 + dirt * 0.5;
+      const dirt = n.fbm2(u, v, soilField);
+      const shade = 0.86 + dirt * 0.24;
       buf.albedo[i * 3] = soil[0] * shade;
       buf.albedo[i * 3 + 1] = soil[1] * shade;
       buf.albedo[i * 3 + 2] = soil[2] * shade;
@@ -1100,21 +1197,26 @@ function genGrass(buf, n, rng) {
     }
   }
 
-  const BLADES = 2400;
-  for (let b = 0; b < BLADES; b++) {
+  const CLUMPS = 950;
+  const flowField = bandLimited(w, 3, 2, { gain: 0.5, z: 77.1 });
+  const dryField = bandLimited(w, 2, 2, { gain: 0.5, z: 91.4 });
+  for (let b = 0; b < CLUMPS; b++) {
     const cu = rng.next();
     const cv = rng.next();
-    // Clump direction: a low-frequency field so neighbouring blades lie the
+    // Clump direction: a low-frequency field so neighbouring clumps lie the
     // same way, as if a wind had passed. Purely random angles read as static.
-    const flow = n.fbm2(cu, cv, { period: 3, octaves: 2, gain: 0.5, z: 77.1 });
+    const flow = n.fbm2(cu, cv, flowField);
     const ang = flow * Math.PI * 1.6 + rng.jitter(0.5);
-    const len = rng.range(0.04, 0.085);
-    const wid = rng.range(0.0045, 0.0085);
+    const len = rng.range(0.08, 0.16);
+    const wid = rng.range(0.011, 0.019);
     const ca = Math.cos(ang);
     const sa = Math.sin(ang);
-    const dryAmt = clamp(n.fbm2(cu, cv, { period: 2, octaves: 2, gain: 0.5, z: 91.4 }) * 1.6 + 0.15, 0, 1);
-    const value = rng.range(0.8, 1.25);
-    // Blades curve up to 0.8 * len across their own width, so the bend has to
+    const dryAmt = clamp(n.fbm2(cu, cv, dryField) * 1.6 + 0.15, 0, 1);
+    // ±7% rather than ±22%. Per-clump value jitter is what gives a stamped
+    // field its life, but at the old amplitude it was also the largest source
+    // of texel-scale albedo variance in the map.
+    const value = rng.range(0.93, 1.07);
+    // Clumps curve up to 0.8 * len across their own width, so the bend has to
     // be inside the bound or tips get clipped at the box edge.
     const spanB = wid * 2.6;
     const radU = Math.abs(ca) * len + Math.abs(sa) * spanB;
@@ -1124,7 +1226,7 @@ function genGrass(buf, n, rng) {
       const a = (du * ca + dv * sa) / len;
       if (a < 0 || a > 1) return;
       const bcoord = (-du * sa + dv * ca) / wid;
-      // Taper to a point, with a slight curve so the blade arcs over.
+      // Taper to a point, with a slight curve so the clump arcs over.
       const halfW = (1 - a * a * 0.85) * (1 - a * 0.15);
       const bend = a * a * 0.8;
       const d = halfW - Math.abs(bcoord - bend);
@@ -1135,11 +1237,17 @@ function genGrass(buf, n, rng) {
       mix3(bladeB, bladeA, clamp(a * 0.9 + 0.2, 0, 1), col);
       mix3(col, bladeDry, dryAmt * 0.6 * a, col);
       col[0] *= value; col[1] *= value; col[2] *= value;
-      buf.albedo[i * 3] = col[0];
-      buf.albedo[i * 3 + 1] = col[1];
-      buf.albedo[i * 3 + 2] = col[2];
-      // Blade height rises toward the tip so the normal map lights the tips
-      // brightest — the cheap stand-in for real per-blade geometry.
+      // Blend rather than overwrite, weighted by coverage. A hard write puts a
+      // one-texel step at every clump edge — the highest-frequency content the
+      // map could possibly carry, and thousands of instances of it. Fading over
+      // the taper's own soft edge costs nothing and removes all of them.
+      const t = smoothstep(0.35, 0.85, cover);
+      buf.albedo[i * 3] += (col[0] - buf.albedo[i * 3]) * t;
+      buf.albedo[i * 3 + 1] += (col[1] - buf.albedo[i * 3 + 1]) * t;
+      buf.albedo[i * 3 + 2] += (col[2] - buf.albedo[i * 3 + 2]) * t;
+      // Clump height rises toward the tip so the normal map lights the tips
+      // brightest — the cheap stand-in for real per-blade geometry. Left at full
+      // amplitude: this is where the detail the albedo gave up now lives.
       buf.height[i] = Math.max(buf.height[i], 0.25 + a * 0.75 + d * 0.3);
       buf.rough[i] = clamp(0.6 - a * 0.08, spec.roughness[0], spec.roughness[1]);
     });
@@ -1151,17 +1259,29 @@ function genGrass(buf, n, rng) {
  * from a cellular field thresholded on F1 so only the cells whose hash clears a
  * bar become stones — otherwise every cell grows a pebble and it reads as
  * cobble, not earth.
+ *
+ * The `fine` grain field used to run `{period: 80, octaves: 3}`. On a 256 map
+ * `fbm2` drops octaves past its `maxPeriod`, so what actually reached the
+ * texture was a single octave at 3.2 texels per cycle — below the four the
+ * lattice needs to be resolved, i.e. aliased in the source pixels themselves,
+ * and then multiplied into both albedo and roughness. Band-limited it now
+ * lands at 8 texels per cycle. The pebbles are the coarse detail this surface
+ * actually reads on and they are unaffected.
  */
 function genDirt(buf, n, rng) {
   const { w, h } = buf;
   const spec = SURFACE_SPEC.dirt;
-  const soil = hexToLinear(0x4a3a2a, [0, 0, 0]);
-  const dry = hexToLinear(0x7a6349, [0, 0, 0]);
-  const damp = hexToLinear(0x2a2119, [0, 0, 0]);
-  const pebbleCol = hexToLinear(0x8b8378, [0, 0, 0]);
+  const soil = hexToLinear(0x4a4237, [0, 0, 0]);
+  const dry = hexToLinear(0x6f6353, [0, 0, 0]);
+  const damp = hexToLinear(0x2c2822, [0, 0, 0]);
+  const pebbleCol = hexToLinear(0x82807a, [0, 0, 0]);
   const col = [0, 0, 0];
   const cell = new Float32Array(4);
   const cell2 = new Float32Array(4);
+
+  const coarseField = bandLimited(w, 8, 3, { gain: 0.55, z: 1.7 });
+  const fineField = bandLimited(w, 32, 2, { gain: 0.5, z: 12.2 });
+  const breakupField = bandLimited(w, 2, 2, { gain: 0.5, z: 63.1 });
 
   for (let y = 0; y < h; y++) {
     const v = (y + 0.5) / h;
@@ -1169,9 +1289,9 @@ function genDirt(buf, n, rng) {
       const i = y * w + x;
       const u = (x + 0.5) / w;
 
-      const coarse = n.fbm2(u, v, { period: 10, octaves: 4, gain: 0.55, z: 1.7 });
-      const fine = n.fbm2(u, v, { period: 80, octaves: 3, gain: 0.5, z: 12.2 });
-      const breakup = n.fbm2(u, v, { period: 2, octaves: 2, gain: 0.5, z: 63.1 });
+      const coarse = n.fbm2(u, v, coarseField);
+      const fine = n.fbm2(u, v, fineField);
+      const breakup = n.fbm2(u, v, breakupField);
 
       n.worley2(u, v, 34, 1, cell);
       const isPebble = cell[2] > 0.72 ? 1 : 0;
@@ -1182,10 +1302,13 @@ function genDirt(buf, n, rng) {
 
       buf.height[i] = coarse * 0.3 + fine * 0.14 + pebble * 0.85 - crack * 0.7;
 
-      mix3(soil, dry, clamp(0.45 + coarse * 0.7 + breakup * 0.6, 0, 1), col);
-      mix3(col, damp, clamp(-breakup * 0.8, 0, 1) * 0.6 + crack * 0.5, col);
-      mix3(col, pebbleCol, pebble * 0.8, col);
-      const shade = 0.88 + fine * 0.2;
+      // Mix weights pulled in across the board. Every one of these terms was
+      // driving a full soil-to-dry or soil-to-damp swing off a noise field, so
+      // the surface spanned its whole authored range several times per tile.
+      mix3(soil, dry, clamp(0.45 + coarse * 0.45 + breakup * 0.35, 0, 1), col);
+      mix3(col, damp, clamp(-breakup * 0.8, 0, 1) * 0.4 + crack * 0.35, col);
+      mix3(col, pebbleCol, pebble * 0.6, col);
+      const shade = 0.94 + fine * 0.1;
       col[0] *= shade; col[1] *= shade; col[2] *= shade;
 
       buf.albedo[i * 3] = col[0];
@@ -1433,7 +1556,10 @@ export function generateSurface(key, opts = {}) {
   const rng = new Rng(seed ^ 0x5bf03635);
 
   GENERATORS[key](buf, n, rng, opts);
-  if (def.spec && !def.noAlbedo) fitAlbedoBand(buf, SURFACE_SPEC[def.spec].albedo);
+  if (def.spec && !def.noAlbedo) {
+    const spec = SURFACE_SPEC[def.spec];
+    fitAlbedoBand(buf, spec.albedo, spec.maxSat ?? 0);
+  }
 
   const wrap = def.clamp ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping;
   const maps = {};

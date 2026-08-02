@@ -41,6 +41,38 @@ import {
   LIGHT, SURFACE_TINT, ENV_INTENSITY, sampleTimeOfDay, mixHex, unitChroma, HERO_TIME_OF_DAY,
 } from './Palette.js';
 
+/**
+ * Peak multiplicative albedo swing of the ground macro layer.
+ *
+ * This was 0.34, justified against ART_BIBLE §4's "±0.06–0.10 linear" by the
+ * arithmetic that ±34% of grass's ~0.17 linear mean is ±0.058. The arithmetic
+ * is right and the reading of it was wrong: §4's window is the *total* value
+ * variation the surface is allowed, and the detail map had already spent all of
+ * it before the macro layer added its own on top. Stacked, the terrain spanned
+ * roughly 75 display units of luma while the art direction asks for 40, and it
+ * did so in swells large enough to be the dominant composition in the lower
+ * half of frame — the review's "louder than the cast".
+ *
+ * At 0.12 the macro layer moves the ground by about ±7 display units around the
+ * detail map's own 33, which lands the terrain inside 40 total. It is still
+ * clearly visible as form; it is no longer the subject.
+ */
+const GROUND_MACRO_DRIFT = 0.12;
+
+/**
+ * How far the mid-ground's chroma is collapsed toward the far-fog hue.
+ *
+ * REFERENCE §3 asks for aggressive atmospheric perspective, and `FogExp2` alone
+ * cannot deliver it: fog is a *value* operation, so a saturated surface fades
+ * toward the fog colour's brightness while keeping most of its own hue on the
+ * way. Real aerial perspective loses chroma several times faster than it loses
+ * value, which is exactly why a distant hillside reads blue-grey long before it
+ * reads pale. Collapsing chroma about the ground's own luminance — rather than
+ * lerping toward a fog colour, which would move value and double-count the fog
+ * pass — reproduces that ordering and costs one dot product.
+ */
+const GROUND_HAZE = 0.6;
+
 /** Surfaces whose material wants a class other than plain Standard. */
 const MATERIAL_CLASS = {
   steel: 'metal',
@@ -172,11 +204,15 @@ class GroundMaterial extends THREE.MeshStandardMaterial {
       // The surface's own mean albedo, in linear light — what the detail layer
       // dissolves into once it is too far away to resolve.
       uGroundMeanColor: { value: new THREE.Vector3(0.5, 0.5, 0.5) },
-      uGroundFade: { value: new THREE.Vector2(14, 62) },
-      uGroundDrift: { value: 0.34 },
+      uGroundFade: { value: new THREE.Vector2(12, 55) },
+      uGroundDrift: { value: GROUND_MACRO_DRIFT },
       uGroundRoughVar: { value: 0.11 },
       uGroundDryTint: { value: new THREE.Vector3(1, 1, 1) },
       uGroundDampTint: { value: new THREE.Vector3(1, 1, 1) },
+      // Unit-luminance chromaticity of the far fog, and the strength of the
+      // chroma collapse toward it. See GROUND_HAZE.
+      uGroundHazeTint: { value: new THREE.Vector3(1, 1, 1) },
+      uGroundHaze: { value: GROUND_HAZE },
     };
   }
 
@@ -193,6 +229,8 @@ class GroundMaterial extends THREE.MeshStandardMaterial {
       dst.uGroundRoughVar.value = src.uGroundRoughVar.value;
       dst.uGroundDryTint.value.copy(src.uGroundDryTint.value);
       dst.uGroundDampTint.value.copy(src.uGroundDampTint.value);
+      dst.uGroundHazeTint.value.copy(src.uGroundHazeTint.value);
+      dst.uGroundHaze.value = src.uGroundHaze.value;
     }
     return this;
   }
@@ -217,6 +255,10 @@ class GroundMaterial extends THREE.MeshStandardMaterial {
   get detailFadeFar() { return this.groundUniforms.uGroundFade.value.y; }
   set detailFadeFar(v) { this.groundUniforms.uGroundFade.value.y = v; }
 
+  /** Strength of the far-field chroma collapse toward the fog hue (0..1). */
+  get haze() { return this.groundUniforms.uGroundHaze.value; }
+  set haze(v) { this.groundUniforms.uGroundHaze.value = v; }
+
   onBeforeCompile(shader) {
     Object.assign(shader.uniforms, this.groundUniforms);
 
@@ -231,6 +273,8 @@ class GroundMaterial extends THREE.MeshStandardMaterial {
         uniform float uGroundRoughVar;
         uniform vec3 uGroundDryTint;
         uniform vec3 uGroundDampTint;
+        uniform vec3 uGroundHazeTint;
+        uniform float uGroundHaze;
         float gFar = 0.0;
         float gDamp = 0.0;
         float gRoughDrift = 0.0;`,
@@ -265,14 +309,23 @@ class GroundMaterial extends THREE.MeshStandardMaterial {
           // Unit-luminance chroma: this rotates hue without touching value, so
           // the drift term below is the only thing moving the histogram.
           //
-          // Both mixes are pulled back from 0.55/0.70. Hue is the channel the
-          // eye reads as *material*, and a ground swinging between warm bounce
-          // and cold shadow tint over 15 m stops being one surface with form on
-          // it and becomes two substances marbled together. Value drift carries
-          // the form; the tint is only allowed to season it.
-          vec3 gTint = mix( vec3( 1.0 ), uGroundDryTint, gDry * 0.38 );
-          gTint = mix( gTint, uGroundDampTint, gDamp * 0.52 );
-          diffuseColor.rgb *= gTint * ( 1.0 + gDrift * uGroundDrift - gDamp * 0.22 );
+          // Pulled back again, from 0.38/0.52. The two tints are a warm orange
+          // bounce and a cold teal shadow — the widest hue separation in the
+          // whole palette — and pushing a ground that far in both directions
+          // over 15 m is what turned the terrain into the red-and-green marble
+          // the review measured. At these weights the crowns still read warmer
+          // than the hollows, which is all the macro layer was ever for.
+          vec3 gTint = mix( vec3( 1.0 ), uGroundDryTint, gDry * 0.16 );
+          gTint = mix( gTint, uGroundDampTint, gDamp * 0.24 );
+          diffuseColor.rgb *= gTint * ( 1.0 + gDrift * uGroundDrift - gDamp * 0.12 );
+
+          // Aerial perspective, applied to chroma only. Value is left to the
+          // scene fog so the two cannot compound into a washed-out mid-ground;
+          // what this removes is the saturation that made the stage floor
+          // compete with the cast (REFERENCE §3: the background is a stage).
+          float gLuma = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+          diffuseColor.rgb = mix( diffuseColor.rgb, uGroundHazeTint * gLuma,
+            gFar * uGroundHaze );
         }
         #endif`,
     ).replace(
@@ -310,7 +363,7 @@ class GroundMaterial extends THREE.MeshStandardMaterial {
    * correct and lets three share programs across grass, dirt and sand.
    */
   customProgramCacheKey() {
-    return 'aw-ground-1';
+    return 'aw-ground-2';
   }
 }
 
@@ -602,7 +655,17 @@ export class AssetForge {
       case 'ground': {
         mat = new GroundMaterial(common);
         const u = mat.groundUniforms;
-        u.uGroundMacroMap.value = this.texture('macro-ground');
+        const macro = this.texture('macro-ground');
+        // Utilities are generated outside `_surfaceSet`, so nothing had ever
+        // given this one the renderer's anisotropy or checked its mip state.
+        // It is sampled on the same fragments as the detail maps and at the
+        // same grazing angles, so an isotropic 1× filter on it reintroduces
+        // exactly the shimmer the detail maps are filtered to avoid.
+        this._filterForTerrain(macro);
+        u.uGroundMacroMap.value = macro;
+        // Chroma target for the far field: the far-fog hue at unit luminance.
+        const haze = unitChroma(LIGHT.FOG_FAR);
+        u.uGroundHazeTint.value.set(haze[0], haze[1], haze[2]);
         // Measured off the map we just generated rather than authored, so a
         // change to the grass or sand generator cannot leave the far field
         // dissolving toward a colour the near field no longer has.
@@ -615,11 +678,19 @@ export class AssetForge {
         const damp = unitChroma(LIGHT.SHADOW_TINT);
         u.uGroundDryTint.value.set(dry[0], dry[1], dry[2]);
         u.uGroundDampTint.value.set(damp[0], damp[1], damp[2]);
-        // Sand sits at the top of the albedo bands (§4: 0.28–0.50 linear against
-        // grass's 0.12–0.32), so the same multiplicative drift would push its
-        // crowns past §2.3's 0.85 ceiling for non-highlight surfaces. Scaled so
-        // the absolute swing lands in the same 0.06–0.10 linear window.
-        if (baseKey === 'sand') u.uGroundDrift.value = 0.22;
+        // Sand used to take a reduced drift, because §4's ±0.06–0.10 window is
+        // an absolute linear figure and sand sits at the top of the albedo
+        // bands. That special case is gone: the budget is now written in display
+        // units, and a *multiplicative* drift is very nearly constant in display
+        // units regardless of level (d(byte)/byte ≈ d(L)/2.2L), so one value
+        // gives grass, dirt and sand the same swing on screen.
+        //
+        // Terrain is the most heavily minified surface in the game — 400 tile
+        // repeats across a 900 m plane, seen at a grazing angle. Every one of
+        // its maps therefore gets the same guarantee the macro layer just did.
+        for (const m of [maps.albedo, maps.normal, maps.roughness, maps.ao]) {
+          this._filterForTerrain(m);
+        }
         break;
       }
       default: {
@@ -652,6 +723,41 @@ export class AssetForge {
     }
     mat.needsUpdate = true;
     return mat;
+  }
+
+  /**
+   * Guarantee full trilinear + anisotropic filtering on a map bound to terrain.
+   *
+   * `_surfaceSet` sets anisotropy once when a set is generated and `texFromCanvas`
+   * asks for mips, so on the happy path this is a no-op — which is the point. It
+   * exists because terrain is the one surface class where a map arriving with
+   * `LinearFilter` and 1× anisotropy is not a cosmetic regression but the moiré
+   * defect itself, and the paths a map can reach a ground material by are not all
+   * `_surfaceSet`: the macro layer comes from `generateUtility`, and a scene may
+   * hand in its own. Asserting the state here makes the guarantee independent of
+   * how the texture was produced.
+   *
+   * `needsUpdate` is only raised when something actually changed; anisotropy is a
+   * sampler parameter and re-uploading a 256² map for no reason on every material
+   * build is exactly the kind of silent cost that accumulates.
+   */
+  _filterForTerrain(tex) {
+    if (!tex || !tex.isTexture) return tex;
+    let dirty = false;
+    if (tex.anisotropy !== this._anisotropy) {
+      tex.anisotropy = this._anisotropy;
+      dirty = true;
+    }
+    if (!tex.generateMipmaps && !tex.mipmaps?.length) {
+      tex.generateMipmaps = true;
+      dirty = true;
+    }
+    if (tex.minFilter !== THREE.LinearMipmapLinearFilter) {
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      dirty = true;
+    }
+    if (dirty) tex.needsUpdate = true;
+    return tex;
   }
 
   /** Clone the set's maps at the requested tiling, sharing their pixel sources. */

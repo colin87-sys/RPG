@@ -31,9 +31,14 @@
  * at every hard edge — and a hull pushed along split normals tears open at each
  * one, leaving a gap in the line exactly where a hair clump or a boot has its
  * sharpest silhouette. `Outline.js` supplies an `aOutlineNormal` attribute
- * holding the position-welded average, and it is fed in through
- * `beginnormal_vertex` so three's own morph and skinning chunks transform it
- * with the rest of the mesh.
+ * holding the position-welded average in `xyz` and the crease miter scale in
+ * `w`, and it is fed in through `beginnormal_vertex` so three's own morph and
+ * skinning chunks transform it with the rest of the mesh.
+ *
+ * **The shell is guarded in depth, not merely trusted to be behind.** See the
+ * comment on `uOutlineDepthGuard` inside `OUTLINE_PROJECT`; it is what stops a
+ * thin garment or a self-intersecting shell from repainting the character it is
+ * supposed to outline.
  *
  * OWNED BY: render/Outline.js.
  */
@@ -46,9 +51,12 @@
 export const OUTLINE_VERTEX_PARS = /* glsl */ `
 uniform float uOutlineDepthScale;
 uniform float uOutlineConstant;
+uniform float uOutlineDepthGuard;
 
 #ifdef AW_OUTLINE_NORMAL
-  attribute vec3 aOutlineNormal;
+  // 'xyz' the welded push direction, 'w' the miter scale that keeps the line one
+  // weight across a crease. See 'Outline.weldedNormals'.
+  attribute vec4 aOutlineNormal;
 #endif
 `;
 
@@ -64,7 +72,7 @@ uniform float uOutlineConstant;
  */
 export const OUTLINE_BEGIN_NORMAL = /* glsl */ `
 #ifdef AW_OUTLINE_NORMAL
-  vec3 objectNormal = aOutlineNormal;
+  vec3 objectNormal = aOutlineNormal.xyz;
 #else
   vec3 objectNormal = vec3( normal );
 #endif
@@ -113,11 +121,80 @@ export const OUTLINE_PROJECT = /* glsl */ `
 // which for an inverted hull is always.
 vec3 awHullView = normalize( normalMatrix * awHullNormal );
 
+// The miter scale, so a vertex pushed along a crease bisector still moves the
+// requested distance in each of the faces that meet there. 1.0 on a smooth
+// surface, where the bisector *is* the normal.
+#ifdef AW_OUTLINE_NORMAL
+  float awMiter = aOutlineNormal.w;
+#else
+  float awMiter = 1.0;
+#endif
+
 // 'uOutlineDepthScale' is metres-per-unit-of-view-depth for the requested pixel
 // width (perspective), 'uOutlineConstant' the depth-independent part
 // (orthographic). Exactly one of the two is non-zero for a given camera.
 float awHullDepth = max( - mvPosition.z, 0.0 );
-mvPosition.xyz += awHullView * ( uOutlineConstant + uOutlineDepthScale * awHullDepth );
+float awPush = ( uOutlineConstant + uOutlineDepthScale * awHullDepth ) * awMiter;
+
+// ---- the push is lateral: view-space XY only, never Z -----------------------
+//
+// This is the correction that turns the technique from fragile into exact, and
+// it is worth being precise about what it fixes.
+//
+// Pushing along the full three-component view normal moves a vertex *toward the
+// camera* by 'awHullView.z * awPush' wherever the surface faces the lens. An
+// inverted hull survives that only while its drawn faces are further away than
+// the surface by more than that amount — true for a thick closed solid, and
+// false for everything a chibi character is actually made of. A cape panel, a
+// tunic layer and a hair clump are two to five millimetres through, so their
+// far face is *inside* the distance the push moves it forward: the shell
+// overtakes the surface, writes depth in front of it, and the surface then fails
+// its own depth test across the whole garment. The result is not a missing line,
+// it is the entire cast repainted in flat unlit ink — which is exactly what
+// shipped. The review read it as two separate defects, "there is no
+// inverted-hull outline on a single party member" and "costume colour is
+// desaturated beige-grey across half the cast", and they are one defect: what
+// the frame showed was the outline, at character size.
+//
+// The line's weight is a screen-space quantity, so the offset that produces it
+// is a screen-space offset. Dropping the Z component makes it exactly that:
+// 'uOutlineDepthScale' is already world-units-per-pixel-per-unit-depth, so
+// 'awHullView.xy * awPush' spans precisely 'width' pixels — the previous form
+// spent part of that budget on depth and drew a line thinner than it asked for —
+// and the shell's depth becomes *identical* to the source surface's, vertex for
+// vertex. It can no longer overtake anything, on any thickness of geometry, at
+// any camera angle. The taper is self-correcting too: 'awHullView.xy' falls to
+// zero as a face turns to meet the lens, which is the definition of "not on the
+// silhouette", and reaches full length exactly where the contour is.
+mvPosition.xy += awHullView.xy * awPush;
+
+// ---- the slide guard --------------------------------------------------------
+//
+// A lateral offset moves the shell *along* the surface it copies, and a surface
+// seen at an angle recedes as it slides: over a shift of 'awPush' its depth
+// changes by 'awPush * |n.xy| / |n.z|', the tangent of the angle between its
+// normal and the view axis. On a closed solid that is harmless — the shell's far
+// face is a whole body thickness behind the near one, and no slide of a couple
+// of pixels closes that. On a *single-layer* surface there is no far face at
+// all: the shell's drawn fragment is the same sheet, slid, and the slide is the
+// only thing separating them. It surfaces in front of its own source, writes
+// depth there, and the source then fails its own depth test — the shell wins the
+// whole garment instead of a two-pixel ring. Most of a chibi character is that
+// kind of surface: a cape panel, a tunic layer, a hair clump, a sleeve.
+//
+// Subtracting the same quantity puts the shell back on the depth the surface
+// would have had, so the two are separated by geometry rather than by luck. The
+// ratio diverges as a face turns edge-on, which is the one place the shell is
+// *meant* to win, so it is capped: 8 covers surfaces up to 83° off-axis exactly
+// and the rest fall back to that fixed clearance, which is the trade — beyond it
+// the guard would start pushing the *ring* behind the ground a boot stands on,
+// and a line that sinks is worse than a shell that occasionally surfaces on a
+// near-tangent sliver. 'uOutlineDepthGuard'
+// is the remaining constant term: two coplanar triangles offset laterally do not
+// interpolate to bit-identical depth at a shared pixel, and half a line width
+// settles that without sinking a boot's contour into the ground it stands on.
+float awSlide = min( length( awHullView.xy ) / max( abs( awHullView.z ), 0.125 ), 8.0 );
+mvPosition.z -= awPush * ( uOutlineDepthGuard + awSlide );
 
 gl_Position = projectionMatrix * mvPosition;
 // ---- end inverted-hull offset ----------------------------------------------

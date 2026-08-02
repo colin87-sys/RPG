@@ -22,17 +22,46 @@ const float INV_4PI  = 0.07957747154594;
 const float THREE_16PI = 0.05968310365946;   // 3 / (16 pi), Rayleigh normalisation
 
 /**
- * Roots of the intersection between a ray and a sphere centred on the origin.
- * Returns (near, far); an inverted interval (x > y) means "missed", which the
- * callers test with a single comparison instead of an extra bool.
+ * Ray/sphere intersection against a sphere centred on the origin, as two
+ * single-root accessors that report a miss as -1.
+ *
+ * There used to be one function returning the (near, far) interval with an
+ * inverted pair as the miss sentinel — and that sentinel had a POSITIVE .x, so
+ * the obvious "hit.x > 0.0" test read a miss as a hit one kilometre ahead of
+ * the observer. It truncated the view-ray integral in atmScatter to 1 km right
+ * across the horizon band and painted a black bar the full width of every
+ * outdoor frame. A sentinel that has to be tested with two comparisons will
+ * eventually be tested with one, so the interval form is gone: -1 fails every
+ * plausible test, and the CPU mirror in skyModel.js already uses exactly this
+ * pair of functions with exactly these semantics.
  */
-vec2 raySphere(vec3 ro, vec3 rd, float radius) {
+float raySphereNear(vec3 ro, vec3 rd, float radius) {
   float b = dot(ro, rd);
   float c = dot(ro, ro) - radius * radius;
   float d = b * b - c;
-  if (d < 0.0) return vec2(1.0, -1.0);
-  d = sqrt(d);
-  return vec2(-b - d, -b + d);
+  if (d < 0.0) return -1.0;
+  return -b - sqrt(d);
+}
+
+/** Far root, or -1 on a miss. Mirrors raySphereFar in skyModel.js. */
+float raySphereFar(vec3 ro, vec3 rd, float radius) {
+  float b = dot(ro, rd);
+  float c = dot(ro, ro) - radius * radius;
+  float d = b * b - c;
+  if (d < 0.0) return -1.0;
+  return -b + sqrt(d);
+}
+
+/**
+ * max(x, 0.0) with a rounded knee of half-width w, and no branch.
+ *
+ * Used where a quantity must be held non-negative *through* a visible
+ * transition. max and clamp both leave a first-derivative corner, and on a
+ * signal as large, as smooth and as low-frequency as the sky dome a corner in
+ * the derivative reads as a drawn line, not as a subtlety. Returns w/2 at x=0.
+ */
+float smoothPositive(float x, float w) {
+  return 0.5 * (x + sqrt(x * x + w * w));
 }
 
 /** Rayleigh phase — molecular scattering is nearly symmetric fore and aft. */

@@ -79,7 +79,7 @@ float atmGroundShadow(vec3 p, vec3 sunDir) {
 
 /** Optical depth (Rayleigh, Mie, ozone) from p to the top of the atmosphere. */
 vec3 atmSunOpticalDepth(vec3 p, vec3 sunDir) {
-  float tEnd = raySphere(p, sunDir, AT_RA).y;
+  float tEnd = raySphereFar(p, sunDir, AT_RA);
   if (tEnd <= 0.0) return vec3(1e6);
   vec3 od = vec3(0.0);
   float dt = tEnd / float(SKY_LIGHT_STEPS);
@@ -108,10 +108,13 @@ vec3 atmExtinction(vec3 od) {
  */
 void atmScatter(vec3 ro, vec3 rd, vec3 sunDir, float tClamp,
                 out vec3 inscatter, out vec3 transmittance) {
-  vec2 hitA = raySphere(ro, rd, AT_RA);
-  float tMax = hitA.y;
-  vec2 hitG = raySphere(ro, rd, AT_RG);
-  if (hitG.x > 0.0) tMax = min(tMax, hitG.x);   // do not integrate through rock
+  float tMax = raySphereFar(ro, rd, AT_RA);
+  // Do not integrate through rock. raySphereNear reports a miss as -1, which
+  // this test rejects; the interval form of raySphere reports one as a positive
+  // .x, and reading that as a hit collapsed every near-horizon ray to a 1 km
+  // integral — a black bar across the skyline in every outdoor frame.
+  float tGround = raySphereNear(ro, rd, AT_RG);
+  if (tGround > 0.0) tMax = min(tMax, tGround);
   tMax = min(tMax, tClamp);
 
   if (tMax <= 0.0) {

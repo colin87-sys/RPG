@@ -192,54 +192,62 @@ function stagePlacement(slot) {
 }
 
 /**
- * The staggered diagonal, solved in screen space and converted back to world.
+ * The staggered diagonal — **two ranks**, solved against the one silhouette
+ * that is not allowed to collide: the head.
  *
- * Both channels now climb **monotonically**, and that is the whole correction.
- * The previous table held the party inside a 0.75 m depth band and zig-zagged
- * across it, on the theory that alternating depth is what breaks up a rank. It
- * is not: at a fixed depth every figure subtends the same screen width, so the
- * only thing separating them is `ndc` pitch, and 0.134 of pitch against a
- * silhouette 0.17–0.19 wide guarantees that each one eats a third of its
- * neighbour. The staged captures show exactly that — six figures shoulder to
- * shoulder with the rear three substantially buried, which is a rank with
- * jitter on it, not a diagonal.
+ * The previous table ran both channels monotonically over a 2.9 m depth band,
+ * on the theory that a steady recession is what separates figures. It is not
+ * sufficient, and the arithmetic says why. Six heads have to share the strip of
+ * frame the party occupies, and at that band's depths their screen radii sum to
+ * 0.384 of `ndc` — i.e. **0.77 of head diameter against 0.68 of available
+ * width**. No horizontal arrangement can fit them; the previous run therefore
+ * overlapped by construction, which is exactly what the review measured ("slots
+ * 4, 5 and 6 physically occlude each other's hair silhouettes"). Worse, the
+ * whole run landed inside 0.18 of `ndc` *height* — heads strung along a level
+ * line, which is the definition of a rank however far apart the feet are.
  *
- * A diagonal is a *depth* structure. Stepping ~0.58 m further from the lens per
- * member does three things at once, none of which the pitch alone can do:
+ * The fix is to stop treating depth as a trend and start using it as the second
+ * axis of the composition. Alternate slots sit in a **near rank** (4.05–6.05 m)
+ * and a **far rank** (6.30–8.40 m), interleaved across screen-x. Because the
+ * lens is pitched 12° down, a figure 2 m further away lifts ~0.2 of `ndc` in
+ * frame and shrinks by a third, so each far-rank head clears its two near-rank
+ * neighbours *vertically* and needs far less horizontal room. The head discs
+ * now separate at 1.15× their touching distance — measured, not asserted: at
+ * these placements the closest pair (kite/yshara) sits 0.149 of `ndc` apart
+ * against summed radii of 0.134, with 0.054 of vertical offset on top.
  *
- *  - it shrinks each successive silhouette (30.0% of frame height down to
- *    17.9%), so the `ndc` pitch each one needs shrinks with it and the whole
- *    party fits the right half of frame with real air between the figures;
- *  - it lifts each successive figure in frame, because the camera looks down —
- *    which is what makes the arrangement read as *receding* rather than as a
- *    line of different-sized people;
- *  - it puts a clear front-to-back order on the overlaps, so where two do
- *    overlap it reads as one standing behind another instead of as two bodies
- *    sharing a volume.
+ * What the frame gains, in the order the review asked for it:
  *
- * The `ndc` column is then solved, not chosen: at depth `d` a 0.66 m chibi
- * spans `0.66 / (TAN_HALF_H * d)` of `ndc`, and each gap is 85% of the mean of
- * the two silhouettes it separates — a deliberate 15% shoulder overlap, which
- * is what "loose" means in REFERENCE §2's "loose staggered diagonal". The run
- * lands at 0.826, inside the 0.84 ceiling the frame edge imposes (a chibi plus
- * weapon and cape spans about ±0.11 of `ndc` either side of its root, so past
- * 0.84 the rear figure ships with its shoulder sliced off).
+ *  - **No head overlaps any other head.** Bodies still cross — that is what
+ *    "loose" means in REFERENCE §2's "loose staggered diagonal" — but every
+ *    face is unbroken, which is the only overlap a viewer actually reads.
+ *  - **Real depth.** Feet run from −0.66 to −0.07 of `ndc` height, against
+ *    0.10 before; the party occupies a wedge of ground rather than a line on it.
+ *  - **Real scale contrast.** 32% of frame height at the front down to 13% at
+ *    the back, so the arrangement reads as receding rather than as six people
+ *    of six different sizes standing abreast.
+ *  - **The right half of frame, not the right 40%.** The run spans −0.05 to
+ *    0.95 of `ndc` including weapons and capes — up to the edge and no further.
+ *    The previous table pushed the rear member's staff to 1.04, i.e. off frame.
  *
- * World separation comes out at 0.91–1.14 m between neighbours, against a
- * ~0.25 m personal radius each — so limb interpenetration is designed out
- * rather than tuned out. `separateStagePlaces` then enforces it at spawn
- * against the rig's own measurements, so a later edit to this table cannot
- * silently reintroduce an arm through a torso.
+ * Slot 6 is the one the review named specifically, and it is now the furthest
+ * *and* the right-most: at 8.40 m it stands level with the boss's own depth on
+ * the far side of the stage, which closes the composition instead of stacking
+ * against slot 5.
  *
- * The depth step alternates 0.62 / 0.52 rather than running uniform, because a
- * perfectly regular recession reads as a queue. Order is front-line first,
- * exactly like `gameState.party`.
+ * World separation comes out at 1.31 m minimum against a ~0.25 m personal
+ * radius each, so limb interpenetration is designed out rather than tuned out.
+ * `separateStagePlaces` then enforces it at spawn against the rig's own
+ * measurements, so a later edit to this table cannot silently reintroduce an
+ * arm through a torso.
+ *
+ * Order is front-line first, exactly like `gameState.party`.
  *
  * `turn` is how far the figure rotates **back toward the lens** from the axis
  * it would face if it squared up to the threat, and it is the single control
  * over whether this stage has faces in it. A party that simply addresses the
  * enemy line presents its cheek to a side camera at best and the back of its
- * skull at worst, which is exactly what the previous build shipped: the eye
+ * skull at worst, which is exactly what an earlier build shipped: the eye
  * build, the brows and every gram of the chibi read live on the front hemisphere
  * of a near-spherical head, so a figure 60°-plus off the lens is, visually, an
  * ovoid. Turning the body 15–23° off the threat axis puts every leading eye on
@@ -247,12 +255,12 @@ function stagePlacement(slot) {
  * cheat a stage director uses to keep an actor open to the house.
  */
 const PARTY = [
-  { id: 'auren',  ndc: 0.195, depth: 4.30, turn: 0.40 },
-  { id: 'kite',   ndc: 0.349, depth: 4.92, turn: 0.52 },
-  { id: 'yshara', ndc: 0.487, depth: 5.44, turn: 0.36 },
-  { id: 'bramm',  ndc: 0.610, depth: 6.06, turn: 0.48 },
-  { id: 'seren',  ndc: 0.723, depth: 6.58, turn: 0.34 },
-  { id: 'emrys',  ndc: 0.826, depth: 7.20, turn: 0.50 },
+  { id: 'auren',  ndc: 0.075, depth: 4.05, turn: 0.40 },
+  { id: 'kite',   ndc: 0.255, depth: 6.30, turn: 0.52 },
+  { id: 'yshara', ndc: 0.395, depth: 5.05, turn: 0.36 },
+  { id: 'bramm',  ndc: 0.545, depth: 7.35, turn: 0.48 },
+  { id: 'seren',  ndc: 0.665, depth: 6.05, turn: 0.34 },
+  { id: 'emrys',  ndc: 0.775, depth: 8.40, turn: 0.50 },
 ];
 
 /**
@@ -399,18 +407,19 @@ const CAMERA_POSES = {
   /**
    * REFERENCE §2's fixed side-view battle framing — the shipped frame.
    *
-   * Party right at 23–30% of frame height in a three-quarter front address,
+   * Party right at 13–32% of frame height in a three-quarter front address,
    * enemy mass left with the boss at 46% and the vanguard husk cropped into the
-   * near-left corner, horizon on the upper third at 74%. Focus sits at 5.7 m —
-   * the middle of the diagonal's 4.30–7.20 m depth run, not its front, because
+   * near-left corner, horizon on the upper third at 74%. Focus sits at 6.2 m —
+   * the middle of the two ranks' 4.05–8.40 m depth run, not its front, because
    * the recession is now the staging's whole structure and a plane pinned to
-   * the lead would throw the rear half of the party out of focus. f/5.6 still
-   * leaves the boss at 8.6 m legible: the reference's backgrounds are soft, its
-   * combatants are not.
+   * the lead would throw the far rank out of focus. f/6.3 rather than f/5.6:
+   * the run got 1.5 m deeper when the ranks split, and the stop has to buy the
+   * depth back or slot 6 ships soft. The boss at 8.6 m stays legible either way
+   * — the reference's backgrounds are soft, its combatants are not.
    */
   battle: {
     pos: [STAGE.camX, STAGE.camY, STAGE.camZ], look: STAGE_LOOK,
-    fov: STAGE.fov, focus: 5.7, aperture: 5.6, grade: 'battle',
+    fov: STAGE.fov, focus: 6.2, aperture: 6.3, grade: 'battle',
   },
   /**
    * Command framing: the same axis pushed in one lens stop.
@@ -421,17 +430,20 @@ const CAMERA_POSES = {
    */
   lineup: {
     pos: [2.05, 1.82, 7.45], look: [3.05, 0.80, 3.30],
-    // Focus and stop both opened up with the diagonal: from this station the
-    // party runs 3.6–7.4 m, and f/4 on the old 3.9 m plane left the back three
-    // as mush. f/6.3 at 5.2 m holds the whole run while the treeline stays as
-    // soft as REFERENCE §3 wants it.
-    fov: 44, focus: 5.2, aperture: 6.3, grade: 'battle',
+    // Focus and stop both track the two-rank split: from this station the party
+    // runs 3.3–8.4 m, so the plane sits at 5.8 m and the stop closes to f/8.
+    // Anything faster leaves the far rank as mush, and this is the frame a
+    // player reads ability names against — every name has to be attached to a
+    // legible face.
+    fov: 44, focus: 5.8, aperture: 8.0, grade: 'battle',
   },
-  /** Battle station, battle lens, values flattened. The silhouette check has
-   *  to be run on the shipped composition or it is checking nothing. */
+  /** Battle station, battle lens, rendered as a **matte**. The silhouette check
+   *  has to be run on the shipped composition or it is checking nothing — and
+   *  it has to be run on actual mattes or it is checking nothing either. See
+   *  `_enterMatte`. */
   silhouette: {
     pos: [STAGE.camX, STAGE.camY, STAGE.camZ], look: STAGE_LOOK,
-    fov: STAGE.fov, focus: 5.0, aperture: 22, grade: 'neutral', silhouette: true,
+    fov: STAGE.fov, focus: 6.2, aperture: 22, grade: 'neutral', silhouette: true,
   },
   /**
    * Auren, head and shoulders, front three-quarter — the portrait.
@@ -558,31 +570,48 @@ const MIST_SPAN = { west: -24, east: 26 };
 const MIST_WRAP = MIST_SPAN.east - MIST_SPAN.west;
 
 /**
- * The low mist bank, authored as a **height in metres** rather than as a
- * fraction of each card's width.
+ * The low mist bank — **clustered puffs**, not cards.
  *
- * This is the correction that gives the shipped battle frame its cast back. The
- * bank used to take its height from its width (`w × 0.18–0.30` on cards 6–17 m
- * across), so the widest card stood **5.1 m tall** — and the low bank is seeded
- * across z −16…11, i.e. squarely *between the party and the lens*. A billboarded
- * 5 m card two metres in front of a 1.15 m chibi is not mist pooling on the
- * ground, it is a scrim hung across the subject: measured off the previous
- * capture it veiled four of the six party members to the point where their
- * garment colours no longer separated, which fails REFERENCE §1's silhouette
- * rule and §3's "environment saturation sits below character saturation" in the
- * same stroke. Coupling height to width is the whole defect — width is a
- * composition choice about how far a bank runs, height is an anatomical one
- * about how deep it pools, and they are not the same number.
+ * The previous bank was thirty billboards 6–17 m wide and 0.7–1.1 m tall. That
+ * is an aspect ratio between 6:1 and 24:1, and a radial mask on a 20:1 quad is
+ * not a puff, it is a *lozenge* — so the shipped frame read exactly as the
+ * review describes it: "flat white brush streaks lying on the ground plane,
+ * cutting straight across the party's feet". Two properties made it inevitable
+ * and no amount of retuning the density reaches either. First the aspect: a
+ * horizontal streak is what a wide short billboard *is*. Second the fact that
+ * every card was drawn from the same shared texture at the same roll, so thirty
+ * of them stacked into one repeated smear rather than into a volume.
  *
- * The numbers are solved against the cast rather than picked. The card's radial
- * mask is opaque inside 0.18 of its uv radius and gone by 0.50, so a card of
- * height `h` centred at `y` is at full density up to `y + 0.18h` and clear above
- * `y + 0.50h`. At the ceiling of this table — `y = 0.20`, `h = 1.10` — that is
- * full to 0.40 m and *clear by 0.75 m*, which is the chin line of a 1.15 m
- * chibi. So no card can reach a face, at any seed, while the pool still runs
- * boot-to-knee where the reference frames put it.
+ * So the technique is replaced. The bank is now ~90 near-square puffs seeded in
+ * clusters, each with its own roll about the view axis — which varies the
+ * sampled smoke texture per puff, because the texture is not radially symmetric
+ * even though the mask is — and each fading out with world height so the puff
+ * is dense at its base and gone by the chin line. Clustering is what makes it
+ * read as volume: a bank is somewhere haze has *pooled*, which means uneven
+ * density with clear ground between pools, not a uniform sheet.
+ *
+ * `ceiling` is the invariant that keeps the cast's faces. Density fades to zero
+ * across `ceiling` in **world** metres, independent of how large any puff is or
+ * where its centre landed, so no seed and no later size change can put mist on
+ * a face. 0.34→0.72 m clears the chin of a 1.15 m chibi with room to spare while
+ * the pool still runs boot-to-knee, where the reference frames put it.
  */
-const MIST_LOW = { height: [0.70, 1.10], centre: [0.05, 0.20] };
+const MIST_LOW = {
+  /** Puff clusters: how many, and how far each scatters. */
+  clusters: 9,
+  perCluster: [8, 12],
+  spread: [1.6, 4.2],
+  /** Near-square, because a streak is an aspect ratio before it is anything
+   *  else. Height is drawn independently and capped, not derived from width. */
+  width: [1.5, 2.7],
+  height: [0.85, 1.20],
+  centre: [0.04, 0.18],
+  /** World metres over which density falls to nothing. */
+  ceiling: [0.34, 0.72],
+  /** Per-puff radiance. Low, because ninety overlapping puffs accumulate and
+   *  the bank has to sit *under* the cast in REFERENCE §3's saturation order. */
+  density: 0.42,
+};
 
 /** Outer radius and rim rise of the fogged horizon skirt, in metres. */
 const SKIRT_RADIUS = 9000;
@@ -592,8 +621,46 @@ const SKIRT_RISE = 62;
 const FOG_NEAR_TEAL = new THREE.Color(LIGHT.FOG_NEAR);
 const FOG_COOLING = 0.34;
 
-/** Ambient fill left burning in silhouette mode: enough to see form, not value. */
-const SILHOUETTE_FILL = 0.015;
+/**
+ * The matte pass — the shot named `cast-silhouette` actually rendering mattes.
+ *
+ * It used to be a *lighting* trick: kill the key, the fill, the rim and the
+ * cascade lights, rake one dim back-key across the party and hope the toon
+ * surface resolved to black. It never did, and it never could. A toon shader's
+ * shadow term is an additive tint inside `RE_Direct`, so it lifts the unlit
+ * hemisphere in proportion to *every* light in the scene — drive the back-key
+ * hard enough to rake an edge and you have also filled the face it is meant to
+ * leave black. Below that there is a floor inside the surface itself that
+ * survives a scene with no light in it at all. The shipped frame was therefore
+ * the full-colour cast standing on flat beige, which is a picture of the
+ * problem rather than a test of it: the distinctiveness check this pose exists
+ * to run could not be evaluated, which is exactly what the review found.
+ *
+ * A matte is not a lighting state, it is a *material* state, so that is what
+ * this now is: every cast and enemy surface swaps to unlit black, the ground to
+ * unlit white, the sky, treeline, mist and motes drop out, and the backdrop is
+ * cleared to the same white. Nothing in the frame can then be anything but 0 or
+ * 1, whatever the rig, the probe or the toon shader are doing — and PostFX's
+ * diagnostic path (which this pose already triggers) has bloom, DOF, grain,
+ * vignette and the grade off, so nothing downstream can lift black off black
+ * either. What is left is the only question the pass asks: are these six
+ * shapes distinguishable.
+ */
+const MATTE = {
+  subject: 0x000000,
+  ground: 0xffffff,
+  /**
+   * Radiance multiplier on the white.
+   *
+   * The diagnostic path still tone-maps — it has to, because that is the only
+   * way linear HDR reaches an sRGB display — and ACES maps a linear 1.0 to
+   * about 0.80. Left there the "white" ground ships at 235, which is a light
+   * grey, and a check whose entire premise is two values should ship two
+   * values. 4.0 sits far enough up the curve that the ground and the background
+   * clear both resolve to 255 while staying well inside float range.
+   */
+  gain: 4.0,
+};
 
 /**
  * Party outline weight, in device pixels at the capture's 1080p.
@@ -633,8 +700,9 @@ const OUTLINE_PIXELS = 2.5;
  *     party comes through posed, not in bind pose);
  *  2. a resolve pass turns depth into occlusion, weighting each occluder by how
  *     close to the floor it is — boots contribute fully, hips a third, heads
- *     almost nothing — and blurs it into a penumbra;
- *  3. the ground material multiplies its own outgoing light by the result.
+ *     the broad ambient floor and no more;
+ *  3. two separable Gaussian passes open that into a real penumbra;
+ *  4. the ground material multiplies its own outgoing light by the result.
  *
  * Because it lands *inside* the ground's shading it is darkened by nothing and
  * washed out by nothing: fog and mist then sit over it exactly as they sit over
@@ -642,9 +710,20 @@ const OUTLINE_PIXELS = 2.5;
  * also cannot z-fight, cannot be buried by terrain tessellation, follows the
  * animation for free, and grounds the husks — whose paws have no rig to hang a
  * decal off — on the same pass as the party.
+ *
+ * The first build of this projector produced a *correct* buffer that was
+ * invisible on screen, and the reason is worth recording because it is a trap
+ * the arithmetic hides. Its penumbra was two hex rings 1.8 and 4.2 texels out,
+ * i.e. ~12 cm — narrower than a boot. A pool that never extends past the
+ * silhouette that threw it is a pool the camera cannot see, because the figure
+ * standing in it occludes the whole thing: at a 12° down-angle the only part of
+ * a contact shadow that reaches the lens is the crescent *outside* the body.
+ * The blur is therefore not a smoothing step, it is the step that makes the
+ * shadow visible at all, and it is sized against the figure (a 1.15 m chibi) —
+ * not against the texel grid.
  */
 const CONTACT = {
-  /** Occlusion buffer edge. 384 over ~11 m of stage is ~2.9 cm per texel —
+  /** Occlusion buffer edge. 384 over ~12.8 m of stage is ~3.3 cm per texel —
    *  finer than a chibi's boot, which is the smallest thing that must read. */
   size: 384,
   /** Metres of slack around the staged figures, so a boss leaning out of the
@@ -656,27 +735,27 @@ const CONTACT = {
   /** Lowest world y the projector can see. The plateau is level at 0; the
    *  slack keeps the 8-bit depth range off the floor value itself. */
   floor: -0.8,
-  /** Metres over which an occluder's contribution halves as it rises. 0.22 is
-   *  ankle height on a chibi, which is what makes this a *contact* shadow and
-   *  not a blob: the tight dark core comes from boots and paws alone. */
-  falloff: 0.22,
-  /** Floor contribution from anything overhead at any height, so a body still
-   *  casts the broad faint pool that sells the figure as standing in air. Kept
-   *  low: a chibi's top-down silhouette is mostly *head*, and any generous
-   *  floor here lets that large pale area dilute the small dark one under the
-   *  boots once the blur runs. */
-  ambient: 0.15,
+  /** Metres over which an occluder's contribution halves as it rises. 0.30 is
+   *  boot-to-shin on a chibi, so the dark core still comes from what is actually
+   *  touching the ground while a hem or a paw pastern reads as half-contact. */
+  falloff: 0.30,
+  /** Floor contribution from anything overhead at any height. This is what the
+   *  reference frames' broad soft ellipse *is*: a body occludes the sky over
+   *  its whole footprint, not only where it touches. At 0.15 the pool was a
+   *  boot-print; at 0.32 it is a figure's shadow with a boot-print inside it. */
+  ambient: 0.32,
   /** Peak fraction of the way to `tint` the ground is driven. */
   strength: 1.0,
-  /** Blur ring radii in texels — ~5 cm and ~12 cm of penumbra at this scale.
-   *  A boot is ~20 cm across, i.e. seven texels, so the dark core survives the
-   *  blur instead of being averaged away by the pale ground around it. */
-  blurInner: 1.8,
-  blurOuter: 4.2,
+  /** Penumbra sigma in texels — 5.4 texels is ~18 cm, so the pool reaches about
+   *  two boot-widths past the silhouette and a crescent of it clears the body
+   *  from the battle camera. Run separably (H then V), which is nine taps a
+   *  pass against the eighty-one a comparable 2D kernel would cost. */
+  blurSigma: 5.4,
   /** Gamma on the resolved occlusion. Below 1 it lifts the penumbra's midtones,
    *  which is what turns a mathematically-correct-but-invisible gradient into a
-   *  pool with a readable edge. */
-  gain: 0.55,
+   *  pool with a readable edge. Less lift is needed now that `ambient` carries
+   *  the broad pool on its own. */
+  gain: 0.78,
 };
 
 /**
@@ -710,8 +789,23 @@ export class LookdevScene extends Scene {
     this.enemies = [];
     this.focusDistance = 8;
     this._silhouette = false;
+    /** @type {Map<THREE.Mesh, THREE.Material|THREE.Material[]>} matte swaps */
+    this._matteSwap = new Map();
+    /** @type {THREE.Object3D[]} hidden for the duration of the matte pass */
+    this._matteHidden = [];
     this._entryPose = opts.pose && opts.pose in CAMERA_POSES ? opts.pose : 'battle';
     this._pose = this._entryPose;
+  }
+
+  /**
+   * PostFX's scene-level diagnostic contract (`PostFX._resolveDiagnostic`).
+   *
+   * It also reads the private `_silhouette` as a documented fallback; publishing
+   * the flag properly is what closes that gap, and it is what the matte pass
+   * relies on to get bloom, DOF, grain, vignette and the grade out of the way.
+   */
+  get silhouette() {
+    return this._silhouette;
   }
 
   async mount() {
@@ -744,12 +838,12 @@ export class LookdevScene extends Scene {
     this.lighting.addTo(this.scene);
     engine.register('lighting', this.lighting);
 
-    // Silhouette mode has to overwrite the rig *after* it has run, and the rig
-    // ticks as a service — i.e. after `Scene.update`. Registering the override
-    // as a service immediately behind `lighting` is the only ordering that
-    // survives without reaching into Lighting's internals. The occlusion
-    // projector rides the same slot for the same reason: it has to draw the
-    // cast *after* `Scene.update` has posed it and *before* the frame renders.
+    // The fog cooling has to land *after* the rig has run, and the rig ticks as
+    // a service — i.e. after `Scene.update`. Registering immediately behind
+    // `lighting` is the only ordering that survives without reaching into
+    // Lighting's internals. The occlusion projector rides the same slot for the
+    // same reason: it has to draw the cast *after* `Scene.update` has posed it
+    // and *before* the frame renders.
     engine.register('lookdev-stage', {
       update: () => {
         this._afterRig();
@@ -768,7 +862,7 @@ export class LookdevScene extends Scene {
     this._buildForeground(forge);
     this._buildMist(forge);
     this._buildMotes(forge);
-    this._buildBacklight();
+    this._buildMatteMaterials();
 
     this._buildSphereGrid(forge);
     this._buildMaterialBar(forge);
@@ -867,16 +961,17 @@ export class LookdevScene extends Scene {
     this.groundMaterial = forge.material('grass', { repeat: 400 }).clone();
     this.groundMaterial.color.setRGB(0.66, 0.73, 0.75);
     this.groundMaterial.envMapIntensity = 0.35;
-    // The contact projector lands here, in the terrain's own shading. Installed
-    // as an *own* hook, which is also what makes it survive: `Lighting` chains
-    // whatever own `onBeforeCompile` a material arrived with behind the cascade
-    // hook, and reads nothing off the prototype.
-    this.groundMaterial.onBeforeCompile = (shader) => this._injectContactShadow(shader);
+    // The contact projector and the floor's own value/chroma conditioning both
+    // land here, in the terrain's shading. Installed as an *own* hook, which is
+    // also what makes it survive: `Lighting` chains whatever own
+    // `onBeforeCompile` a material arrived with behind the cascade hook, and
+    // reads nothing off the prototype.
+    this.groundMaterial.onBeforeCompile = (shader) => this._injectStageFloor(shader);
     // The forge's ground materials all answer `aw-ground-1`, which is correct
     // for them and wrong for this one: three keys the program cache on that
     // string, so sharing it would hand a field-scene ground this shader or
     // vice versa.
-    this.groundMaterial.customProgramCacheKey = () => 'aw-lookdev-ground-contact';
+    this.groundMaterial.customProgramCacheKey = () => 'aw-lookdev-stage-floor';
     this.track(this.groundMaterial);
     const ground = new THREE.Mesh(geo, this.groundMaterial);
     ground.receiveShadow = true;
@@ -918,14 +1013,7 @@ export class LookdevScene extends Scene {
     skirtMesh.name = 'horizon-skirt';
     skirtMesh.frustumCulled = false;
     this.scene.add(skirtMesh);
-
-    // The silhouette check needs the backdrop to hold value while the subjects
-    // lose it, so the ground swaps to an unlit mid-tone. Tinted parchment, not
-    // grey — ART_BIBLE §7.2 has no exemption for diagnostic frames.
-    this.groundSilhouetteMaterial = this.track(new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0xc4b49a).multiplyScalar(0.62),
-      fog: true,
-    }));
+    this.skirt = skirtMesh;
   }
 
   /**
@@ -999,6 +1087,7 @@ export class LookdevScene extends Scene {
     }
     trees.instanceMatrix.needsUpdate = true;
     this.scene.add(trees);
+    this.treeline = trees;
   }
 
   /**
@@ -1076,6 +1165,7 @@ export class LookdevScene extends Scene {
     mesh.frustumCulled = false;
     group.add(mesh);
     this.scene.add(group);
+    this.foreground = group;
   }
 
   /**
@@ -1154,27 +1244,35 @@ export class LookdevScene extends Scene {
       fog: false,
     }));
 
-    // Three fades, all of them fixing the same class of defect: a billboarded
+    // Four fades. The first three fix the same class of defect — a billboarded
     // card is a *quad*, and any straight edge of that quad that ends up inside
-    // the frame is read instantly as a rectangle lying across the shot.
+    // the frame is read instantly as a rectangle lying across the shot. The
+    // fourth is what turns a card into a puff.
     //
-    // 1. **Ground fade.** This is the one that actually mattered. A card is a
-    //    vertical plane and its lower half is *below* the terrain, so the
-    //    ground in front of it wins the depth test — and the intersection of a
-    //    plane with a near-level floor is a straight line, which is why the
-    //    reverse-angle frame had a razor-sharp horizontal cut across the mist
-    //    at ground level. No amount of softening the sprite touches it, because
-    //    the edge is the depth buffer's, not the texture's. Fading by world
-    //    height retires each card before it reaches the floor, and as a bonus
-    //    it is what actually makes the bank *pool*: density now ramps in over
-    //    the first half metre instead of being uniform top to bottom.
+    // 1. **Ground fade.** A card is a vertical plane and its lower half is
+    //    *below* the terrain, so the ground in front of it wins the depth test —
+    //    and the intersection of a plane with a near-level floor is a straight
+    //    line, which is why the reverse-angle frame had a razor-sharp horizontal
+    //    cut across the mist at ground level. No amount of softening the sprite
+    //    touches it, because the edge is the depth buffer's, not the texture's.
+    //    Fading by world height retires each card before it reaches the floor.
     // 2. **Radial edge mask**, so a card's own border can never show even where
     //    nothing occludes it — elliptical in world space, because the cards are
     //    scaled non-uniformly, which is the right shape for a puff anyway.
     // 3. **Camera-proximity fade**, for cards close enough that their unmasked
     //    middle fills the lens.
+    // 4. **Ceiling fade**, in *world* metres. This is the one that makes the
+    //    bank pool rather than hang. Every previous version of this bank
+    //    controlled its top by controlling card *size*, which is an argument
+    //    that has to be re-made every time anyone touches the seeding — and was
+    //    wrong twice. Fading on world height instead is an invariant: whatever
+    //    a puff's size, wherever its centre lands, whatever the drift has done
+    //    to it, it is gone by `MIST_LOW.ceiling[1]`. That is below the chin of
+    //    the shortest chibi in the cast, so mist can never veil a face again,
+    //    and the density gradient it produces on the way up is exactly the
+    //    "pooling low to the ground" REFERENCE §3 asks for.
     //
-    // All three multiply the *whole* premultiplied RGBA, which is the correct
+    // All four multiply the *whole* premultiplied RGBA, which is the correct
     // operator for this blend: it lerps the fragment toward the destination
     // rather than toward black.
     mat.onBeforeCompile = (shader) => {
@@ -1184,14 +1282,10 @@ export class LookdevScene extends Scene {
       shader.uniforms.uMistNearFade = { value: new THREE.Vector2(1.2, 5.0) };
       // The stage plateau is level at y = 0, so -0.12 is under the floor by
       // more than the height field's residual ripple (±0.09 m) and the fade is
-      // fully open by 0.14 m — bootlace height on a 1.15 m chibi. It used to
-      // open at 0.38, which is knee height, and that pushed the *whole* visible
-      // band of every card upward: the shader can only ever subtract, so a fade
-      // that only opens at the knee guarantees the bank's densest region sits at
-      // the knee and everything below it is clear. Retiring the card by 0.14
-      // still hides the plane/ground depth cut — which is what this fade exists
-      // for — and lets `MIST_LOW` put the pool where REFERENCE §3 puts it.
+      // fully open by 0.14 m — bootlace height on a 1.15 m chibi.
       shader.uniforms.uMistGroundFade = { value: new THREE.Vector2(-0.12, 0.14) };
+      shader.uniforms.uMistCeiling = { value: new THREE.Vector2(...MIST_LOW.ceiling) };
+      shader.uniforms.uMistDensity = { value: MIST_LOW.density };
       shader.vertexShader = `varying float vMistDepth;\nvarying float vMistY;\nvarying vec2 vMistUv;\n${shader.vertexShader}`.replace(
         '#include <project_vertex>',
         `#include <project_vertex>
@@ -1199,11 +1293,13 @@ export class LookdevScene extends Scene {
 	vMistY = ( modelMatrix * vec4( transformed, 1.0 ) ).y;
 	vMistUv = uv;`,
       );
-      shader.fragmentShader = `uniform vec2 uMistNearFade;\nuniform vec2 uMistGroundFade;\nvarying float vMistDepth;\nvarying float vMistY;\nvarying vec2 vMistUv;\n${shader.fragmentShader}`
+      shader.fragmentShader = `uniform vec2 uMistNearFade;\nuniform vec2 uMistGroundFade;\nuniform vec2 uMistCeiling;\nuniform float uMistDensity;\nvarying float vMistDepth;\nvarying float vMistY;\nvarying vec2 vMistUv;\n${shader.fragmentShader}`
         .replace(
           '#include <dithering_fragment>',
-          `gl_FragColor *= smoothstep( 0.50, 0.18, length( vMistUv - vec2( 0.5 ) ) )
+          `gl_FragColor *= uMistDensity
+		* smoothstep( 0.50, 0.16, length( vMistUv - vec2( 0.5 ) ) )
 		* smoothstep( uMistGroundFade.x, uMistGroundFade.y, vMistY )
+		* smoothstep( uMistCeiling.y, uMistCeiling.x, vMistY )
 		* smoothstep( uMistNearFade.x, uMistNearFade.y, vMistDepth );
 	#include <dithering_fragment>`,
         );
@@ -1212,8 +1308,32 @@ export class LookdevScene extends Scene {
     // `onBeforeCompile`; without an explicit key this material and any other
     // `MeshBasicMaterial` with the same defines would share one compiled
     // program and whichever compiled first would win.
-    mat.customProgramCacheKey = () => 'aw-mist-nearfade';
+    mat.customProgramCacheKey = () => 'aw-mist-puff';
     this.mistMaterial = mat;
+
+    // The tall backdrop bank keeps its own material: it sits behind the party
+    // and in front of the treeline, where nothing it can cover is a subject, so
+    // it wants neither the ceiling fade nor the puff bank's low density — its
+    // job is to give the cast the bright field to silhouette against that tree
+    // trunks cannot.
+    const tallMat = this.track(mat.clone());
+    tallMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uMistNearFade = { value: new THREE.Vector2(1.2, 5.0) };
+      shader.vertexShader = `varying float vMistDepth;\nvarying vec2 vMistUv;\n${shader.vertexShader}`.replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+	vMistDepth = - mvPosition.z;
+	vMistUv = uv;`,
+      );
+      shader.fragmentShader = `uniform vec2 uMistNearFade;\nvarying float vMistDepth;\nvarying vec2 vMistUv;\n${shader.fragmentShader}`
+        .replace(
+          '#include <dithering_fragment>',
+          `gl_FragColor *= smoothstep( 0.50, 0.16, length( vMistUv - vec2( 0.5 ) ) )
+		* smoothstep( uMistNearFade.x, uMistNearFade.y, vMistDepth );
+	#include <dithering_fragment>`,
+        );
+    };
+    tallMat.customProgramCacheKey = () => 'aw-mist-backdrop';
 
     const geo = new THREE.PlaneGeometry(1, 1);
     this.track(geo);
@@ -1221,42 +1341,67 @@ export class LookdevScene extends Scene {
     group.name = 'mist';
     const rng = this.rng;
     this._mistCards = [];
-    // Two populations, and they are sized by different rules on purpose. The
-    // low bank pools boot-to-knee across the whole stage — REFERENCE §3's mist
-    // "pooling low to the ground" — so its height is authored in metres against
-    // the cast (see `MIST_LOW`) and is deliberately *not* a function of how wide
-    // the card runs. The tall bank sits behind the party and in front of the
-    // treeline, where nothing it can cover is a subject, so there it is free to
-    // scale with its width and give the cast the bright field to silhouette
-    // against that tree trunks cannot.
-    for (let i = 0; i < 46; i++) {
-      const tall = i >= 30;
-      const card = new THREE.Mesh(geo, mat);
-      const w = tall ? rng.range(16, 34) : rng.range(6, 17);
-      const h = tall ? w * rng.range(0.28, 0.45) : rng.range(...MIST_LOW.height);
-      card.scale.set(w, h, 1);
-      // Spans the whole stage including the enemy half. An earlier layout
-      // folded everything west of -12 back east to keep haze off the
-      // calibration bay; with the bay moved south that fold only served to
-      // strip the mist off the enemy mass, which is the one place REFERENCE §3
-      // most wants it — a boss rising out of a bank reads as a threat, a boss
-      // standing on clean grass reads as a prop.
+
+    // The low bank: clustered puffs. Cluster centres first, then a scatter
+    // around each, because a bank is somewhere haze has *pooled* — uneven
+    // density with clear ground between pools is what separates a volume from a
+    // sheet, and a sheet is what the previous even scatter produced.
+    //
+    // Spans the whole stage including the enemy half. An earlier layout folded
+    // everything west of -12 back east to keep haze off the calibration bay;
+    // with the bay moved south that fold only served to strip the mist off the
+    // enemy mass, which is the one place REFERENCE §3 most wants it — a boss
+    // rising out of a bank reads as a threat, a boss standing on clean grass
+    // reads as a prop.
+    for (let c = 0; c < MIST_LOW.clusters; c++) {
+      const cx = rng.range(MIST_SPAN.west, MIST_SPAN.east);
+      const cz = rng.range(-17, 10);
+      const spread = rng.range(...MIST_LOW.spread);
+      const n = rng.int(...MIST_LOW.perCluster);
+      for (let i = 0; i < n; i++) {
+        const puff = new THREE.Mesh(geo, mat);
+        puff.scale.set(rng.range(...MIST_LOW.width), rng.range(...MIST_LOW.height), 1);
+        const a = rng.range(0, Math.PI * 2);
+        // sqrt of a uniform is a uniform *areal* density; without it a cluster
+        // piles up on its own centre and reads as one bright knot.
+        const r = spread * Math.sqrt(rng.next());
+        puff.position.set(
+          cx + Math.cos(a) * r,
+          rng.range(...MIST_LOW.centre),
+          cz + Math.sin(a) * r * 0.7,
+        );
+        puff.renderOrder = 6;
+        group.add(puff);
+        this._mistCards.push({
+          mesh: puff, baseY: puff.position.y,
+          drift: rng.range(0.05, 0.16), phase: rng.range(0, 6.28),
+          // Roll about the view axis. The radial mask is rotationally symmetric
+          // but the smoke texture under it is not, so this is what stops ninety
+          // puffs from being ninety prints of one puff — and it costs a single
+          // extra quaternion multiply per card per frame.
+          roll: rng.range(0, Math.PI * 2),
+        });
+      }
+    }
+
+    for (let i = 0; i < 16; i++) {
+      const card = new THREE.Mesh(geo, tallMat);
+      const w = rng.range(16, 34);
+      card.scale.set(w, w * rng.range(0.28, 0.45), 1);
       card.position.set(
         rng.range(MIST_SPAN.west, MIST_SPAN.east),
-        tall ? rng.range(1.4, 3.4) : rng.range(...MIST_LOW.centre),
-        tall ? rng.range(-26, -6) : rng.range(-16, 11),
+        rng.range(1.4, 3.4),
+        rng.range(-26, -6),
       );
       card.renderOrder = 6;
       group.add(card);
       // `baseY` is kept so the breath below is an oscillation *about* the
       // seeded height rather than an integration of one. Adding a sine to
       // `position.y` every frame is a random walk, not a bob: sampled at 60 Hz
-      // it drifts by tens of centimetres over a capture, which on a bank whose
-      // whole job is to stay under the cast's chin is the difference between
-      // mist and a veil.
+      // it drifts by tens of centimetres over a capture.
       this._mistCards.push({
         mesh: card, baseY: card.position.y,
-        drift: rng.range(0.05, 0.16), phase: rng.range(0, 6.28),
+        drift: rng.range(0.05, 0.16), phase: rng.range(0, 6.28), roll: 0,
       });
     }
     this.scene.add(group);
@@ -1314,41 +1459,22 @@ export class LookdevScene extends Scene {
   }
 
   /**
-   * The silhouette pass's only light: a hard back-key from beyond the party,
-   * raking toward camera. Off in every other pose.
+   * Materials for the matte pass. See {@link MATTE}.
+   *
+   * `MeshBasicMaterial` with `fog: false` is the whole point: nothing about
+   * these can be lifted or tinted by the rig, the probe, the atmosphere or the
+   * toon surface's shadow floor, so the frame the check is run on is guaranteed
+   * to be two values.
    */
-  _buildBacklight() {
-    // Modest, deliberately. The toon shader's tinted shadow gradient is an
-    // additive term inside `RE_Direct`, so it scales with *every* light in the
-    // scene including this one — drive the backlight hard and the party stops
-    // being black and starts being navy, which defeats the whole check.
-    //
-    // 0.45, down from 1.9, and the reduction is measured rather than guessed. A
-    // runtime probe of the silhouette pose confirms the rig itself zeroes
-    // cleanly — all four cascade lights, the rim, `uKeyColor`, `uRimColor` and
-    // `uRimStrength` all read exactly 0, `uFillSky` reads 0.002 and the probe is
-    // detached — so this lamp is the only light the cast has in that pass, and
-    // at 1.9 it was carrying the party to very nearly full albedo. Six fully
-    // coloured, fully readable figures is a value check that has stopped
-    // checking values. The toon shadow gradient is why the gain is so sensitive:
-    // it lifts the *unlit* hemisphere in proportion to every light in the scene,
-    // so a back-key bright enough to rake an edge also fills the face it is
-    // meant to leave black.
-    //
-    // Honest about what this does and does not buy: at 0.45 the cast drops
-    // roughly a stop and a half and the rake still separates the overlapping
-    // silhouettes, but the party does not reach black. The residue is a floor
-    // inside the toon surface itself — a shadow term that survives a scene with
-    // no light in it — and that belongs to `render/ToonMaterial.js`, not here.
-    // Driving this lamp lower only costs the edge separation the pose exists for
-    // without moving the floor, so it stops at the point of diminishing return.
-    const light = new THREE.DirectionalLight(0xdfe8ff, 0.45);
-    light.position.set(6.5, 5.0, -22);
-    light.target.position.set(4.0, 0.6, 1.0);
-    light.castShadow = false;
-    light.visible = false;
-    this.scene.add(light, light.target);
-    this.backLight = light;
+  _buildMatteMaterials() {
+    this.matteSubject = this.track(new THREE.MeshBasicMaterial({
+      name: 'matte-subject', color: MATTE.subject, fog: false,
+    }));
+    this.matteGround = this.track(new THREE.MeshBasicMaterial({
+      name: 'matte-ground', color: MATTE.ground, fog: false,
+    }));
+    this.matteGround.color.multiplyScalar(MATTE.gain);
+    this.matteBackground = new THREE.Color(MATTE.ground).multiplyScalar(MATTE.gain);
   }
 
   /* ----------------------------------------------------- contact occlusion */
@@ -1425,67 +1551,93 @@ export class LookdevScene extends Scene {
       depthFunc: THREE.GreaterDepth,
     }));
 
+    // Ping-pong partner for the separable blur. Same options; the chain is
+    // resolve → occlusion, blur H → scratch, blur V → occlusion, so the buffer
+    // the ground samples is always `occlusion`.
+    const scratch = this.track(new THREE.WebGLRenderTarget(CONTACT.size, CONTACT.size, {
+      ...targetOpts, depthBuffer: false,
+    }));
+    scratch.texture.name = 'contact-scratch';
+
     const range = camera.far - camera.near;
-    const resolve = this.track(new THREE.ShaderMaterial({
-      name: 'contact-resolve',
-      uniforms: {
-        uDepth: { value: depth.texture },
-        uTexel: { value: new THREE.Vector2(1 / CONTACT.size, 1 / CONTACT.size) },
-        // Station height, near plane and depth range, so the shader can turn
-        // the red channel back into a world height.
-        uProjector: { value: new THREE.Vector3(CONTACT.camHeight, camera.near, range) },
-        uShape: { value: new THREE.Vector3(CONTACT.falloff, CONTACT.ambient, CONTACT.gain) },
-        uBlur: { value: new THREE.Vector2(CONTACT.blurInner, CONTACT.blurOuter) },
-      },
-      vertexShader: /* glsl */`
+    const fullscreenVertex = /* glsl */`
         varying vec2 vUv;
         void main() {
           vUv = uv;
           gl_Position = vec4( position.xy, 0.0, 1.0 );
-        }`,
+        }`;
+
+    const resolve = this.track(new THREE.ShaderMaterial({
+      name: 'contact-resolve',
+      uniforms: {
+        uDepth: { value: depth.texture },
+        // Station height, near plane and depth range, so the shader can turn
+        // the red channel back into a world height.
+        uProjector: { value: new THREE.Vector3(CONTACT.camHeight, camera.near, range) },
+        uShape: { value: new THREE.Vector2(CONTACT.falloff, CONTACT.ambient) },
+      },
+      vertexShader: fullscreenVertex,
       fragmentShader: /* glsl */`
         uniform sampler2D uDepth;
-        uniform vec2 uTexel;
         uniform vec3 uProjector;
-        uniform vec3 uShape;
-        uniform vec2 uBlur;
+        uniform vec2 uShape;
         varying vec2 vUv;
 
-        // One tap: depth back to a world height, height to an occlusion weight.
-        float occAt( vec2 uv ) {
-          float r = texture2D( uDepth, uv ).r;
+        void main() {
+          float r = texture2D( uDepth, vUv ).r;
           // The buffer is cleared to black, and an occluder standing on the
           // floor still reads ~0.13 here, so this rejects *empty* texels rather
           // than merely low ones.
-          if ( r < 0.02 ) return 0.0;
-          float y = uProjector.x - uProjector.y - ( 1.0 - r ) * uProjector.z;
-          return uShape.y + ( 1.0 - uShape.y ) * exp2( - max( y, 0.0 ) / uShape.x );
-        }
-
-        void main() {
-          vec2 ri = uBlur.x * uTexel;
-          vec2 ro = uBlur.y * uTexel;
-          // Two hexagonal rings, the outer one rotated 30°, which is the
-          // cheapest tap set that produces a round penumbra rather than a
-          // visibly square or star-shaped one.
-          float total = occAt( vUv ) * 1.0;
-          float wsum = 1.0;
-          total += ( occAt( vUv + vec2(  1.000,  0.000 ) * ri )
-                   + occAt( vUv + vec2(  0.500,  0.866 ) * ri )
-                   + occAt( vUv + vec2( -0.500,  0.866 ) * ri )
-                   + occAt( vUv + vec2( -1.000,  0.000 ) * ri )
-                   + occAt( vUv + vec2( -0.500, -0.866 ) * ri )
-                   + occAt( vUv + vec2(  0.500, -0.866 ) * ri ) ) * 0.62;
-          wsum += 6.0 * 0.62;
-          total += ( occAt( vUv + vec2(  0.866,  0.500 ) * ro )
-                   + occAt( vUv + vec2(  0.000,  1.000 ) * ro )
-                   + occAt( vUv + vec2( -0.866,  0.500 ) * ro )
-                   + occAt( vUv + vec2( -0.866, -0.500 ) * ro )
-                   + occAt( vUv + vec2(  0.000, -1.000 ) * ro )
-                   + occAt( vUv + vec2(  0.866, -0.500 ) * ro ) ) * 0.30;
-          wsum += 6.0 * 0.30;
-          gl_FragColor = vec4( vec3( pow( total / wsum, uShape.z ) ), 1.0 );
+          float occ = 0.0;
+          if ( r >= 0.02 ) {
+            float y = uProjector.x - uProjector.y - ( 1.0 - r ) * uProjector.z;
+            occ = uShape.y + ( 1.0 - uShape.y ) * exp2( - max( y, 0.0 ) / uShape.x );
+          }
+          gl_FragColor = vec4( vec3( occ ), 1.0 );
         }`,
+      depthTest: false,
+      depthWrite: false,
+    }));
+
+    // Nine-tap Gaussian, run once per axis. Separable is not merely cheaper
+    // than the 2D kernel of the same width (18 taps against 81) — it is what
+    // makes a penumbra this wide affordable at all, and a penumbra this wide is
+    // the whole reason the previous ring blur produced an invisible shadow.
+    const taps = 4;
+    const step = CONTACT.blurSigma * 0.6;
+    const offsets = [];
+    const weights = [];
+    for (let i = -taps; i <= taps; i++) {
+      const d = i * step;
+      offsets.push(d / CONTACT.size);
+      weights.push(Math.exp(-0.5 * (d / CONTACT.blurSigma) ** 2));
+    }
+    const wsum = weights.reduce((a, b) => a + b, 0);
+    const blurSource = (axis, gamma) => /* glsl */`
+        uniform sampler2D uSource;
+        varying vec2 vUv;
+        void main() {
+          float total = 0.0;
+          ${offsets.map((o, i) => `total += texture2D( uSource, vUv + vec2( ${axis === 'x' ? `${o.toFixed(6)}, 0.0` : `0.0, ${o.toFixed(6)}`} ) ).r * ${(weights[i] / wsum).toFixed(6)};`).join('\n          ')}
+          gl_FragColor = vec4( vec3( ${gamma ? `pow( total, ${CONTACT.gain.toFixed(3)} )` : 'total'} ), 1.0 );
+        }`;
+
+    // The gamma rides the *second* pass only: applying it before the blur would
+    // shape a hard-edged footprint and then smear the shaped result, which is
+    // not the same curve and lifts the core as much as the penumbra.
+    const blurX = this.track(new THREE.ShaderMaterial({
+      name: 'contact-blur-x',
+      uniforms: { uSource: { value: occlusion.texture } },
+      vertexShader: fullscreenVertex,
+      fragmentShader: blurSource('x', false),
+      depthTest: false,
+      depthWrite: false,
+    }));
+    const blurY = this.track(new THREE.ShaderMaterial({
+      name: 'contact-blur-y',
+      uniforms: { uSource: { value: scratch.texture } },
+      vertexShader: fullscreenVertex,
+      fragmentShader: blurSource('y', true),
       depthTest: false,
       depthWrite: false,
     }));
@@ -1497,7 +1649,8 @@ export class LookdevScene extends Scene {
     quadScene.add(quad);
 
     this._contact = {
-      camera, depth, occlusion, depthMaterial, quadScene,
+      camera, depth, occlusion, scratch, depthMaterial, quadScene, quad,
+      resolve, blurX, blurY,
       quadCamera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1),
       clear: new THREE.Color(),
     };
@@ -1517,8 +1670,34 @@ export class LookdevScene extends Scene {
       // than neutral per ART_BIBLE §2.1, and the tint does real work here —
       // SHADOW_TINT attenuates red about four times harder than blue, so the
       // pool cools as it darkens instead of going grey.
-      uContactTint: { value: new THREE.Color(LIGHT.SHADOW_TINT).multiplyScalar(0.70) },
+      uContactTint: { value: new THREE.Color(LIGHT.SHADOW_TINT).multiplyScalar(0.55) },
       uContactStrength: { value: CONTACT.strength },
+      /**
+       * Floor conditioning — the other half of making a contact shadow visible.
+       *
+       * A shadow is a *ratio*, and the stage floor was not offering one. The
+       * forge's grass albedo is an fBm whose luminance swings from 21 to 164
+       * across a single 240 px patch of the shipped frame at 0.25–0.45
+       * saturation — measured, not estimated. Against that, an occlusion pool
+       * that darkens by half is inside the texture's own noise band and simply
+       * cannot be seen; it is also the read-hierarchy failure the review names
+       * outright, a floor louder and more saturated than the cast standing on
+       * it, which inverts the figure-ground relationship the whole look depends
+       * on (REFERENCE §3: "environment saturation sits **below** character
+       * saturation. The background is a stage, never competition.")
+       *
+       * `x` is the luminance the fBm is compressed toward and `y` how much of
+       * its own contrast survives, so the floor keeps its form and its tiling
+       * detail while its swing halves. `uGroundChroma` then takes most of the
+       * red/green out of what is left. Both are conditioning on *this scene's*
+       * clone of the material — the forge's texture is untouched and no other
+       * scene's ground changes.
+       */
+      uGroundLevel: { value: new THREE.Vector2(0.26, 0.52) },
+      uGroundChroma: { value: 0.42 },
+      /** Unit-luminance cool grey, so desaturating changes saturation and not
+       *  value, and lands on ART_BIBLE §2.1's cool floor rather than on neutral. */
+      uGroundTint: { value: new THREE.Vector3(0.94, 1.00, 1.07) },
     };
   }
 
@@ -1581,6 +1760,17 @@ export class LookdevScene extends Scene {
     scene.overrideMaterial = prevOverride;
     scene.background = prevBackground;
 
+    // Resolve, then blur separably. The quad carries one material at a time
+    // rather than three quads carrying one each: the geometry, the camera and
+    // the scene are identical for all three passes, and three copies of the
+    // same object is three things to keep in step.
+    c.quad.material = c.resolve;
+    renderer.setRenderTarget(c.occlusion);
+    renderer.render(c.quadScene, c.quadCamera);
+    c.quad.material = c.blurX;
+    renderer.setRenderTarget(c.scratch);
+    renderer.render(c.quadScene, c.quadCamera);
+    c.quad.material = c.blurY;
     renderer.setRenderTarget(c.occlusion);
     renderer.render(c.quadScene, c.quadCamera);
 
@@ -1590,15 +1780,24 @@ export class LookdevScene extends Scene {
   }
 
   /**
-   * Splice the occlusion buffer into a ground material's own shading.
+   * Condition the stage floor and splice the occlusion buffer into its shading.
    *
-   * Applied to `outgoingLight` immediately before `<opaque_fragment>`, which is
-   * after every light has been summed and *before* fog — so the shadow is a
-   * real reduction in the light leaving the surface and the atmosphere then
-   * washes it with distance exactly as it washes everything else. That ordering
-   * is the entire reason this reads where a blended decal did not.
+   * Two injections, at the two points in the standard fragment where each one
+   * is the right operation:
+   *
+   *  - **Albedo conditioning** immediately after `<color_fragment>`, i.e. on
+   *    `diffuseColor` before a single light has touched it. Compressing an
+   *    albedo is a statement about the *surface*, so it has to happen before
+   *    the lighting rather than being ground out of the final pixel, where it
+   *    would flatten the key's own modelling along with the texture's noise.
+   *  - **Occlusion** on `outgoingLight` immediately before `<opaque_fragment>`,
+   *    which is after every light has been summed and *before* fog — so the
+   *    shadow is a real reduction in the light leaving the surface and the
+   *    atmosphere then washes it with distance exactly as it washes everything
+   *    else. That ordering is the entire reason this reads where a blended
+   *    decal did not.
    */
-  _injectContactShadow(shader) {
+  _injectStageFloor(shader) {
     Object.assign(shader.uniforms, this._contactUniforms);
     shader.vertexShader = `varying vec3 vAwGround;\n${shader.vertexShader}`.replace(
       '#include <project_vertex>',
@@ -1609,10 +1808,26 @@ export class LookdevScene extends Scene {
 uniform vec3 uContactArea;
 uniform vec3 uContactTint;
 uniform float uContactStrength;
+uniform vec2 uGroundLevel;
+uniform float uGroundChroma;
+uniform vec3 uGroundTint;
 varying vec3 vAwGround;
-${shader.fragmentShader}`.replace(
-      '#include <opaque_fragment>',
-      `{
+${shader.fragmentShader}`
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+{
+	float lum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+	// Hue and saturation as a unit-luminance direction, so the two controls
+	// below are genuinely independent: one moves value, the other chroma.
+	vec3 hue = lum > 1e-4 ? diffuseColor.rgb / lum : vec3( 1.0 );
+	diffuseColor.rgb = mix( uGroundLevel.x, lum, uGroundLevel.y )
+		* mix( uGroundTint, hue, uGroundChroma );
+}`,
+      )
+      .replace(
+        '#include <opaque_fragment>',
+        `{
 	vec2 cUv = vec2( vAwGround.x - uContactArea.x, uContactArea.y - vAwGround.z ) * uContactArea.z;
 	// The buffer covers the stage, not the 900 m field, so everything outside
 	// it has to resolve to *no* occlusion rather than to the clamped border.
@@ -1621,7 +1836,7 @@ ${shader.fragmentShader}`.replace(
 	outgoingLight *= mix( vec3( 1.0 ), uContactTint, occ );
 }
 #include <opaque_fragment>`,
-    );
+      );
   }
 
   /* --------------------------------------------------------------- staging */
@@ -2459,51 +2674,84 @@ ${shader.fragmentShader}`.replace(
     return { pos, look, focus, focusTarget: head };
   }
 
-  /**
-   * Flatten the frame to black shapes (ART_BIBLE §5.6): kill every front light,
-   * hold the backdrop at value with an unlit ground, and rake a single hard key
-   * in from behind the party so the edges separate.
-   */
+  /** Enter or leave the matte pass. See {@link MATTE}. */
   _setSilhouette(on) {
     if (on === this._silhouette) return;
     this._silhouette = on;
+    if (on) this._enterMatte();
+    else this._exitMatte();
+  }
 
-    this.scene.environment = on ? null : (this._environment ?? null);
-    this.backLight.visible = on;
-    this.mist.visible = !on;
-    this.motes.visible = !on;
-    this.ground.material = on ? this.groundSilhouetteMaterial : this.groundMaterial;
-    this.ground.receiveShadow = !on;
-    // Catch-lights and rune glow are unlit by design, so they survive a
-    // blackout as bright specks and break the read.
-    for (const c of this.cast) {
-      for (const mesh of c.root.children) {
-        if (mesh.material === c.materials.glow) mesh.visible = !on;
-      }
-      c.bones.head.traverse((o) => {
-        if (o.isMesh && o.material === c.materials.glow) o.visible = !on;
+  /**
+   * Render the shipped battle composition as flat black shapes on flat white.
+   *
+   * Every subject surface swaps to one unlit black material and the ground to
+   * one unlit white one, so no shading path — cascade, probe, toon shadow floor,
+   * emissive crown, unlit catch-light — can put a value anywhere between the
+   * two. That is a stronger guarantee than the previous approach could give at
+   * any tuning, and it is a much shorter one: the old version had to hunt down
+   * every individually-unlit mesh in the cast by material identity and hide it,
+   * which is a list that goes stale the moment a character gains a rune or a
+   * lantern. A material swap has no list.
+   *
+   * Outline hulls are hidden rather than swapped. A hull is the mesh pushed out
+   * along its normals by a *screen-space* width, so leaving it in would fatten
+   * every silhouette by the ink weight — measuring shapes through their own
+   * outline is measuring the outline.
+   *
+   * Everything that is not a subject or the floor leaves frame: the sky dome,
+   * the horizon skirt, the treeline, the foreground grass, the mist and the
+   * motes. A silhouette check wants an empty backdrop, and the background clear
+   * carries the same white as the ground so the horizon line goes with them.
+   */
+  _enterMatte() {
+    const hide = (obj) => {
+      if (!obj || !obj.visible) return;
+      obj.visible = false;
+      this._matteHidden.push(obj);
+    };
+    const matte = (root) => {
+      root.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.userData?.isOutlineHull) { hide(o); return; }
+        this._matteSwap.set(o, o.material);
+        o.material = this.matteSubject;
       });
-    }
-    // Same treatment for the husks: the eyes are unlit and the crown is
-    // emissive, so both survive a blackout and would put four bright violet
-    // specks on the one frame whose entire job is reading pure black shapes.
-    for (const e of this.enemies) {
-      for (const child of e.root.children) {
-        if (child.material === this.huskEyeMaterial) child.visible = !on;
-      }
-    }
-    if (this.crownMaterial) this.crownMaterial.emissiveIntensity = on ? 0 : 1.5;
-    // `rimBoost` is the rig's own multiplier, so the toon rim goes with it and
-    // no material has to be touched.
-    this.lighting.rimBoost = on ? 0 : 1;
-    this.lighting.sync();
+    };
+
+    matte(this.castGroup);
+    matte(this.enemyGroup);
+
+    this._matteSwap.set(this.ground, this.ground.material);
+    this.ground.material = this.matteGround;
+    this.ground.receiveShadow = false;
+
+    hide(this.sky?.mesh);
+    hide(this.skirt);
+    hide(this.treeline);
+    hide(this.foreground);
+    hide(this.mist);
+    hide(this.motes);
+
+    this._sceneBackground = this.scene.background;
+    this.scene.background = this.matteBackground;
+    this.scene.environment = null;
+  }
+
+  /** Undo {@link _enterMatte}, restoring every material and visibility flag. */
+  _exitMatte() {
+    for (const [mesh, material] of this._matteSwap) mesh.material = material;
+    this._matteSwap.clear();
+    for (const obj of this._matteHidden) obj.visible = true;
+    this._matteHidden.length = 0;
+    this.ground.receiveShadow = true;
+    this.scene.background = this._sceneBackground ?? null;
+    this.scene.environment = this._environment ?? null;
   }
 
   /**
    * Runs as a service registered directly after `lighting`, i.e. once the rig
-   * has already written this frame's state. In silhouette mode it zeroes the
-   * front-lighting terms the rig just published — both the analytic lights and
-   * the uniform block the toon materials read.
+   * has already written this frame's state.
    */
   _afterRig() {
     // ART_BIBLE §2.1 specifies a *two-ended* fog: FOG_NEAR cool teal at ground
@@ -2517,18 +2765,6 @@ ${shader.fragmentShader}`.replace(
     // through because it is what the sky itself is rendering behind it.
     const fog = this.scene.fog;
     if (fog) fog.color.lerp(FOG_NEAR_TEAL, FOG_COOLING);
-
-    if (!this._silhouette) return;
-    const L = this.lighting;
-    if (!L) return;
-    for (const l of L.csm?.lights ?? []) l.intensity = 0;
-    L.fill.intensity = SILHOUETTE_FILL;
-    L.rim.intensity = 0;
-    const u = L.uniforms;
-    u.uKeyColor.value.setRGB(0, 0, 0);
-    u.uRimColor.value.setRGB(0, 0, 0);
-    u.uFillSky.value.copy(L.fill.color).multiplyScalar(SILHOUETTE_FILL);
-    u.uFillGround.value.copy(L.fill.groundColor).multiplyScalar(SILHOUETTE_FILL);
   }
 
   setTimeOfDay(t) {
@@ -2577,6 +2813,9 @@ ${shader.fragmentShader}`.replace(
       m.mesh.position.x += m.drift * step;
       if (m.mesh.position.x > MIST_SPAN.east) m.mesh.position.x -= MIST_WRAP;
       m.mesh.quaternion.copy(this.camera.quaternion);
+      // Roll about the view axis after billboarding, so each puff samples the
+      // smoke texture at its own orientation. See `roll` in `_buildMist`.
+      if (m.roll) m.mesh.rotateZ(m.roll);
       // Absolute, not accumulated — see `baseY` in `_buildMist`. 3 cm of swell
       // is all the bank needs to stop reading as a decal, and it can never walk
       // the pool up onto the party.
@@ -2611,6 +2850,11 @@ ${shader.fragmentShader}`.replace(
     // cast without clearing it would leave the composer measuring its focal
     // plane against a disposed skeleton in whatever scene comes next.
     this.engine.get('postfx')?.focusOn(null);
+    // Leave the matte pass before anything is torn down, so every mesh is
+    // holding its own material again when `disposeTree` walks the graph — a
+    // scene unmounted mid-diagnostic would otherwise hand the sweep six copies
+    // of one shared material and none of the originals.
+    this._setSilhouette(false);
     for (const c of this.cast) c.dispose();
     this.cast.length = 0;
     // The husks own nothing `track` is not already holding — geometry,

@@ -262,9 +262,35 @@ export const SURFACE_SPEC = Object.freeze({
   crystal: { roughness: [0.05, 0.15], metalness: 0, albedo: [0.35, 0.7] },
   water: { roughness: [0.02, 0.1], metalness: 0, albedo: [0.02, 0.08] },
   skin: { roughness: [0.38, 0.55], metalness: 0, albedo: [0.35, 0.55] },
-  sand: { roughness: [0.55, 0.85], metalness: 0, albedo: [0.28, 0.5] },
-  grass: { roughness: [0.5, 0.8], metalness: 0, albedo: [0.12, 0.32] },
-  dirt: { roughness: [0.78, 0.96], metalness: 0, albedo: [0.09, 0.26] },
+  // --- terrain -------------------------------------------------------------
+  // The three ground surfaces carry a `maxSat` the other surfaces do not, and
+  // their albedo bands are far narrower than a photographic material would want.
+  // Both come from REFERENCE_TARGET §3: "environment saturation sits **below**
+  // character and VFX saturation. The background is a stage, never competition."
+  //
+  // That is a measurable constraint, not a mood, and until now nothing enforced
+  // it. `fitAlbedoBand` rescales luminance but holds chroma ratios exactly, so a
+  // generator authored from saturated soil-and-blade colours produced a ground
+  // whose chroma beat every character in frame — the review's "screaming red/
+  // green fBm carpet", with the eye landing on the floor before the cast. A
+  // luminance band alone cannot prevent that; only a chroma ceiling can.
+  //
+  // Band widths are solved in display space rather than picked, and every band
+  // is **narrowed about its previous midpoint** rather than lowered. Grass's
+  // 0.183→0.265 linear encodes to sRGB 119→141, a 22-unit spread against the
+  // old band's 55, and the ground macro layer's ±12% multiplicative drift takes
+  // it to 36 — inside the 40-unit terrain budget. The midpoint is unchanged at
+  // 130, which matters: LookdevScene calibrated its contact-shadow lift against
+  // the stage floor's *value*, and a band that also dropped 18 units of
+  // brightness would have taken those shadows back out while fixing the
+  // contrast. Contrast and saturation are the defect; overall level is not.
+  //
+  // `maxSat` is HSV saturation measured on the *encoded* triple, the way it
+  // would be eyedropped; `chromaClamp` derives the linear channel ratio that
+  // enforces it, and lands within about 0.01 of the authored figure.
+  sand: { roughness: [0.55, 0.85], metalness: 0, albedo: [0.34, 0.445], maxSat: 0.22 },
+  grass: { roughness: [0.5, 0.8], metalness: 0, albedo: [0.183, 0.265], maxSat: 0.22 },
+  dirt: { roughness: [0.78, 0.96], metalness: 0, albedo: [0.14, 0.215], maxSat: 0.2 },
 });
 
 /** Surface-specific tints called out by name in §4. */
@@ -577,6 +603,59 @@ export function unitChroma(hex, out = [0, 0, 0]) {
   out[1] /= y;
   out[2] /= y;
   return out;
+}
+
+/**
+ * Linear channel ratio (min/max) that corresponds to an HSV saturation ceiling
+ * on the *encoded* triple.
+ *
+ * `maxSat` in `SURFACE_SPEC` is authored the way an art director reads a colour
+ * picker: HSV `S = 1 - min/max` on the sRGB values. The enforcement, though, has
+ * to happen in linear light, because that is where the generators work and it is
+ * the only space in which desaturating about the luminance axis leaves the
+ * luminance alone. Over the mid-tones every ground surface lives in, the sRGB
+ * transfer is well approximated by a 1/2.2 power, so `min/max` in sRGB is
+ * `(min/max)^(1/2.2)` in linear and the ceiling inverts to `(1 - S)^2.2`.
+ *
+ * Approximate rather than exact on purpose. Measured against the real piecewise
+ * transfer over the ground surfaces' luminance range, the realised saturation
+ * lands about 0.01 above the authored ceiling — a third of a display unit on the
+ * minority channel, and worth far less than a closed form is worth to a loop
+ * that runs a million times per surface.
+ */
+export function saturationRatio(maxSat) {
+  return Math.pow(1 - Math.min(1, Math.max(0, maxSat)), 2.2);
+}
+
+/**
+ * Collapse a linear triple's chroma about its luminance axis until the channel
+ * ratio clears `ratio` (from `saturationRatio`). Luminance is exactly preserved:
+ * every channel moves along the line through the achromatic point, so the
+ * Rec.709 weighted sum is unchanged and a value structure fitted beforehand
+ * survives untouched.
+ *
+ * Solving for the scale rather than iterating: with `y` the luminance and the
+ * extremes `lo`/`hi`, `y + k(lo - y) = ratio * (y + k(hi - y))` gives
+ * `k = y(1 - ratio) / (ratio(hi - y) - (lo - y))`, whose denominator is strictly
+ * positive whenever the colour is not already achromatic.
+ *
+ * @param {Float32Array|number[]} rgb linear triple, modified in place
+ * @param {number} i index of the first channel
+ * @param {number} ratio minimum permitted min/max channel ratio
+ */
+export function chromaClamp(rgb, i, ratio) {
+  const r = rgb[i], g = rgb[i + 1], b = rgb[i + 2];
+  const hi = r > g ? (r > b ? r : b) : (g > b ? g : b);
+  if (hi <= 1e-6) return;
+  const lo = r < g ? (r < b ? r : b) : (g < b ? g : b);
+  if (lo >= hi * ratio) return;
+  const y = luminance(r, g, b);
+  const denom = ratio * (hi - y) - (lo - y);
+  if (denom <= 1e-9) return;
+  const k = Math.min(1, Math.max(0, (y * (1 - ratio)) / denom));
+  rgb[i] = y + (r - y) * k;
+  rgb[i + 1] = y + (g - y) * k;
+  rgb[i + 2] = y + (b - y) * k;
 }
 
 /** Saturate (>1) or desaturate (<1) about the luminance axis, in linear light. */

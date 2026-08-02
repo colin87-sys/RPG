@@ -279,9 +279,9 @@ vec3 auroraCurtain(vec3 ro, vec3 rd) {
   if (uAurora <= 0.002 || rd.y < 0.015) return vec3(0.0);
 
   // 90 km and 260 km, in the dome's kilometre units.
-  float t0 = raySphere(ro, rd, AT_RG + 90.0).y;
-  float t1 = raySphere(ro, rd, AT_RG + 260.0).y;
-  if (t1 <= t0) return vec3(0.0);
+  float t0 = raySphereFar(ro, rd, AT_RG + 90.0);
+  float t1 = raySphereFar(ro, rd, AT_RG + 260.0);
+  if (t0 <= 0.0 || t1 <= t0) return vec3(0.0);
 
   vec3 acc = vec3(0.0);
   float dt = (t1 - t0) / float(SKY_AURORA_STEPS);

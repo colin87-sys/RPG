@@ -69,7 +69,7 @@ vec4 cloudDeck(vec3 ro, vec3 rd, float alt, float thick, float scale,
                vec2 aniso, vec3 skyBehind, float hazeDistance) {
   if (coverage <= 0.001) return vec4(0.0);
 
-  float t = raySphere(ro, rd, AT_RG + alt).y;
+  float t = raySphereFar(ro, rd, AT_RG + alt);
   if (t <= 0.0) return vec4(0.0);
 
   vec3 p = ro + rd * t;
