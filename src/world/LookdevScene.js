@@ -51,15 +51,11 @@
  * are wired into FieldScene or BattleScene.
  */
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Scene } from '../core/Engine.js';
 import { gameState, Rng } from '../core/GameState.js';
 import { Sky } from '../render/Sky.js';
 import { Lighting } from '../render/Lighting.js';
 import { buildCharacter } from '../characters/CharacterFactory.js';
-import {
-  createToonMaterial, createToonOutline, createToonOutlineMaterial,
-} from '../render/ToonMaterial.js';
 import { LIGHT } from '../art/Palette.js';
 import { makeNoise, smootherstep } from '../art/noise.js';
 import {
@@ -203,7 +199,50 @@ const STAGE_PLATEAU = { x: 0, z: 2.6, inner: 6.5, outer: 22 };
  * level while the ground behind them climbs: `rise` runs from the back of the
  * cast's depth band to the boulder wall.
  */
-const BANK = { from: 1.2, to: -20, height: 2.35 };
+const BANK = { from: 1.2, to: -20, height: 2.35, inner: 4.5, outer: 9.0 };
+
+/**
+ * Front edge of the flower bed, in world z.
+ *
+ * Everything the bed is made of is scattered about a centre *behind* the line,
+ * but with a radius large enough to reach past it, so the bed needs a hard
+ * front plane or lavender grows through the cast. 0.5 m sits 1.3 m behind the
+ * deepest figure (Yshara at z = 1.77), which on the plate is about where the
+ * bed starts relative to the archer.
+ */
+const FLORA_FRONT_EDGE = 0.5;
+
+/**
+ * How close to the lens the lawn is allowed to grow, in world z.
+ *
+ * The battle frustum's lower edge meets the ground 2.2 m out, so this is the
+ * nearest z that can ever be seen as *floor*. Grass in front of it is not
+ * foreground, it is an obstruction: at half a metre from the glass a 10 cm
+ * blade fills the frame. Expressed in world z rather than as a radius because
+ * the camera has no yaw and the constraint is purely one of depth.
+ */
+const LAWN_NEAR_LIMIT = STAGE.camZ - 2.2;
+
+/**
+ * The dirt path, as a half-plane in the ground with a feathered edge.
+ *
+ * `(z − z0)·dz − (x − x0)·dx > 0` is path. The coefficients tilt it so it
+ * enters the bottom-left corner of the battle frame and leaves at the left
+ * edge, which is the one region of floor no figure stands on and exactly where
+ * the plate puts its own track. Feathered over 1.2 m because a hard boundary
+ * between bare earth and mown grass is the one thing real ground never has.
+ */
+const PATH = { x0: -1.0, z0: 4.8, dx: 0.75, dz: 1.0, feather: 1.2 };
+
+/**
+ * Where the cherry stands, and how high its petals drift.
+ *
+ * Module scope because two things need it and must not disagree: `_buildMeadow`
+ * plants the tree, and `_buildMotes` seeds the falling petals in a column
+ * around it. A petal cloud that has drifted away from the tree that shed it is
+ * the failure this constant exists to make impossible.
+ */
+const CHERRY = { x: -6.0, z: -2.2, height: 3.6, drift: 4.2 };
 
 /**
  * The ground's analytic height field.
@@ -225,9 +264,15 @@ function groundHeight(x, z) {
   const ripple = n.fbm3(x * 0.055, 11, z * 0.055, { octaves: 3, gain: 0.5 }) * 0.09;
   const r = Math.hypot(x - STAGE_PLATEAU.x, z - STAGE_PLATEAU.z);
   const flat = smootherstep(STAGE_PLATEAU.inner, STAGE_PLATEAU.outer, r);
-  // Rises only *behind* the stage (decreasing z), and only outside the plateau,
-  // so the cast keeps a level floor and the meadow keeps its bank.
-  const bank = smootherstep(BANK.from, BANK.to, z) * BANK.height * flat;
+  // Rises only *behind* the stage (decreasing z), on its own much tighter
+  // radial falloff. Riding the swell's `flat` — as the first pass did — is what
+  // made the bank invisible: that ramp is not complete until 22 m, so at the
+  // bed's own depth it was still delivering 12% of the climb and the horizon
+  // came back flat. The two ramps answer different questions (where may the
+  // terrain noise live, and where does the meadow start climbing) and cannot
+  // share a curve.
+  const bankFall = smootherstep(BANK.inner, BANK.outer, r);
+  const bank = smootherstep(BANK.from, BANK.to, z) * BANK.height * bankFall;
   // The ripple keeps a floor even on the plateau: a mathematically level floor
   // is one uniform value across the bottom of frame, with no form for the
   // grade to work on.
@@ -271,108 +316,52 @@ function stagePlacement(slot) {
 }
 
 /**
- * The staggered diagonal — **two ranks**, solved against the one silhouette
- * that is not allowed to collide: the head.
+ * The line — **one loose rank across the middle of frame**, measured off the
+ * plate rather than composed against §2's staggered diagonal.
  *
- * The previous table ran both channels monotonically over a 2.9 m depth band,
- * on the theory that a steady recession is what separates figures. It is not
- * sufficient, and the arithmetic says why. Six heads have to share the strip of
- * frame the party occupies, and at that band's depths their screen radii sum to
- * 0.384 of `ndc` — i.e. **0.77 of head diameter against 0.68 of available
- * width**. No horizontal arrangement can fit them; the previous run therefore
- * overlapped by construction, which is exactly what the review measured ("slots
- * 4, 5 and 6 physically occlude each other's hair silhouettes"). Worse, the
- * whole run landed inside 0.18 of `ndc` *height* — heads strung along a level
- * line, which is the definition of a rank however far apart the feet are.
+ * The plate's four figures span x ≈ 380 → 1450 px of 1920, i.e. `ndc` −0.60 to
+ * +0.51, with the nearest at 39% of frame height and the furthest at ~30%. That
+ * is a *line*, not a diagonal into a corner, and its depth variation is small —
+ * enough to stagger the feet, not enough to shrink the back of the run.
  *
- * The fix is to stop treating depth as a trend and start using it as the second
- * axis of the composition. Alternate slots sit in a **near rank** (4.05–6.05 m)
- * and a **far rank** (6.30–8.40 m), interleaved across screen-x. Because the
- * lens is pitched 12° down, a figure 2 m further away lifts ~0.2 of `ndc` in
- * frame and shrinks by a third, so each far-rank head clears its two near-rank
- * neighbours *vertically* and needs far less horizontal room. The head discs
- * now separate at 1.15× their touching distance — measured, not asserted: at
- * these placements the closest pair (kite/yshara) sits 0.149 of `ndc` apart
- * against summed radii of 0.134, with 0.054 of vertical offset on top.
+ * Two constraints then fall out of the eye-level camera, and they are what fix
+ * the numbers below:
  *
- * What the frame gains, in the order the review asked for it:
+ *  1. **The world width is not negotiable.** Once the nearest figure's frame
+ *     height `f` is chosen, the half-width the frame covers at that figure's
+ *     depth is `aspect · H / 2f` — 2.71 m here — *whatever* the focal length.
+ *     Six figures have to fit in that, which is a slot pitch of ~0.83 m against
+ *     a ~0.25 m personal radius each.
+ *  2. **Heads land on a level line and cannot be separated vertically.** A
+ *     camera at crown height projects every crown to the horizon row regardless
+ *     of depth, so depth buys *feet* separation and nothing else. Horizontal
+ *     clearance therefore has to be real: at these depths a head is 0.065–0.095
+ *     of `ndc` across and the slot pitch is 0.26, so the nearest pair of skulls
+ *     clears by 2.9×.
  *
- *  - **No head overlaps any other head.** Bodies still cross — that is what
- *    "loose" means in REFERENCE §2's "loose staggered diagonal" — but every
- *    face is unbroken, which is the only overlap a viewer actually reads.
- *  - **Real depth.** Feet run from −0.66 to −0.07 of `ndc` height, against
- *    0.10 before; the party occupies a wedge of ground rather than a line on it.
- *  - **Real scale contrast.** 32% of frame height at the front down to 13% at
- *    the back, so the arrangement reads as receding rather than as six people
- *    of six different sizes standing abreast.
- *  - **The right half of frame, not the right 40%.** The run spans −0.05 to
- *    0.95 of `ndc` including weapons and capes — up to the edge and no further.
- *    The previous table pushed the rear member's staff to 1.04, i.e. off frame.
+ * Depths alternate near/far by ~1.1 m so the feet run staggers instead of
+ * ruling a line across the frame, and the *shortest* characters (Emrys 1.00 m,
+ * Seren 1.06 m) take near slots so the run's frame heights stay inside
+ * 0.25–0.39 rather than fanning out with the roster's own 19% height spread.
  *
- * Slot 6 is the one the review named specifically, and it is now the furthest
- * *and* the right-most: at 8.40 m it stands level with the boss's own depth on
- * the far side of the stage, which closes the composition instead of stacking
- * against slot 5.
- *
- * World separation comes out at 1.31 m minimum against a ~0.25 m personal
- * radius each, so limb interpenetration is designed out rather than tuned out.
- * `separateStagePlaces` then enforces it at spawn against the rig's own
- * measurements, so a later edit to this table cannot silently reintroduce an
- * arm through a torso.
- *
- * Order is front-line first, exactly like `gameState.party`.
- *
- * `turn` is how far the figure rotates **back toward the lens** from the axis
- * it would face if it squared up to the threat, and it is the single control
- * over whether this stage has faces in it. A party that simply addresses the
- * enemy line presents its cheek to a side camera at best and the back of its
- * skull at worst, which is exactly what an earlier build shipped: the eye
- * build, the brows and every gram of the chibi read live on the front hemisphere
- * of a near-spherical head, so a figure 60°-plus off the lens is, visually, an
- * ovoid. Turning the body 15–23° off the threat axis puts every leading eye on
- * camera while leaving the address to the enemy legible, and it is the same
- * cheat a stage director uses to keep an actor open to the house.
+ * `turn` is how far the figure rotates **back toward the lens** from squaring
+ * up to the threat, and it is the single control over whether this stage has
+ * faces in it. Measured on the plate the four figures sit 43°, 45°, 59° and 75°
+ * off the lens — near profile for the armoured lead, three-quarter front for
+ * the casters — and the values below reproduce that spread rather than putting
+ * everyone at one flattering angle.
  */
 const PARTY = [
-  { id: 'auren',  ndc: 0.075, depth: 4.05, turn: 0.40 },
-  { id: 'kite',   ndc: 0.255, depth: 6.30, turn: 0.52 },
-  { id: 'yshara', ndc: 0.395, depth: 5.05, turn: 0.36 },
-  { id: 'bramm',  ndc: 0.545, depth: 7.35, turn: 0.48 },
-  { id: 'seren',  ndc: 0.665, depth: 6.05, turn: 0.34 },
-  { id: 'emrys',  ndc: 0.775, depth: 8.40, turn: 0.50 },
-];
-
-/**
- * The enemy side. REFERENCE §2: enemies on the **left**, "generally larger
- * than the party — bosses are dramatically larger, occupying 40–60% of frame
- * height". The boss lands at 46%, and it is 3.5 m against a 1.15 m chibi, so
- * the frame carries the scale contrast the staging exists to show.
- *
- * The `lead` husk is the reason the party has faces. Where a figure looks is
- * set by where the thing it is looking *at* stands, and a threat parked deeper
- * in frame than the party can only ever rotate them away from the lens — no
- * camera move fixes that, because the party would simply turn its back on
- * whichever side the camera moved to. So the pack has a vanguard: a lesser husk
- * that has broken forward of the boss and now stands **nearer the lens than the
- * party is**, at the left edge. Addressing it turns every head toward the
- * camera's side of the stage, and the same body doubles as the ART_BIBLE §5.1
- * foreground occluder the left of this frame was missing — a dark, cropped mass
- * in the near layer with the party crisp behind it.
- *
- * `height` is the full silhouette including the shard crown, so the frame
- * fractions above are the ones actually measured off the render. `turn` is a
- * deviation from squaring up to the party centroid, so no husk stares down the
- * same line as its neighbour.
- */
-const ENEMIES = [
-  { id: 'husk-alpha', ndc: -0.44, depth: 8.60, height: 3.50, turn: -0.22, crest: 1.00 },
-  { id: 'husk-beta',  ndc: -1.18, depth: 3.45, height: 1.30, turn: 0.16, crest: 0.86, lead: true },
-  { id: 'husk-gamma', ndc: -0.20, depth: 11.20, height: 1.70, turn: 0.44, crest: 0.74 },
+  { id: 'auren',  ndc: -0.78, depth: 4.15, turn: 0.35 },
+  { id: 'bramm',  ndc: -0.52, depth: 5.30, turn: 0.70 },
+  { id: 'seren',  ndc: -0.26, depth: 4.45, turn: 0.85 },
+  { id: 'kite',   ndc:  0.02, depth: 5.60, turn: 0.55 },
+  { id: 'emrys',  ndc:  0.28, depth: 4.75, turn: 0.62 },
+  { id: 'yshara', ndc:  0.54, depth: 5.95, turn: 0.80 },
 ];
 
 /** Ground positions of every staged figure, solved once against the frame. */
 const PARTY_PLACES = PARTY.map(stagePlacement);
-const ENEMY_PLACES = ENEMIES.map(stagePlacement);
 
 /**
  * Horizontal half-width a standing figure actually occupies.
@@ -434,7 +423,7 @@ function separateStagePlaces(places, radii, clearance = 0.10, iterations = 12) {
   return out;
 }
 
-/** Centre of mass of the line, which is what the enemy pack squares up to. */
+/** Centre of mass of the line. */
 const PARTY_CENTROID = {
   x: PARTY_PLACES.reduce((a, p) => a + p.x, 0) / PARTY_PLACES.length,
   z: PARTY_PLACES.reduce((a, p) => a + p.z, 0) / PARTY_PLACES.length,
@@ -445,25 +434,24 @@ function headingTo(a, b) {
   return Math.atan2(b.x - a.x, b.z - a.z);
 }
 
-const LEAD_INDEX = ENEMIES.findIndex((e) => e.lead);
-const LEAD_HEADING = headingTo(ENEMY_PLACES[LEAD_INDEX], PARTY_CENTROID)
-  + ENEMIES[LEAD_INDEX].turn;
-
 /**
- * What the party is looking at: the vanguard husk's **head**, not its root.
+ * What the party is addressing — a point **off the right edge of frame**.
  *
- * The husk's skull is thrust forward of its mass (see `_huskSpine`), and at
- * this range the 0.65 m between the two is a visible difference in where six
- * gazes converge — aiming at the root sends every eyeline into the creature's
- * flank. The offsets are the same normalised body coordinates its eyes are
- * placed at, so the anchor tracks the geometry rather than duplicating it.
+ * The plate shows no enemy at all: all four figures face frame-right at a
+ * threat the composition never reveals, and that off-screen address is most of
+ * what stops the frame reading as a lineup. So this stage no longer builds one
+ * either. What it needs instead is a stable aim point, and the requirements on
+ * it are specific:
+ *
+ *  - **Far.** At 18 m the six slots' headings to it converge inside 6°, so the
+ *    line reads as watching one thing. At 6 m they fan by 25° and the near-left
+ *    figure ends up in dead profile while the far-right one is nearly frontal.
+ *  - **Off frame.** 18 m out on the +X axis is `ndc` ≈ 2.8 at the stage lens,
+ *    i.e. far outside the right edge, so nothing has to be modelled there.
+ *  - **At eye height**, so the look-at tilts no head up or down. 1.0 m is the
+ *    cast's own eye line.
  */
-const HUSK_EYE = { y: 0.598, forward: 0.492 };
-const GAZE_ANCHOR = new THREE.Vector3(
-  ENEMY_PLACES[LEAD_INDEX].x + Math.sin(LEAD_HEADING) * HUSK_EYE.forward * ENEMIES[LEAD_INDEX].height,
-  HUSK_EYE.y * ENEMIES[LEAD_INDEX].height,
-  ENEMY_PLACES[LEAD_INDEX].z + Math.cos(LEAD_HEADING) * HUSK_EYE.forward * ENEMIES[LEAD_INDEX].height,
-);
+const GAZE_ANCHOR = new THREE.Vector3(18.0, 1.00, 2.00);
 
 /**
  * How much of the way to the gaze anchor the head is allowed to travel.
@@ -484,37 +472,35 @@ const GAZE_WEIGHT = 0.6;
  */
 const CAMERA_POSES = {
   /**
-   * REFERENCE §2's fixed side-view battle framing — the shipped frame.
+   * The shipped frame: the plate's staging, at the plate's lens height.
    *
-   * Party right at 13–32% of frame height in a three-quarter front address,
-   * enemy mass left with the boss at 46% and the vanguard husk cropped into the
-   * near-left corner, horizon on the upper third at 74%. Focus sits at 6.2 m —
-   * the middle of the two ranks' 4.05–8.40 m depth run, not its front, because
-   * the recession is now the staging's whole structure and a plane pinned to
-   * the lead would throw the far rank out of focus. f/6.3 rather than f/5.6:
-   * the run got 1.5 m deeper when the ranks split, and the stop has to buy the
-   * depth back or slot 6 ships soft. The boss at 8.6 m stays legible either way
-   * — the reference's backgrounds are soft, its combatants are not.
+   * Party across the middle of frame at 25–39% of frame height in an address
+   * that runs from near-profile to three-quarter front, the meadow bank behind
+   * them, the boulder wall and the sky above that.
+   *
+   * **f/22, not f/6.3.** This is the largest single change to the pose table
+   * and it is a reference correction, not a taste call: the plate is sharp from
+   * the cast's boots to the far edge of the boulder wall, and it resolves
+   * individual florets at both. `REFERENCE_TARGET` §3's "backgrounds are soft"
+   * is simply not true of this image. At f/22 the circle of confusion never
+   * exceeds a pixel anywhere in the meadow, so DOF is effectively off while the
+   * composer stays in its normal path — which is what "minimal depth of field"
+   * has to mean when the same chain also has to run the portrait below.
    */
   battle: {
     pos: [STAGE.camX, STAGE.camY, STAGE.camZ], look: STAGE_LOOK,
-    fov: STAGE.fov, focus: 6.2, aperture: 6.3, grade: 'battle',
+    fov: STAGE.fov, focus: 5.0, aperture: 22, bokeh: 0, grade: 'battle',
   },
   /**
    * Command framing: the same axis pushed in one lens stop.
    *
-   * This is the frame a player reads ability names against, so the party runs
-   * 27–40% of frame height and the boss is cropped to a looming edge presence
-   * at frame left rather than competing for the centre.
+   * This is the frame a player reads ability names against, so the line runs
+   * 33–52% of frame height and the outermost two figures crop at the edges.
+   * Same near-pinhole stop and the same reason.
    */
   lineup: {
-    pos: [2.05, 1.82, 7.45], look: [3.05, 0.80, 3.30],
-    // Focus and stop both track the two-rank split: from this station the party
-    // runs 3.3–8.4 m, so the plane sits at 5.8 m and the stop closes to f/8.
-    // Anything faster leaves the far rank as mush, and this is the frame a
-    // player reads ability names against — every name has to be attached to a
-    // legible face.
-    fov: 44, focus: 5.8, aperture: 8.0, grade: 'battle',
+    pos: [STAGE.camX, STAGE.camY, STAGE.camZ - 1.35], look: [STAGE.camX, STAGE_AIM_Y, STAGE.camZ - 1.35 - STAGE.aimDist],
+    fov: STAGE.fov, focus: 4.0, aperture: 22, bokeh: 0, grade: 'battle',
   },
   /** Battle station, battle lens, rendered as a **matte**. The silhouette check
    *  has to be run on the shipped composition or it is checking nothing — and
@@ -522,7 +508,7 @@ const CAMERA_POSES = {
    *  `_enterMatte`. */
   silhouette: {
     pos: [STAGE.camX, STAGE.camY, STAGE.camZ], look: STAGE_LOOK,
-    fov: STAGE.fov, focus: 6.2, aperture: 22, grade: 'neutral', silhouette: true,
+    fov: STAGE.fov, focus: 5.0, aperture: 22, bokeh: 0, grade: 'neutral', silhouette: true,
   },
   /**
    * Auren, head and shoulders, front three-quarter — the portrait.
@@ -593,38 +579,33 @@ const CAMERA_POSES = {
     // that the whole 0.44 m skull — brow to ear to jaw — is inside it. At this
     // range everything past two metres is still gone entirely, so the
     // background stays as soft as REFERENCE §3 requires.
-    fov: 34, aperture: 11.0, grade: 'dusk',
+    // 4.0 is `PostFX`'s own `DEFAULT_BOKEH_SCALE`, restated rather than omitted:
+    // `setDof` defaults the argument to whatever the *last* pose left behind,
+    // and every meadow pose leaves 0 there. Omitting it would ship a portrait
+    // with a pin-sharp 40 m background, which is the one frame in the sheet
+    // that genuinely wants its background gone.
+    fov: 34, aperture: 11.0, bokeh: 4.0, grade: 'battle',
   },
   /**
-   * The reverse angle — the enemy reveal, and deliberately *not* a second
-   * printing of the battle frame.
+   * The three-quarter reverse — the meadow itself, with the line as its subject
+   * rather than its centre.
    *
-   * Station point is south-east of the stage looking north-west, so the camera
-   * is roughly perpendicular to the battle axis and the two frames share no
-   * geometry, no lighting relationship and no value structure: here the low
-   * western sun is 54° off-axis and behind the subjects, so the whole stage is
-   * contre-jour and reads on rims and mist rather than on form. The party
-   * becomes the near layer at 16–20%, the boss sits dead centre at 27% —
-   * ART_BIBLE §5.2 reserves centre framing for the antagonist, "symmetry as
-   * menace", and this is the one shot in the set entitled to it — and the
-   * bottom-right grass clump at 2.9 m is the foreground occluder. Focus at
-   * 9.5 m splits the party and the boss so both stay readable.
+   * Station point is east of the stage looking north-west, so the camera is
+   * ~40° off the battle axis and the two frames share no geometry: here the
+   * cast is seen along the line rather than across it, the cherry tree closes
+   * the left edge and the boulder wall the top. It exists to prove the meadow
+   * is a *place* — that the bed has depth behind the line and the bank has form
+   * — rather than a backdrop painted at one bearing.
    */
   wide: {
-    pos: [8.80, 2.85, 8.40], look: [ENEMY_PLACES[0].x, 0.90, ENEMY_PLACES[0].z],
-    fov: 48, focus: 9.5, aperture: 8.0, grade: 'battle',
+    pos: [7.40, 1.95, 8.90], look: [-1.20, 0.85, 0.60],
+    fov: 44, focus: 8.5, aperture: 16.0, bokeh: 0, grade: 'battle',
   },
-  /** Sky-dominant landscape for the day-cycle sweep; party on the right third. */
+  /** Sky-dominant landscape for the day-cycle sweep, shot over the bank so the
+   *  meadow's crest and the sky above it both carry the hour. */
   horizon: {
-    // Station point sits *in front of* the rear grass bank on purpose: at
-    // 12.6 the bank straddled the lens and individual blades crossed the whole
-    // frame as hairline diagonals, which reads as damage rather than as
-    // foliage. From 11.6 the front bank at 6.2 m is the occluder instead, which
-    // is what §5.1 actually asks for. Aim point shifted by the same metre so
-    // the view direction — and therefore the +9.5° pitch that puts the horizon
-    // on the lower third — is unchanged.
-    pos: [-0.4, 2.0, 11.6], look: [6.55, 8.34, -27.8],
-    fov: 52, focus: 12, aperture: 8, grade: 'dusk',
+    pos: [-2.20, 1.70, 9.60], look: [4.40, 5.60, -24.0],
+    fov: 50, focus: 14, aperture: 16, bokeh: 0, grade: 'battle',
   },
   'sphere-grid': {
     pos: [BAY.x, BAY_Y + 2.1, BAY.z + 7.2], look: [BAY.x, BAY_Y + 2.0, BAY.z],
@@ -644,61 +625,21 @@ const CAMERA_POSES = {
   },
 };
 
-/** Span the mist bank is seeded across and wraps around, in metres. */
-const MIST_SPAN = { west: -24, east: 26 };
-const MIST_WRAP = MIST_SPAN.east - MIST_SPAN.west;
-
-/**
- * The low mist bank — **clustered puffs**, not cards.
- *
- * The previous bank was thirty billboards 6–17 m wide and 0.7–1.1 m tall. That
- * is an aspect ratio between 6:1 and 24:1, and a radial mask on a 20:1 quad is
- * not a puff, it is a *lozenge* — so the shipped frame read exactly as the
- * review describes it: "flat white brush streaks lying on the ground plane,
- * cutting straight across the party's feet". Two properties made it inevitable
- * and no amount of retuning the density reaches either. First the aspect: a
- * horizontal streak is what a wide short billboard *is*. Second the fact that
- * every card was drawn from the same shared texture at the same roll, so thirty
- * of them stacked into one repeated smear rather than into a volume.
- *
- * So the technique is replaced. The bank is now ~90 near-square puffs seeded in
- * clusters, each with its own roll about the view axis — which varies the
- * sampled smoke texture per puff, because the texture is not radially symmetric
- * even though the mask is — and each fading out with world height so the puff
- * is dense at its base and gone by the chin line. Clustering is what makes it
- * read as volume: a bank is somewhere haze has *pooled*, which means uneven
- * density with clear ground between pools, not a uniform sheet.
- *
- * `ceiling` is the invariant that keeps the cast's faces. Density fades to zero
- * across `ceiling` in **world** metres, independent of how large any puff is or
- * where its centre landed, so no seed and no later size change can put mist on
- * a face. 0.34→0.72 m clears the chin of a 1.15 m chibi with room to spare while
- * the pool still runs boot-to-knee, where the reference frames put it.
- */
-const MIST_LOW = {
-  /** Puff clusters: how many, and how far each scatters. */
-  clusters: 9,
-  perCluster: [8, 12],
-  spread: [1.6, 4.2],
-  /** Near-square, because a streak is an aspect ratio before it is anything
-   *  else. Height is drawn independently and capped, not derived from width. */
-  width: [1.5, 2.7],
-  height: [0.85, 1.20],
-  centre: [0.04, 0.18],
-  /** World metres over which density falls to nothing. */
-  ceiling: [0.34, 0.72],
-  /** Per-puff radiance. Low, because ninety overlapping puffs accumulate and
-   *  the bank has to sit *under* the cast in REFERENCE §3's saturation order. */
-  density: 0.42,
-};
-
 /** Outer radius and rim rise of the fogged horizon skirt, in metres. */
 const SKIRT_RADIUS = 9000;
 const SKIRT_RISE = 62;
 
-/** How far the scene pulls Sky's fog colour back toward the palette's near teal. */
+/**
+ * How far the scene pulls Sky's fog colour back toward the palette's near teal.
+ *
+ * Down from 0.34. It was fighting the dusk key's mauve, which at 3× density was
+ * the largest area of chroma in frame; at the stage hour the sampled fog is
+ * already a pale blue-grey and at 0.9× density it is only really visible on the
+ * horizon skirt. A light bias keeps that band reading as distance rather than
+ * as a painted line, and anything stronger tints the sky's own base of the dome.
+ */
 const FOG_NEAR_TEAL = new THREE.Color(LIGHT.FOG_NEAR);
-const FOG_COOLING = 0.34;
+const FOG_COOLING = 0.18;
 
 /**
  * The matte pass — the shot named `cast-silhouette` actually rendering mattes.
@@ -740,20 +681,6 @@ const MATTE = {
    */
   gain: 4.0,
 };
-
-/**
- * Party outline weight, in device pixels at the capture's 1080p.
- *
- * ANIME_PIPELINE §4 gives 1.5–2.5 and `Outline.js` defaults to 2.0. The cast
- * sits at the top of that band rather than the middle for a reason specific to
- * this staging: a chibi in the battle frame is ~300 px tall and almost entirely
- * convex, so the hull is only ever seen edge-on across a very shallow contour,
- * and at 2.0 px it disappeared into the rim in every staged capture. 2.5 px is
- * ~0.8% of the figure's height — an unmistakable ink line at battle distance,
- * and still short of the cartoon border that a heavier value gives a face at
- * portrait range.
- */
-const OUTLINE_PIXELS = 2.5;
 
 /**
  * Contact shadows — a top-down occlusion projector, not a decal.
@@ -847,7 +774,8 @@ const CONTACT = {
  * the main graph to be lit, shadowed and posed, and a parallel graph holding
  * the same meshes is the kind of duplication that goes stale the first time
  * someone adds a prop. The projector camera is set to *only* this layer, so
- * the sky dome, terrain, treeline and mist are excluded without touching them.
+ * the sky dome, the terrain and the whole meadow are excluded without touching
+ * them.
  */
 const CONTACT_LAYER = 5;
 
@@ -867,8 +795,8 @@ export class LookdevScene extends Scene {
     this.noise = STAGE_NOISE;
     /** @type {Array<ReturnType<typeof buildCharacter>>} */
     this.cast = [];
-    /** @type {Array<{root: THREE.Group, phase: number, sway: number, lift: number}>} */
-    this.enemies = [];
+    /** @type {THREE.Object3D[]} Flora roots, each carrying its own `dispose`. */
+    this._flora = [];
     this.focusDistance = 8;
     this._silhouette = false;
     /** @type {Map<THREE.Mesh, THREE.Material|THREE.Material[]>} matte swaps */
@@ -896,16 +824,16 @@ export class LookdevScene extends Scene {
 
     this.camera = new THREE.PerspectiveCamera(STAGE.fov, engine.camera.aspect, 0.08, 4000);
 
-    // ART_BIBLE §3: dusk is the hero key and t = 0.72 is the game's default
-    // field time. A calibration stage lit at an arbitrary hour calibrates
-    // nothing, so the scene owns the clock on entry and publishes it back so
-    // the debug hook and any later scene agree with what is on screen.
-    gameState.state.timeOfDay = HERO_TIME_OF_DAY;
+    // A calibration stage lit at an arbitrary hour calibrates nothing, so the
+    // scene owns the clock on entry and publishes it back so the debug hook and
+    // any later scene agree with what is on screen. See {@link STAGE_TIME_OF_DAY}
+    // for why this is not the palette's `HERO_TIME_OF_DAY`.
+    gameState.state.timeOfDay = STAGE_TIME_OF_DAY;
 
     this.sky = this.track(new Sky(engine));
     this.sky.fogDensityScale = FOG_SCALE;
     this.sky.addTo(this.scene);
-    this.sky.setTimeOfDay(HERO_TIME_OF_DAY);
+    this.sky.setTimeOfDay(STAGE_TIME_OF_DAY);
     engine.register('sky', this.sky);
 
     this.lighting = this.track(new Lighting(engine, this.sky));
@@ -940,9 +868,7 @@ export class LookdevScene extends Scene {
     // by the time that material is authored.
     this._buildContactShadows();
     this._buildGround(forge);
-    this._buildTreeline(forge);
-    this._buildForeground(forge);
-    this._buildMist(forge);
+    this._buildMeadow(forge);
     this._buildMotes(forge);
     this._buildMatteMaterials();
 
@@ -951,7 +877,6 @@ export class LookdevScene extends Scene {
     this._buildScaleProxy(forge);
 
     this._buildCast(forge);
-    this._buildEnemies(forge);
 
     // Every character material was created after `addTo`, so the CSM patch has
     // to be re-applied or the party sums all four cascade lights unattenuated.
@@ -960,6 +885,34 @@ export class LookdevScene extends Scene {
 
     engine.get('vfx')?.addTo(this.scene);
     this.poseCamera(this._entryPose);
+    this._mountHud();
+  }
+
+  /**
+   * Put the HP/MP/BP stack on screen.
+   *
+   * The plate carries the party HUD, so a capture of this stage without it is a
+   * capture of half the frame — the right-hand stack is 22% of the image width
+   * and the only thing balancing a line that runs left-of-centre.
+   *
+   * `BattleUI` shows itself on `scene:changed` for any scene that declares a
+   * string `encounterId`, and it deliberately identifies a battle by that
+   * property rather than by class name (which the production build minifies).
+   * `Engine.setScene` emits `scene:changed` *after* `mount` resolves, so a
+   * `show()` from in here would be undone a moment later — declaring the
+   * property is the documented way in, and it is honest: this scene is the
+   * battle staging, and `poseCamera('battle')` is its shipped frame.
+   *
+   * The roster ids are handed over directly; `BattleUI.setParty` normalises ids,
+   * roster entries and live combat actors alike and fills the stats from the
+   * roster, which is exactly the fallback path a capture wants.
+   */
+  _mountHud() {
+    this.encounterId = 'lookdev-stage';
+    const ui = this.engine.get('ui');
+    if (!ui?.battle) return;
+    ui.battle.setParty(PARTY.map((slot) => slot.id));
+    ui.battle.show();
   }
 
   /* --------------------------------------------------------------- probe */
@@ -978,15 +931,20 @@ export class LookdevScene extends Scene {
     const env = forge?.environment?.(this.sky);
     if (!env) return;
     this._environment = env;
-    // A dusk dome is an enormous, very bright area source, and the PMREM of it
-    // arrives at unit intensity. Left there it out-runs the key on every
-    // upward-facing surface — the party's heads measured ~0.93 display value,
-    // outside ART_BIBLE §2.3's 0.05–0.85 band for everything that is not a
-    // highlight, and the faces lost their banding to a flat white. Trimming the
-    // probe (rather than the exposure, which §3 pins per time of day, or the
-    // per-material intensities, which §4 pins per surface) puts the key back in
-    // charge of form while leaving the metal row a real reflection to show.
-    this.scene.environmentIntensity = 0.6;
+    // A sky dome is an enormous area source and the PMREM of it arrives at unit
+    // intensity. Left there it out-runs the key on every upward-facing surface,
+    // faces lose their modelling to a flat white, and the whole frame goes pale.
+    //
+    // 0.6 was measured against the *dusk* dome. This stage runs at 48° of sun
+    // under a clear blue zenith, which is several times brighter, and the first
+    // capture at 0.6 came back exactly as that arithmetic predicts: a milky,
+    // desaturated frame with a blue cast on every green and blown speculars on
+    // the armour. 0.28 restores the key's authority over form while leaving the
+    // metal row a real reflection to show, which is the one thing the probe is
+    // here for. Trimming the probe rather than the exposure (§3 pins that per
+    // hour) or the per-material intensities (§4 pins those per surface) keeps
+    // the correction in the one place that is genuinely scene-local.
+    this.scene.environmentIntensity = 0.28;
     if (!this._silhouette) this.scene.environment = env;
   }
 
@@ -1023,25 +981,17 @@ export class LookdevScene extends Scene {
     // tile every 2.25 m, which at the chibi scale is roughly one tile per two
     // body heights — fine enough that the near ground carries detail, coarse
     // enough that the tiling period never lands inside a single frame.
-    // Cloned so the tint stays local; the clone shares the forge's textures and
-    // the forge guards those against `disposeTree`.
+    // Cloned so the conditioning stays local; the clone shares the forge's
+    // textures and the forge guards those against `disposeTree`.
     //
-    // The tint was 0.52/0.58/0.60, on the reading that ART_BIBLE §2.3's "~15%
-    // of the frame below 0.08" is the floor's job. It is not, and pushing it
-    // there is what made contact shadows impossible: measured off the shipped
-    // frame the ground the party stands on sat at L≈18–20, which is a surface
-    // with no value left to lose. Every grounding attempt against it — the
-    // factory's decal, then this scene's own — was arithmetically correct and
-    // visually absent, because a shadow is a *ratio* and there is no ratio to
-    // be had on black. §2.3's dark 15% is delivered by the near grass bank, the
-    // husk mass and the vignette, all of which are genuinely foreground; the
-    // stage floor is mid-ground and has to read as lit ground with figures
-    // standing on it. At 1.27× the contact patch lands around L≈30 and the pool
-    // under a boot takes it to L≈8 — a shadow a viewer can see. The lift is
-    // deliberately modest: the *foreground* is the near grass bank and the
-    // bottom of frame, and those still carry §2.3's dark end.
+    // `color` is **white** and stays white. The floor's albedo is now the pair
+    // of measured colours in the fragment injection below, and the forge's
+    // grass fBm is demoted to a *multiplier* around 1 — the same discipline
+    // `Flora.js` documents at length for its own materials, and for the same
+    // reason: two greens multiplied give a black lawn, which is most of how the
+    // previous stage floor ended up at L≈18 with no value left to shadow.
     this.groundMaterial = forge.material('grass', { repeat: 400 }).clone();
-    this.groundMaterial.color.setRGB(0.66, 0.73, 0.75);
+    this.groundMaterial.color.setRGB(1, 1, 1);
     this.groundMaterial.envMapIntensity = 0.35;
     // The contact projector and the floor's own value/chroma conditioning both
     // land here, in the terrain's shading. Installed as an *own* hook, which is
@@ -1099,420 +1049,222 @@ export class LookdevScene extends Scene {
   }
 
   /**
-   * Distant treeline. REFERENCE §3: background elements are near-silhouettes
-   * with very little internal detail, washed toward the fog colour.
+   * The meadow — every plant in the shipped frame, built by `world/Flora.js`.
    *
-   * Bark, not foliage: bark's albedo band is 0.10–0.25 linear, which is already
-   * the near-black the reference frames show at distance, and an opaque surface
-   * costs no alpha test on ~200 instances. Instanced from one merged conifer so
-   * the whole treeline is a single draw call.
-   */
-  _buildTreeline(forge) {
-    const parts = [];
-    // Total height ~5.2 m. Sized against the cast, not against a human: a
-    // botanically correct 20 m conifer beside a 1.1 m chibi reads as a
-    // skyscraper and destroys the scale the whole look depends on.
-    const trunk = new THREE.CylinderGeometry(0.09, 0.17, 1.5, 6, 1);
-    trunk.translate(0, 0.75, 0);
-    parts.push(trunk);
-    for (let i = 0; i < 4; i++) {
-      const y = 0.85 + i * 1.0;
-      const r = 1.25 - i * 0.24;
-      const h = 1.75 - i * 0.20;
-      const cone = new THREE.ConeGeometry(r, h, 9, 1);
-      cone.translate(0, y + h * 0.5, 0);
-      parts.push(cone);
-    }
-    const conifer = mergeGeometries(parts, false);
-    for (const p of parts) p.dispose();
-    this.track(conifer);
-
-    const COUNT = 260;
-    const mat = forge.material('bark', { repeat: 2 });
-    const trees = new THREE.InstancedMesh(conifer, mat, COUNT);
-    trees.name = 'treeline';
-    trees.castShadow = false;
-    trees.receiveShadow = false;
-    trees.frustumCulled = false;
-
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const s = new THREE.Vector3();
-    const p = new THREE.Vector3();
-    const rng = this.rng;
-    for (let i = 0; i < COUNT; i++) {
-      let tx = 0;
-      let tz = 0;
-      let radius = 0;
-      // Rejection-sample around the calibration bay. Bounded at 8 tries so a
-      // future clearing that swallowed the whole annulus could not spin here
-      // forever; a tree that exhausts its tries simply keeps its last draw,
-      // which at these radii is overwhelmingly outside the hole anyway.
-      for (let attempt = 0; attempt < 8; attempt++) {
-        // Log-distributed radius: an even scatter over an annulus puts almost
-        // everything at the far edge, and the whole point is layered depth. The
-        // inner limit is set by the fog — closer than ~22 m a tree still reads
-        // at near-full contrast and starts competing with the party.
-        radius = 22 * Math.exp(rng.next() * Math.log(240 / 22));
-        const angle = rng.range(-Math.PI, Math.PI);
-        tx = 4 + Math.cos(angle) * radius;
-        tz = 1 + Math.sin(angle) * radius;
-        if (Math.hypot(tx - CLEARING.x, tz - CLEARING.z) > CLEARING.radius) break;
-      }
-      // Sunk half a metre so the trunk flare never shows a floating seam where
-      // the instanced base cuts the tessellated ground.
-      p.set(tx, this._groundHeight(tx, tz) - 0.5, tz);
-      const scale = rng.range(0.80, 1.28) * (0.92 + radius / 900);
-      s.set(scale * rng.range(0.85, 1.1), scale, scale * rng.range(0.85, 1.1));
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng.range(0, Math.PI * 2));
-      trees.setMatrixAt(i, m.compose(p, q, s));
-    }
-    trees.instanceMatrix.needsUpdate = true;
-    this.scene.add(trees);
-    this.treeline = trees;
-  }
-
-  /**
-   * Foreground occluders — ART_BIBLE §5.1's "single cheapest depth win".
+   * This replaces a 260-instance fogged conifer treeline and two banks of
+   * hand-merged grass blades. Both were built to `REFERENCE_TARGET` §3's
+   * "background elements are near-silhouettes with very little internal
+   * detail", and `bravely01.jpg` shows the exact opposite: a bed dense enough
+   * that lavender racemes, tulip heads and individual blades all resolve at its
+   * far edge, in front of a sharp boulder wall, under a clear sky.
    *
-   * Placed to fall inside the near-DOF of both the lineup and horizon poses so
-   * they blur, and against the left edge where the enemy half of a battle frame
-   * would otherwise be empty stage.
+   * ## Layout, and the arithmetic behind it
+   *
+   * Everything is placed by where it has to land *in frame*, then converted to
+   * metres through the same lens the party is staged with (`TAN_HALF_H`):
+   *
+   * | element | world | why there |
+   * |---|---|---|
+   * | mown lawn | (0, 3) r 15 | the cast stands on it; blades 9–17 cm so boots clear it, as they do on the plate |
+   * | dirt path | bottom-left, see `_pathness` | the plate's warm path enters the bottom-left corner and leaves frame at the left edge |
+   * | bed, front band | (0, −1.5) r 9 | starts 1.8 m behind the deepest figure, so nothing grows through the line |
+   * | bed, main mass | (0, −8) r 14 | at that depth the frame is 14 m of half-width, so one field fills it edge to edge |
+   * | cherry | (−6.0, −2.2) h 3.6 | `ndc` −0.93 and its crown at `ndc_y` +0.93: the canopy closes the upper-left corner exactly as the plate's does |
+   * | conifer | (5.4, −6.0) h 4.6 | the plate's one mid-right tree, above and behind the bed's right half |
+   * | boulder wall | (−1, −13.5) size 2.6 | spans `ndc_y` 0.46→0.83, i.e. the top third, at 2.3× character height |
+   * | far belt | (0, −27) r 34 | the treeline, now *behind* the bank rather than standing in for it |
+   *
+   * ## Why nothing is faded out with distance
+   *
+   * The old treeline shrank its instances' contrast into the fog by construction
+   * — it was drawn in `bark`, near-black, specifically so it would read as a
+   * silhouette. Flora's builders instead hold their albedo and let *density*
+   * fall off with radius while blade size rises, which is what keeps the far
+   * edge of the bed detailed at a fraction of the near edge's cost. Combined
+   * with `FOG_SCALE` 0.9 that is the plate's own depth grammar: layers separate
+   * by overlap and by scale, not by haze.
    */
-  _buildForeground(forge) {
+  _buildMeadow(forge) {
     const group = new THREE.Group();
-    group.name = 'foreground';
+    group.name = 'meadow';
+    const shared = { rng: this.rng, lighting: this.lighting, forge };
 
-    // `alphaTest: 0` deliberately: the silhouette comes from the *geometry* of
-    // each blade, not from a cutout. A leaf-shaped alpha stamped on a quad this
-    // close to the lens reads as a decal of a leaf, which is what the first
-    // pass of this scene shipped and why it was wrong. Cloned so the tint below
-    // cannot leak into anyone else's foliage — the clone shares the forge's
-    // textures, and the forge guards them against `disposeTree`.
-    const mat = forge.material('foliage', { alphaTest: 0 }).clone();
-    // §5.1: a foreground occluder is exposed at least 1.5 stops under the
-    // subject, and §3 keeps environment saturation below character saturation.
-    mat.color.setHex(0x53664f);
-    mat.envMapIntensity = 0.25;
-    this.track(mat);
-
-    const blade = this._makeBladeGeometry();
-    const rng = this.rng;
-
-    // Two banks, because the poses stand in two different places. The `near`
-    // bank frames the bottom-left of the lineup and horizon shots; the `far`
-    // bank sits behind the lineup camera entirely and only ever appears in the
-    // pulled-back `wide`, where the near bank is already mid-ground.
-    const clumps = [
-      { x: -0.10, z: 6.15, h: 1.30, n: 190, spread: 1.05 },
-      { x: -1.55, z: 6.85, h: 1.55, n: 170, spread: 1.25 },
-      { x: 7.10, z: 6.05, h: 0.85, n: 90, spread: 0.80 },
-      { x: -0.55, z: 12.9, h: 1.45, n: 150, spread: 1.15 },
-      { x: 4.60, z: 13.3, h: 1.20, n: 110, spread: 1.00 },
-    ];
-
-    // Merged into one geometry: ~670 blades as individual meshes would be 670
-    // draw calls for what is, visually, two bushes.
-    const pieces = [];
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const e = new THREE.Euler();
-    const p = new THREE.Vector3();
-    const s = new THREE.Vector3();
-    for (const c of clumps) {
-      for (let i = 0; i < c.n; i++) {
-        const a = rng.range(0, Math.PI * 2);
-        // sqrt of a uniform gives a uniform *areal* density; without it every
-        // clump piles up at its own centre and reads as a spike.
-        const r = c.spread * Math.sqrt(rng.next());
-        const bx = c.x + Math.cos(a) * r;
-        const bz = c.z + Math.sin(a) * r;
-        const h = c.h * rng.range(0.45, 1.2);
-        p.set(bx, this._groundHeight(bx, bz) - 0.04, bz);
-        e.set(rng.jitter(0.16), rng.range(0, Math.PI * 2), rng.jitter(0.22));
-        q.setFromEuler(e);
-        // Width is *not* scaled by height: a blade is a blade whatever the
-        // stalk's length, and coupling the two turned a grass tuft into agave.
-        s.set(rng.range(0.7, 1.15), h, h);
-        pieces.push(blade.clone().applyMatrix4(m.compose(p, q, s)));
-      }
-    }
-    const merged = mergeGeometries(pieces, false);
-    for (const g of pieces) g.dispose();
-    blade.dispose();
-    this.track(merged);
-
-    const mesh = new THREE.Mesh(merged, mat);
-    mesh.name = 'foreground-grass';
-    mesh.frustumCulled = false;
-    group.add(mesh);
-    this.scene.add(group);
-    this.foreground = group;
-  }
-
-  /**
-   * One unit-height grass blade: a tapered strip that curls away from vertical.
-   *
-   * Built rather than imported as a quad because the blade *is* the silhouette
-   * — REFERENCE §3's background/foreground elements are read as shapes, and a
-   * fan of thirty of these gives a clump an organic edge that no amount of
-   * texturing on a rectangle can. UVs run several times along the blade so the
-   * foliage albedo lands as leaf-scale detail rather than one stretched leaf.
-   */
-  _makeBladeGeometry() {
-    const SEG = 6;
-    const pos = [];
-    const nrm = [];
-    const uv = [];
-    const idx = [];
-    for (let i = 0; i <= SEG; i++) {
-      const t = i / SEG;
-      // Quadratic droop: a blade is stiff at the base and falls away at the
-      // tip, which is what stops a clump reading as a hedgehog of spikes.
-      const lean = t * t * 0.42;
-      const halfWidth = 0.042 * (1 - t) ** 0.75;
-      const y = t * (1 - lean * 0.35);
-      const z = lean;
-      pos.push(-halfWidth, y, z, halfWidth, y, z);
-      nrm.push(0, 0.35, 1, 0, 0.35, 1);
-      uv.push(0, t * 3.2, 1, t * 3.2);
-      if (i < SEG) {
-        const a = i * 2;
-        idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-      }
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-    return geo;
-  }
-
-  /**
-   * Ground mist. REFERENCE §3 calls volumetric mist the signature of the look —
-   * present in nearly every frame, pooling low and catching light.
-   *
-   * Additive rather than alpha-blended: additive is order-independent, so a
-   * dozen overlapping cards need no sorting and cannot pop as the camera moves,
-   * and mist that *adds* light is exactly what a backlit bank does. The tint is
-   * the sky's own near-fog colour so the bank always agrees with the fog the
-   * scene is already rendering.
-   */
-  _buildMist(forge) {
-    const tex = forge.texture('smoke');
-    const mat = this.track(new THREE.MeshBasicMaterial({
-      map: tex,
-      // FOG_NEAR at a fraction of unity: additive cards stack, so the per-card
-      // radiance has to sit well under the value the bank is meant to reach or
-      // six overlaps blow past the bloom threshold and the mist starts glowing.
-      color: new THREE.Color(LIGHT.FOG_NEAR),
-      transparent: true,
-      // Premultiplied-alpha blending, not additive. The sprite's RGB is already
-      // premultiplied by its coverage, so `ONE / ONE_MINUS_SRC_ALPHA` is the
-      // mathematically correct compositing operator for it — and unlike
-      // additive it *replaces* what is behind, which is the only way a teal
-      // bank reads as teal over a warm dusk sky instead of merely brightening
-      // it toward white. Still order-independent enough for soft overlapping
-      // cards, and it cannot push the frame past the bloom threshold.
-      blending: THREE.CustomBlending,
-      blendSrc: THREE.OneFactor,
-      blendDst: THREE.OneMinusSrcAlphaFactor,
-      blendEquation: THREE.AddEquation,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      toneMapped: true,
-      fog: false,
-    }));
-
-    // Four fades. The first three fix the same class of defect — a billboarded
-    // card is a *quad*, and any straight edge of that quad that ends up inside
-    // the frame is read instantly as a rectangle lying across the shot. The
-    // fourth is what turns a card into a puff.
-    //
-    // 1. **Ground fade.** A card is a vertical plane and its lower half is
-    //    *below* the terrain, so the ground in front of it wins the depth test —
-    //    and the intersection of a plane with a near-level floor is a straight
-    //    line, which is why the reverse-angle frame had a razor-sharp horizontal
-    //    cut across the mist at ground level. No amount of softening the sprite
-    //    touches it, because the edge is the depth buffer's, not the texture's.
-    //    Fading by world height retires each card before it reaches the floor.
-    // 2. **Radial edge mask**, so a card's own border can never show even where
-    //    nothing occludes it — elliptical in world space, because the cards are
-    //    scaled non-uniformly, which is the right shape for a puff anyway.
-    // 3. **Camera-proximity fade**, for cards close enough that their unmasked
-    //    middle fills the lens.
-    // 4. **Ceiling fade**, in *world* metres. This is the one that makes the
-    //    bank pool rather than hang. Every previous version of this bank
-    //    controlled its top by controlling card *size*, which is an argument
-    //    that has to be re-made every time anyone touches the seeding — and was
-    //    wrong twice. Fading on world height instead is an invariant: whatever
-    //    a puff's size, wherever its centre lands, whatever the drift has done
-    //    to it, it is gone by `MIST_LOW.ceiling[1]`. That is below the chin of
-    //    the shortest chibi in the cast, so mist can never veil a face again,
-    //    and the density gradient it produces on the way up is exactly the
-    //    "pooling low to the ground" REFERENCE §3 asks for.
-    //
-    // All four multiply the *whole* premultiplied RGBA, which is the correct
-    // operator for this blend: it lerps the fragment toward the destination
-    // rather than toward black.
-    mat.onBeforeCompile = (shader) => {
-      // Restored by 5 m — closer than any card the compositions rely on — and
-      // opening at 1.2 m, well outside the 0.08 m near plane so no card is ever
-      // clipped part-way through its fade.
-      shader.uniforms.uMistNearFade = { value: new THREE.Vector2(1.2, 5.0) };
-      // The stage plateau is level at y = 0, so -0.12 is under the floor by
-      // more than the height field's residual ripple (±0.09 m) and the fade is
-      // fully open by 0.14 m — bootlace height on a 1.15 m chibi.
-      shader.uniforms.uMistGroundFade = { value: new THREE.Vector2(-0.12, 0.14) };
-      shader.uniforms.uMistCeiling = { value: new THREE.Vector2(...MIST_LOW.ceiling) };
-      shader.uniforms.uMistDensity = { value: MIST_LOW.density };
-      shader.vertexShader = `varying float vMistDepth;\nvarying float vMistY;\nvarying vec2 vMistUv;\n${shader.vertexShader}`.replace(
-        '#include <project_vertex>',
-        `#include <project_vertex>
-	vMistDepth = - mvPosition.z;
-	vMistY = ( modelMatrix * vec4( transformed, 1.0 ) ).y;
-	vMistUv = uv;`,
-      );
-      shader.fragmentShader = `uniform vec2 uMistNearFade;\nuniform vec2 uMistGroundFade;\nuniform vec2 uMistCeiling;\nuniform float uMistDensity;\nvarying float vMistDepth;\nvarying float vMistY;\nvarying vec2 vMistUv;\n${shader.fragmentShader}`
-        .replace(
-          '#include <dithering_fragment>',
-          `gl_FragColor *= uMistDensity
-		* smoothstep( 0.50, 0.16, length( vMistUv - vec2( 0.5 ) ) )
-		* smoothstep( uMistGroundFade.x, uMistGroundFade.y, vMistY )
-		* smoothstep( uMistCeiling.y, uMistCeiling.x, vMistY )
-		* smoothstep( uMistNearFade.x, uMistNearFade.y, vMistDepth );
-	#include <dithering_fragment>`,
-        );
-    };
-    // three keys its program cache on defines and material class, not on
-    // `onBeforeCompile`; without an explicit key this material and any other
-    // `MeshBasicMaterial` with the same defines would share one compiled
-    // program and whichever compiled first would win.
-    mat.customProgramCacheKey = () => 'aw-mist-puff';
-    this.mistMaterial = mat;
-
-    // The tall backdrop bank keeps its own material: it sits behind the party
-    // and in front of the treeline, where nothing it can cover is a subject, so
-    // it wants neither the ceiling fade nor the puff bank's low density — its
-    // job is to give the cast the bright field to silhouette against that tree
-    // trunks cannot.
-    const tallMat = this.track(mat.clone());
-    tallMat.onBeforeCompile = (shader) => {
-      shader.uniforms.uMistNearFade = { value: new THREE.Vector2(1.2, 5.0) };
-      shader.vertexShader = `varying float vMistDepth;\nvarying vec2 vMistUv;\n${shader.vertexShader}`.replace(
-        '#include <project_vertex>',
-        `#include <project_vertex>
-	vMistDepth = - mvPosition.z;
-	vMistUv = uv;`,
-      );
-      shader.fragmentShader = `uniform vec2 uMistNearFade;\nvarying float vMistDepth;\nvarying vec2 vMistUv;\n${shader.fragmentShader}`
-        .replace(
-          '#include <dithering_fragment>',
-          `gl_FragColor *= smoothstep( 0.50, 0.16, length( vMistUv - vec2( 0.5 ) ) )
-		* smoothstep( uMistNearFade.x, uMistNearFade.y, vMistDepth );
-	#include <dithering_fragment>`,
-        );
-    };
-    tallMat.customProgramCacheKey = () => 'aw-mist-backdrop';
-
-    const geo = new THREE.PlaneGeometry(1, 1);
-    this.track(geo);
-    const group = new THREE.Group();
-    group.name = 'mist';
-    const rng = this.rng;
-    this._mistCards = [];
-
-    // The low bank: clustered puffs. Cluster centres first, then a scatter
-    // around each, because a bank is somewhere haze has *pooled* — uneven
-    // density with clear ground between pools is what separates a volume from a
-    // sheet, and a sheet is what the previous even scatter produced.
-    //
-    // Spans the whole stage including the enemy half. An earlier layout folded
-    // everything west of -12 back east to keep haze off the calibration bay;
-    // with the bay moved south that fold only served to strip the mist off the
-    // enemy mass, which is the one place REFERENCE §3 most wants it — a boss
-    // rising out of a bank reads as a threat, a boss standing on clean grass
-    // reads as a prop.
-    for (let c = 0; c < MIST_LOW.clusters; c++) {
-      const cx = rng.range(MIST_SPAN.west, MIST_SPAN.east);
-      const cz = rng.range(-17, 10);
-      const spread = rng.range(...MIST_LOW.spread);
-      const n = rng.int(...MIST_LOW.perCluster);
-      for (let i = 0; i < n; i++) {
-        const puff = new THREE.Mesh(geo, mat);
-        puff.scale.set(rng.range(...MIST_LOW.width), rng.range(...MIST_LOW.height), 1);
-        const a = rng.range(0, Math.PI * 2);
-        // sqrt of a uniform is a uniform *areal* density; without it a cluster
-        // piles up on its own centre and reads as one bright knot.
-        const r = spread * Math.sqrt(rng.next());
-        puff.position.set(
-          cx + Math.cos(a) * r,
-          rng.range(...MIST_LOW.centre),
-          cz + Math.sin(a) * r * 0.7,
-        );
-        puff.renderOrder = 6;
-        group.add(puff);
-        this._mistCards.push({
-          mesh: puff, baseY: puff.position.y,
-          drift: rng.range(0.05, 0.16), phase: rng.range(0, 6.28),
-          // Roll about the view axis. The radial mask is rotationally symmetric
-          // but the smoke texture under it is not, so this is what stops ninety
-          // puffs from being ninety prints of one puff — and it costs a single
-          // extra quaternion multiply per card per frame.
-          roll: rng.range(0, Math.PI * 2),
-        });
-      }
-    }
-
-    for (let i = 0; i < 16; i++) {
-      const card = new THREE.Mesh(geo, tallMat);
-      const w = rng.range(16, 34);
-      card.scale.set(w, w * rng.range(0.28, 0.45), 1);
-      card.position.set(
-        rng.range(MIST_SPAN.west, MIST_SPAN.east),
-        rng.range(1.4, 3.4),
-        rng.range(-26, -6),
-      );
-      card.renderOrder = 6;
-      group.add(card);
-      // `baseY` is kept so the breath below is an oscillation *about* the
-      // seeded height rather than an integration of one. Adding a sine to
-      // `position.y` every frame is a random walk, not a bob: sampled at 60 Hz
-      // it drifts by tens of centimetres over a capture.
-      this._mistCards.push({
-        mesh: card, baseY: card.position.y,
-        drift: rng.range(0.05, 0.16), phase: rng.range(0, 6.28), roll: 0,
+    /**
+     * Drop a Flora root at a world offset.
+     *
+     * Every builder scatters about its own origin *and* samples `heightAt` in
+     * that same local frame, so a group cannot simply be translated after the
+     * fact — its plants would keep the elevation of the origin they were grown
+     * at. Composing the offset into the callbacks and into the transform is the
+     * only arrangement where both agree, and it is why `heightAt`/`mask` are
+     * built here rather than passed in by the caller.
+     */
+    const plant = (build, ox, oz, opts) => {
+      const root = build({
+        ...shared,
+        heightAt: (x, z) => groundHeight(x + ox, z + oz),
+        mask: (x, z) => this._floraMask(x + ox, z + oz),
+        ...opts,
       });
-    }
+      root.position.set(ox, 0, oz);
+      group.add(root);
+      this._flora.push(root);
+      return root;
+    };
+
+    // --- the lawn the cast stands on ---------------------------------------
+    // 15 m covers everything the battle lens sees of the floor (the frame is
+    // 9.7 m wide at the bed's front edge) with the near half at full density.
+    //
+    // The near cut-off is not cosmetic. A field centred on the stage with a
+    // 15 m radius reaches to z = 18, i.e. ten metres *behind* the lens, and a
+    // 0.12 m blade half a metre in front of the glass covers most of the frame:
+    // the first capture of this meadow is a picture of that, blades crossing
+    // the whole image and burying six characters. The battle lens first meets
+    // the ground 2.2 m out (`atan` of the frustum's lower edge against
+    // `STAGE.camY`), so anything nearer than `LAWN_NEAR_LIMIT` cannot be seen
+    // as ground at all and can only ever be seen as a wall of grass.
+    //
+    // Blades are also shortened from the preset's 0.09–0.17 m. That range is
+    // right for the plate at the plate's distance, but the plate's own lawn
+    // resolves as *streaks* with no discrete blade anywhere, and at 2.2 m a
+    // 0.17 m blade is 15% of frame height.
+    plant(buildGrassField, 0, 3.0, {
+      preset: 'lawn', radius: 15, count: 30000, falloff: 0.62, distanceGrowth: 0.9,
+      height: [0.055, 0.105],
+      mask: (x, z) => (z + 3.0 > LAWN_NEAR_LIMIT ? 0 : this._floraMask(x, z + 3.0)),
+    });
+
+    // --- the bed -----------------------------------------------------------
+    // Front band first: shorter and sparser, so the bed's near edge reads as a
+    // ragged margin rather than as a wall that starts at full height.
+    // The bed must stop behind the cast line. A radius large enough to fill the
+    // frame also reaches forward past z = 0 and, at meadow height, plants
+    // metre-tall blades between the lens and the party — which buries the whole
+    // read. `mask` is the clean fix: keep the radius that fills frame, reject
+    // every sample that lands in front of the line. Local z here, so the cutoff
+    // is expressed relative to each field's own centre.
+    const behindLine = (centreZ) => (x, z) => (z + centreZ > -1.6 ? 0 : 1);
+
+    plant(buildGrassField, 0, -1.5, {
+      preset: 'meadow', radius: 8.5, count: 3600, height: [0.45, 0.95], falloff: 0.5,
+      mask: behindLine(-1.5),
+    });
+    plant(buildLavender, 0, -1.5, {
+      radius: 8.0, count: 420, height: [0.95, 1.25], falloff: 0.5, mask: behindLine(-1.5),
+    });
+    plant(buildTulips, 0, -1.2, { radius: 7.5, count: 150 });
+    plant(buildFlowerPatch, 0, -0.6, { radius: 8.0, count: 260 });
+
+    // The mass. One field at 14 m fills the frame edge-to-edge at its own depth,
+    // which is why the bed does not need a second cluster either side.
+    plant(buildGrassField, 0, -8.0, {
+      preset: 'meadow', radius: 13, count: 6200, falloff: 0.6, mask: behindLine(-8.0),
+    });
+    plant(buildLavender, 0, -8.0, {
+      radius: 13, count: 1500, falloff: 0.6, mask: behindLine(-8.0),
+    });
+    plant(buildTulips, 0, -7.0, { radius: 11, count: 340 });
+
+    // --- trees --------------------------------------------------------------
+    // 1200 clusters, not 420. The plate's cherry is an opaque mass of blossom
+    // with the branch structure only glimpsed inside it; at 420 the armature is
+    // the read and the tree looks dead. Clusters are instanced off the branch
+    // segments they grew on, so the extra density is one draw call either way.
+    plant(buildBlossomTree, CHERRY.x, CHERRY.z, {
+      height: CHERRY.height, spread: 1.25, clusters: 1200,
+    });
+    plant(buildConiferTree, 5.4, -6.0, { count: 1, height: 4.6 });
+    // The belt. A 34 m scatter about z = −27 reached forward to z = +7, i.e.
+    // to within a metre of the lens, and the first capture duly shipped conifers
+    // standing in the flower bed at four times the party's height. Pushed back
+    // and tightened so the whole annulus lives behind the bank's crest, where a
+    // treeline belongs: it reads as the far side of the valley.
+    plant(buildConiferTree, 0, -44, { count: 34, radius: 20, height: 5.4 });
+
+    // --- rock ---------------------------------------------------------------
+    plant(buildBoulderCluster, -1.0, -13.5, { count: 11, radius: 9.5, size: 2.6, chips: 30 });
+    plant(buildBoulderCluster, 9.5, -10.5, { count: 5, radius: 4.5, size: 1.9, chips: 14 });
+    // The plate keeps a few loose stones on the mown grass in the near corners.
+    // Small enough to be scale cues rather than props.
+    plant(buildBoulderCluster, 4.2, 5.0, { count: 3, radius: 1.1, size: 0.42, chips: 10 });
+    plant(buildBoulderCluster, -5.0, 4.2, { count: 2, radius: 0.9, size: 0.36, chips: 8 });
+
     this.scene.add(group);
-    this.mist = group;
+    this.meadow = group;
+    // Take ownership of the gust so two captures at the same seed produce the
+    // same bend; `update` drives it from the scene's own clamped step.
+    setFloraWind({ direction: { x: 0.88, y: 0.42 }, strength: 0.75, time: 0 });
   }
 
   /**
-   * Glasspetal drift — WORLD_BIBLE §1's spent magic, and REFERENCE §5's
-   * "persistent ambient particles drift even outside of combat".
+   * Keep-probability for anything planted on the stage.
    *
-   * One `Points` cloud, animated on the CPU because 900 sprites is far below
-   * the point where a GPU simulation pays for its own upload.
+   * Two exclusions, both of which have to be honoured by *every* builder or the
+   * frame contradicts itself:
+   *
+   *  1. **The path.** Grass growing down the middle of a bare track is the
+   *     tell that the track is painted on rather than walked on.
+   *  2. **The cast's own footprint.** The bed's builders are centred behind the
+   *     line but their scatter radius reaches past it, and a lavender spike
+   *     growing out of a character's chest is the single most expensive defect
+   *     this frame can ship. The cut-off is a plane just behind the deepest
+   *     figure rather than a per-character disc: the plate's bed has a clean
+   *     front edge, and six discs would give it a scalloped one.
+   */
+  _floraMask(x, z) {
+    if (z > FLORA_FRONT_EDGE && z < STAGE.camZ + 1.0) {
+      // In front of the bed line: only the lawn lives here, and only off-path.
+      return 1 - this._pathness(x, z);
+    }
+    if (z >= STAGE.camZ + 1.0) return 0; // behind the lens
+    return 1;
+  }
+
+  /**
+   * How much of the dirt path covers `(x, z)`, 0 → 1.
+   *
+   * A half-plane in the ground with a 1.2 m feather, oriented to enter the
+   * bottom-left corner of the battle frame and leave at the left edge — which
+   * is where the plate's path runs and, not coincidentally, the one part of the
+   * floor no figure stands on. Shared by the ground's vertex colour and by the
+   * grass mask so the bare patch and the painted patch are the same patch.
+   */
+  _pathness(x, z) {
+    const t = (z - PATH.z0) * PATH.dz - (x - PATH.x0) * PATH.dx;
+    return smootherstep(0, PATH.feather, t);
+  }
+
+  /**
+   * Blossom drift — the petals coming off the cherry, not a magic effect.
+   *
+   * This used to be 900 additive teal "glasspetals" scattered over a 50 × 40 m
+   * box at up to 7.5 m of altitude, on ART_BIBLE §5's "persistent ambient
+   * particles". At the dusk key they read as fireflies; under a midday sky they
+   * would read as dust on the lens. `bravely01.jpg` has no ambient particle
+   * layer at all — `bravely04.jpg` has drifting petals, and they are *pink*,
+   * *few*, and *under* the canopy that shed them.
+   *
+   * So the cloud is retargeted rather than deleted: 180 petals in a 7 m column
+   * around the cherry, alpha-blended in the blossom's own measured pink instead
+   * of added in teal, and small enough to be motion rather than sparkle. Where
+   * they land in frame is now a property of where the tree is, which is the
+   * only way this stays right after the tree moves.
    */
   _buildMotes(forge) {
-    const COUNT = 900;
+    const COUNT = 180;
     const pos = new Float32Array(COUNT * 3);
     const col = new Float32Array(COUNT * 3);
     const rng = this.rng;
     this._moteSeed = new Float32Array(COUNT * 3);
-    const teal = new THREE.Color(LIGHT.RING_GLOW);
-    const amber = new THREE.Color(0xffc24d);
+    const pink = new THREE.Color(FLORA_PALETTE.BLOSSOM);
+    const pale = new THREE.Color(FLORA_PALETTE.BLOSSOM_PALE);
     const c = new THREE.Color();
     for (let i = 0; i < COUNT; i++) {
-      pos[i * 3] = rng.range(-24, 26);
-      pos[i * 3 + 1] = rng.range(0.05, 7.5);
-      pos[i * 3 + 2] = rng.range(-26, 14);
-      // §2.2's rule of one jewel: petals are teal-dominant with an amber
-      // minority, so the drift never becomes a second competing accent.
-      c.copy(teal).lerp(amber, Math.pow(rng.next(), 3)).multiplyScalar(rng.range(0.35, 0.9));
+      pos[i * 3] = CHERRY.x + rng.range(-3.0, 3.0);
+      pos[i * 3 + 1] = rng.range(0.05, CHERRY.drift);
+      pos[i * 3 + 2] = CHERRY.z + rng.range(-2.6, 2.6);
+      c.copy(pink).lerp(pale, rng.next());
       col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
       this._moteSeed[i * 3] = rng.range(0, 6.28);
       this._moteSeed[i * 3 + 1] = rng.range(0.05, 0.20);   // fall rate
@@ -1524,11 +1276,14 @@ export class LookdevScene extends Scene {
     this.track(geo);
     const mat = this.track(new THREE.PointsMaterial({
       map: forge.texture('mote'),
-      size: 0.13,
+      size: 0.055,
       sizeAttenuation: true,
       vertexColors: true,
       transparent: true,
-      blending: THREE.AdditiveBlending,
+      // Normal alpha, not additive: a petal in daylight *occludes* what is
+      // behind it. Additive is a light source, and 180 of them over a bright
+      // sky would only wash it out.
+      opacity: 0.85,
       depthWrite: false,
       fog: true,
     }));
@@ -1564,14 +1319,14 @@ export class LookdevScene extends Scene {
   /**
    * Allocate the occlusion projector described on {@link CONTACT}.
    *
-   * Two render targets and one orthographic station, all sized from the staged
-   * placements rather than from constants, so moving the diagonal or the enemy
-   * pack cannot walk a figure off the edge of its own shadow.
+   * Two render targets and one orthographic station, both sized from the staged
+   * placements rather than from constants, so re-authoring the line cannot walk
+   * a figure off the edge of its own shadow.
    */
   _buildContactShadows() {
     let minX = Infinity; let maxX = -Infinity;
     let minZ = Infinity; let maxZ = -Infinity;
-    for (const p of [...PARTY_PLACES, ...ENEMY_PLACES]) {
+    for (const p of PARTY_PLACES) {
       minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
       minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
     }
@@ -1755,31 +1510,30 @@ export class LookdevScene extends Scene {
       uContactTint: { value: new THREE.Color(LIGHT.SHADOW_TINT).multiplyScalar(0.45) },
       uContactStrength: { value: CONTACT.strength },
       /**
-       * Floor conditioning — the other half of making a contact shadow visible.
+       * Floor albedo — two measured colours and a detail multiplier.
        *
-       * A shadow is a *ratio*, and the stage floor was not offering one. The
-       * forge's grass albedo is an fBm whose luminance swings from 21 to 164
-       * across a single 240 px patch of the shipped frame at 0.25–0.45
-       * saturation — measured, not estimated. Against that, an occlusion pool
-       * that darkens by half is inside the texture's own noise band and simply
-       * cannot be seen; it is also the read-hierarchy failure the review names
-       * outright, a floor louder and more saturated than the cast standing on
-       * it, which inverts the figure-ground relationship the whole look depends
-       * on (REFERENCE §3: "environment saturation sits **below** character
-       * saturation. The background is a stage, never competition.")
+       * Read off `bravely01.jpg`: the mown lawn's p90 is `#7e9659` over 200 491
+       * masked pixels and the track's is a warm `#ae9d79`. Those are *rendered*
+       * values, so what goes in as albedo is a stop brighter — the shading
+       * model is expected to produce the measured result from it, which is the
+       * same discipline `Flora.js` applies to every plant in the bed. The old
+       * conditioning drove both toward one cool grey level, which is why the
+       * previous stage floor was the same value everywhere and the plate's
+       * lawn/track contrast could not exist on it.
        *
-       * `x` is the luminance the fBm is compressed toward and `y` how much of
-       * its own contrast survives, so the floor keeps its form and its tiling
-       * detail while its swing halves. `uGroundChroma` then takes most of the
-       * red/green out of what is left. Both are conditioning on *this scene's*
-       * clone of the material — the forge's texture is untouched and no other
-       * scene's ground changes.
+       * The forge's grass fBm stays, but only as `uGroundDetail`: a multiplier
+       * centred on 1 whose swing is `y` about a nominal texture luminance `x`,
+       * clamped so no fBm extreme can drive the floor to black or to white. It
+       * supplies tiling variation and nothing else.
        */
-      uGroundLevel: { value: new THREE.Vector2(0.26, 0.52) },
-      uGroundChroma: { value: 0.42 },
-      /** Unit-luminance cool grey, so desaturating changes saturation and not
-       *  value, and lands on ART_BIBLE §2.1's cool floor rather than on neutral. */
-      uGroundTint: { value: new THREE.Vector3(0.94, 1.00, 1.07) },
+      uLawnColor: { value: new THREE.Color(0x7ba849) },
+      uPathColor: { value: new THREE.Color(0xc4ac83) },
+      uGroundDetail: { value: new THREE.Vector2(0.35, 0.85) },
+      /** `(x0, z0, dx, dz)` of {@link PATH}, plus its feather, evaluated per
+       *  fragment so the boundary is exact instead of quantised to the 7 m
+       *  terrain tessellation the 900 m plane can afford. */
+      uPathLine: { value: new THREE.Vector4(PATH.x0, PATH.z0, PATH.dx, PATH.dz) },
+      uPathFeather: { value: PATH.feather },
     };
   }
 
@@ -1867,11 +1621,13 @@ export class LookdevScene extends Scene {
    * Two injections, at the two points in the standard fragment where each one
    * is the right operation:
    *
-   *  - **Albedo conditioning** immediately after `<color_fragment>`, i.e. on
-   *    `diffuseColor` before a single light has touched it. Compressing an
-   *    albedo is a statement about the *surface*, so it has to happen before
-   *    the lighting rather than being ground out of the final pixel, where it
-   *    would flatten the key's own modelling along with the texture's noise.
+   *  - **Albedo** immediately after `<color_fragment>`, i.e. on `diffuseColor`
+   *    before a single light has touched it. The lawn/track split is a
+   *    statement about the *surface*, so it has to happen before the lighting
+   *    rather than being painted onto the final pixel, where it would take the
+   *    key's own modelling with it. Evaluating the track's boundary here — from
+   *    the world position the vertex stage already forwards — is also the only
+   *    way to get a 1.2 m feather onto a 900 m plane tessellated at 7 m.
    *  - **Occlusion** on `outgoingLight` immediately before `<opaque_fragment>`,
    *    which is after every light has been summed and *before* fog — so the
    *    shadow is a real reduction in the light leaving the surface and the
@@ -1890,21 +1646,25 @@ export class LookdevScene extends Scene {
 uniform vec3 uContactArea;
 uniform vec3 uContactTint;
 uniform float uContactStrength;
-uniform vec2 uGroundLevel;
-uniform float uGroundChroma;
-uniform vec3 uGroundTint;
+uniform vec3 uLawnColor;
+uniform vec3 uPathColor;
+uniform vec2 uGroundDetail;
+uniform vec4 uPathLine;
+uniform float uPathFeather;
 varying vec3 vAwGround;
 ${shader.fragmentShader}`
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
 {
+	// The forge's grass fBm, demoted to a multiplier around 1. Clamped, so no
+	// extreme of the noise can drive the floor to black or blow it out — it is
+	// tiling variation, not the albedo.
 	float lum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
-	// Hue and saturation as a unit-luminance direction, so the two controls
-	// below are genuinely independent: one moves value, the other chroma.
-	vec3 hue = lum > 1e-4 ? diffuseColor.rgb / lum : vec3( 1.0 );
-	diffuseColor.rgb = mix( uGroundLevel.x, lum, uGroundLevel.y )
-		* mix( uGroundTint, hue, uGroundChroma );
+	float detail = clamp( 1.0 + ( lum - uGroundDetail.x ) * uGroundDetail.y, 0.55, 1.45 );
+	float onPath = smoothstep( 0.0, uPathFeather,
+		( vAwGround.z - uPathLine.y ) * uPathLine.w - ( vAwGround.x - uPathLine.x ) * uPathLine.z );
+	diffuseColor.rgb = mix( uLawnColor, uPathColor, onPath ) * detail;
 }`,
       )
       .replace(
@@ -1924,14 +1684,24 @@ ${shader.fragmentShader}`
   /* --------------------------------------------------------------- staging */
 
   /**
-   * Build the six roster characters and stage them on the right of the battle
-   * frame, in the two staggered ranks REFERENCE §2's "loose staggered diagonal"
-   * actually requires — see {@link PARTY} for why a single rank cannot work.
+   * Build the six roster characters and stage them across the middle of frame —
+   * see {@link PARTY} for the measurements the line is solved against.
    *
    * `lighting` is passed so `ToonMaterial` aliases the rig's key/rim uniform
    * objects — that is what makes the whole party re-key on a time-of-day change
    * without a per-frame call — and `forge` so the toon ramp and detail normals
    * come from the shared library instead of the shader's internal fallback.
+   *
+   * **`outline: false`.** The inverted hull is off, and this is the second
+   * reference correction in the file. `ANIME_PIPELINE` §4 specifies a 1.5–2.5 px
+   * ink line and this stage used to ask for 2.5. Measured across four clean
+   * silhouette crossings on the plate — hat against foliage, pauldron against
+   * lavender, boot against the path, hair against sky — **not one shows a value
+   * trough at the contour**: the darkest edge pixel on the hair crossing is 34
+   * against a sky of 37, i.e. inside the noise. There is no ink line in this
+   * reference, and a 2.5 px one on a 300 px figure was the single loudest thing
+   * the client saw. `Outline.js` now also ships `enabled: false` by default; not
+   * asking for it here is what makes the two agree.
    */
   _buildCast(forge) {
     const group = new THREE.Group();
@@ -1940,7 +1710,7 @@ ${shader.fragmentShader}`
     // Built before they are placed, because the separation pass needs each
     // rig's solved reach and that only exists once the character does.
     const built = PARTY.map((slot) => buildCharacter(slot.id, forge, {
-      lighting: this.lighting, outline: true, outlineWidth: OUTLINE_PIXELS,
+      lighting: this.lighting, outline: false,
       // The stage owns grounding now — see `_buildContactShadows`. The
       // factory's per-character decal is a second, weaker copy of the same
       // idea, and stacking the two only double-darkens the floor with the
@@ -1953,24 +1723,23 @@ ${shader.fragmentShader}`
       const place = places[i];
       const character = built[i];
       character.root.position.set(place.x, groundHeight(place.x, place.z), place.z);
-      // Square up to the vanguard husk, then open `turn` radians back toward the
-      // lens. Deriving the base heading from the threat's actual position rather
-      // than from a hard-coded -90° is what keeps the address honest when the
-      // enemy line moves: the previous constant assumed the threat sat due west
-      // of every slot, which it never has. The rig's forward is **+Z** —
-      // `CharacterFactory.hairlinePhi` states the convention outright, "+Z
-      // (forward) is theta = pi/2" — so `headingTo` is already in rig space, and
-      // a *positive* turn swings the figure toward the camera because the camera
-      // stands on the +Z side of the battle axis.
-      character.root.rotation.y = headingTo(place, GAZE_ANCHOR) + slot.turn;
+      // Square up to the off-frame threat, then swing `turn` radians back
+      // toward the lens. The rig's forward is **+Z** — `CharacterFactory`'s
+      // `hairlinePhi` states the convention outright, "+Z (forward) is
+      // theta = pi/2" — so `headingTo` is already in rig space. The threat is
+      // now to frame *right* (+X), i.e. a heading near +π/2, and the camera
+      // stands on +Z, so opening toward the lens is a **subtraction**. Getting
+      // that sign wrong turns the whole line away from the camera and ships six
+      // painted faces pointing off-frame.
+      character.root.rotation.y = headingTo(place, GAZE_ANCHOR) - slot.turn;
       // Idle is already playing from the factory; restate it so the clip is
       // explicit at the call site and a future pose change is one edit.
       character.animator.play('idle', { fade: 0 });
-      // Every head tracks the vanguard rather than a nominal point off-stage:
-      // six chibi staring past the thing that is about to eat them is the single
-      // cheapest way to make a battle frame look unstaged. Partial weight, so
-      // the look leads the body without dragging the chest round with it and
-      // undoing `turn` — see GAZE_WEIGHT.
+      // Every head tracks the same off-frame point, which is what makes a line
+      // read as watching something rather than as posing for a portrait — and
+      // it is the only cue the plate gives that there is anything to fight.
+      // Partial weight, so the look leads the body without dragging the chest
+      // round with it and undoing `turn` — see GAZE_WEIGHT.
       character.animator.lookAt?.(GAZE_ANCHOR, GAZE_WEIGHT);
       group.add(character.root);
       LookdevScene._markContactCasters(character.root);
@@ -1980,542 +1749,6 @@ ${shader.fragmentShader}`
     this.castGroup = group;
     this.hero = this.cast[0];
   }
-
-  /**
-   * The enemy side of the battle frame.
-   *
-   * REFERENCE §2 gives the enemies the left of frame and makes them
-   * "generally larger than the party — bosses are dramatically larger", and §4
-   * reserves magenta/violet for exactly this: the husks are the one place in
-   * the scene entitled to that hue, which is also why the environment around
-   * them is graded away from it.
-   *
-   * Fiction (WORLD_BIBLE §1): a **shardhusk** is what accretes where great
-   * magic was spent and never cleared — a hollow of unremembered anima that
-   * has crusted a body of fallen glasspetals around itself. Hence the read:
-   * a dark, hunched, near-organic mass carrying a crown of glass that is the
-   * only part of it still lit from inside.
-   */
-  _buildEnemies(forge) {
-    const group = new THREE.Group();
-    group.name = 'enemies';
-
-    // One geometry pair, authored in a normalised space where feet = 0 and the
-    // crown tip = 1, so a husk's world height is a single scale factor and the
-    // three instances share both buffers and both draw programs.
-    const body = this.track(this._makeHuskBodyGeometry());
-    const crown = this.track(this._makeHuskCrownGeometry());
-
-    // §4 leather: albedo 0.10–0.30 linear, and the husk sits at the bottom of
-    // that band on purpose. The whole enemy read is *value*: a dark mass under
-    // a bright sky, separated from the ground by its rim rather than by its
-    // colour. The first build of this creature used the middle of the band and
-    // it came back pale — a 3.4 m animal brighter than the party it is meant to
-    // threaten, and the second-brightest thing in frame after the sky.
-    //
-    // The rim is pulled well under the leather preset's default for the same
-    // reason: at the preset's gain every one of the limb tubes lit its own
-    // contour and the creature turned to chrome. It wants one tight edge, not a
-    // wash, so `rimGain` drops and `rimFloor` with it, and `shadowMix` rises so
-    // the unlit two-thirds of the body sinks toward SHADOW_TINT instead of
-    // holding its own hue.
-    const bodyMat = this.track(createToonMaterial({
-      name: 'husk-body',
-      preset: 'leather',
-      color: 0x2e2438,
-      map: forge.texture('leather', { repeat: 3 }),
-      normalMap: forge.texture('leather/normal', { repeat: 3 }),
-      normalScale: new THREE.Vector2(1.05, 1.05),
-      roughnessMap: forge.texture('leather/roughness', { repeat: 3 }),
-      envMapIntensity: 0.14,
-      envSpecular: 0.06,
-      specGain: 0.10,
-      rimGain: 1.05,
-      rimFloor: 0.24,
-      shadowMix: 0.66,
-      shadowLevel: 0.11,
-      lighting: this.lighting,
-      forge,
-    }));
-
-    // §4 crystal: "emissive interior 1.2–1.8 in elemental accent; fresnel rim
-    // mandatory". UMBRAL is the accent §2.2 assigns to dark, and 1.5 sits mid
-    // band — bright enough to survive the fog at 10 m, well under the 2.5–6.0
-    // the same section reserves for a spell core, so the crown never reads as
-    // a cast spell.
-    this.crownMaterial = this.track(createToonMaterial({
-      name: 'husk-crown',
-      preset: 'crystal',
-      color: 0x6a4a96,
-      normalMap: forge.texture('crystal/normal', { repeat: 2 }),
-      normalScale: new THREE.Vector2(0.55, 0.55),
-      emissive: ELEMENT.dark.accent,
-      emissiveIntensity: 1.5,
-      lighting: this.lighting,
-      forge,
-    }));
-
-    // The hollow itself. Unlit and above 1.0 so it is a genuine bloom source
-    // rather than a bright grey dot — §2.2 allows supra-1.0 emissive for magic,
-    // and the eye of a husk is the only part of it that *is* magic.
-    this.huskEyeMaterial = this.track(new THREE.MeshBasicMaterial({
-      name: 'husk-eye',
-      color: new THREE.Color(ELEMENT.dark.fringe).multiplyScalar(2.2),
-      toneMapped: true,
-      fog: true,
-    }));
-    const eyeGeo = this.track(new THREE.SphereGeometry(0.024, 12, 8));
-
-    // One outline material for all three husks. The hull offset is a fraction
-    // of viewport *height*, not of model space, so it is already scale-
-    // independent and a shared material is correct rather than merely cheap.
-    // Slightly heavier than the party's default because the husks sit twice as
-    // far back, behind twice as much haze, and a contour that survives at 4 m
-    // is gone at 10.
-    const outlineMat = this.track(createToonOutlineMaterial({ name: 'husk-outline', width: 0.0019 }));
-
-    ENEMIES.forEach((spec, i) => {
-      const place = ENEMY_PLACES[i];
-      const root = new THREE.Group();
-      root.name = `enemy:${spec.id}`;
-      root.position.set(place.x, groundHeight(place.x, place.z), place.z);
-      // Husks square up to the party's centre of mass and then deviate by
-      // `turn`, so no two stare down the same line. Solved from the placements
-      // rather than from a fixed quarter-turn because the pack is no longer a
-      // single rank: the vanguard stands *in front of* the party's depth band
-      // and a constant heading would have it addressing empty stage.
-      root.rotation.y = headingTo(place, PARTY_CENTROID) + spec.turn;
-      root.scale.setScalar(spec.height);
-
-      const shell = new THREE.Mesh(body, bodyMat);
-      shell.name = `${spec.id}:shell`;
-      shell.castShadow = true;
-      shell.receiveShadow = true;
-      root.add(shell);
-      // Same inverted-hull line the party carries. Without it the husk is the
-      // only figure in frame without a contour and reads as from another game.
-      createToonOutline(shell, { material: outlineMat });
-
-      const glass = new THREE.Mesh(crown, this.crownMaterial);
-      glass.name = `${spec.id}:crown`;
-      glass.castShadow = true;
-      // `crest` scales the crown against the body so the three husks do not
-      // read as one silhouette at three sizes — §1's distinctiveness rule
-      // applies to enemies for the same reason it applies to the party.
-      glass.scale.set(spec.crest, spec.crest, spec.crest);
-      root.add(glass);
-
-      for (const side of [1, -1]) {
-        const eye = new THREE.Mesh(eyeGeo, this.huskEyeMaterial);
-        eye.position.set(side * 0.052, 0.598, 0.492);
-        eye.scale.set(1, 0.62, 0.8);
-        eye.renderOrder = 3;
-        root.add(eye);
-      }
-
-      group.add(root);
-      LookdevScene._markContactCasters(root);
-      // Phase offsets are drawn from the scene stream so the three husks never
-      // breathe in lockstep, and never differ between two captures.
-      this.enemies.push({
-        root,
-        phase: this.rng.range(0, Math.PI * 2),
-        sway: this.rng.range(0.020, 0.038),
-        lift: this.rng.range(0.006, 0.013) * spec.height,
-        baseY: root.position.y,
-        baseYaw: root.rotation.y,
-      });
-    });
-
-    this.scene.add(group);
-    this.enemyGroup = group;
-  }
-
-  /**
-   * The husk's spine, resampled to a smooth profile.
-   *
-   * Control points are `[y, z, radius, lateralScale]` in the normalised space
-   * where the feet sit at y = 0 and the crown tip at y = 1. The body is a
-   * surface of revolution swept along this, *not* a pile of blobs: overlapping
-   * ellipsoids each contribute their own silhouette edge, and under a rim light
-   * — which every character in this scene has by contract — each of those edges
-   * lights up, so the creature reads as a string of bubbles instead of one
-   * mass. A single swept skin has exactly one contour, which is the whole point
-   * of REFERENCE §1's "bold single silhouette".
-   *
-   * Cached: the crown places its shards on this same curve, so the two cannot
-   * drift apart, and the third husk pays nothing for the first one's solve.
-   */
-  _huskSpine() {
-    if (this._spineCache) return this._spineCache;
-    // Highest and widest at the shoulder yoke, head thrust *forward and below*
-    // it: that lowered head over a raised shoulder is the whole difference
-    // between a stalking predator and a grazing animal.
-    const CONTROL = [
-      [0.130, -0.620, 0.020, 0.85],
-      [0.190, -0.500, 0.062, 0.95],
-      [0.262, -0.360, 0.125, 1.05],
-      [0.322, -0.215, 0.190, 1.20],
-      [0.360, -0.070, 0.232, 1.34],
-      [0.400, 0.070, 0.238, 1.30],
-      [0.470, 0.185, 0.232, 1.30],
-      [0.548, 0.268, 0.205, 1.42],
-      [0.588, 0.352, 0.150, 1.12],
-      [0.588, 0.428, 0.116, 1.00],
-      [0.572, 0.496, 0.082, 0.90],
-      [0.536, 0.552, 0.040, 0.78],
-      [0.508, 0.582, 0.012, 0.68],
-    ];
-    const STEPS = 60;
-    const n = CONTROL.length;
-    const out = [];
-    for (let s = 0; s <= STEPS; s++) {
-      const t = (s / STEPS) * (n - 1);
-      const i = Math.min(n - 2, Math.floor(t));
-      const f = t - i;
-      const p0 = CONTROL[Math.max(0, i - 1)];
-      const p1 = CONTROL[i];
-      const p2 = CONTROL[i + 1];
-      const p3 = CONTROL[Math.min(n - 1, i + 2)];
-      const v = [];
-      for (let k = 0; k < 4; k++) {
-        // Uniform Catmull-Rom. The control points are near-equally spaced along
-        // the body, so the centripetal variant would buy nothing and the plain
-        // form keeps the radius channel monotone where it is authored monotone.
-        v.push(0.5 * (2 * p1[k]
-          + (-p0[k] + p2[k]) * f
-          + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * f * f
-          + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * f * f * f));
-      }
-      out.push({ y: v[0], z: v[1], r: Math.max(0.006, v[2]), lat: v[3] });
-    }
-    this._spineCache = out;
-    return out;
-  }
-
-  /**
-   * Shardhusk body — one swept skin plus four limbs, merged into one buffer.
-   *
-   * The sweep frame is built by hand rather than with `computeFrenetFrames`:
-   * the spine is planar (x = 0 everywhere) and unrolled, so world +X *is* the
-   * ring's right vector, and a Frenet frame on a planar curve is free to spin
-   * about the tangent wherever curvature passes through zero — which would
-   * twist the UVs and the normals across the creature's back for no reason.
-   */
-  _makeHuskBodyGeometry() {
-    const spine = this._huskSpine();
-    const RADIAL = 18;
-    const parts = [];
-
-    const pos = [];
-    const nrm = [];
-    const uv = [];
-    const idx = [];
-    for (let i = 0; i < spine.length; i++) {
-      const s = spine[i];
-      const prev = spine[Math.max(0, i - 1)];
-      const next = spine[Math.min(spine.length - 1, i + 1)];
-      // Tangent in the YZ plane; the ring's "up" is its perpendicular there.
-      let ty = next.y - prev.y;
-      let tz = next.z - prev.z;
-      const tl = Math.hypot(ty, tz) || 1;
-      ty /= tl; tz /= tl;
-      const v = i / (spine.length - 1);
-      for (let j = 0; j <= RADIAL; j++) {
-        const a = (j / RADIAL) * Math.PI * 2;
-        const ca = Math.cos(a);
-        const sa = Math.sin(a);
-        pos.push(ca * s.r * s.lat, s.y + sa * s.r * tz, s.z - sa * s.r * ty);
-        // Analytic ring normal, corrected for the lateral squash so the shading
-        // does not report a circular cross-section on an elliptical one. It is
-        // overwritten by `computeVertexNormals` after the merge, but the merge
-        // requires every input to declare the same attribute set, so it has to
-        // be here and it may as well be right.
-        const n = new THREE.Vector3(ca / s.lat, sa * tz, -sa * ty).normalize();
-        nrm.push(n.x, n.y, n.z);
-        // Leather grain runs along the body, so v repeats faster than u.
-        uv.push(j / RADIAL, v * 2.6);
-      }
-    }
-    const ring = RADIAL + 1;
-    for (let i = 0; i < spine.length - 1; i++) {
-      for (let j = 0; j < RADIAL; j++) {
-        const a = i * ring + j;
-        idx.push(a, a + ring, a + 1, a + 1, a + ring, a + ring + 1);
-      }
-    }
-    // End caps. The tail and muzzle taper to 6 mm rather than to a true point:
-    // a zero-radius ring is a fan of degenerate triangles whose normals are
-    // undefined, and the artefact that produces is a black speck that no amount
-    // of grading removes.
-    for (const [end, dir] of [[0, -1], [spine.length - 1, 1]]) {
-      const s = spine[end];
-      const c = pos.length / 3;
-      pos.push(0, s.y, s.z + dir * s.r * 0.6);
-      nrm.push(0, 0, dir);
-      uv.push(0.5, end === 0 ? 0 : 2.6);
-      for (let j = 0; j < RADIAL; j++) {
-        const a = end * ring + j;
-        if (dir < 0) idx.push(c, a + 1, a);
-        else idx.push(c, a, a + 1);
-      }
-    }
-    const skin = new THREE.BufferGeometry();
-    skin.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    skin.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-    skin.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    skin.setIndex(idx);
-    parts.push(skin);
-
-    // Limbs. Each one is a **single swept tube that ends in its own paw**, and
-    // that is a correction rather than a refactor. They used to be two tapered
-    // cylinders with a squashed sphere dropped over the ankle: geometrically
-    // the sphere did contain the shank's end, but three separate closed
-    // surfaces means three separate silhouettes, and every one of them gets its
-    // own rim light and its own inverted hull. What the frame showed was a boot
-    // hovering under a cut-off tube with a bright line in the gap — the review's
-    // "ball feet float with visible gaps above their leg tubes". One surface has
-    // one contour, so the paw cannot come off the leg at any angle or under any
-    // light. It is the same argument `_huskSpine` makes for the body.
-    for (const s of [1, -1]) {
-      // Forelimbs are straighter and planted well forward of the shoulder, so
-      // the whole mass leans into the party's half of the stage.
-      parts.push(this._makeHuskLimbGeometry([
-        { x: s * 0.196, y: 0.510, z: 0.225, r: 0.102 },
-        { x: s * 0.248, y: 0.300, z: 0.348, r: 0.078 },
-        { x: s * 0.258, y: 0.135, z: 0.386, r: 0.062 },
-        { x: s * 0.262, y: 0.062, z: 0.428, r: 0.086 },
-      ]));
-      // Hind legs fold under the haunch — a crouch loaded to spring. Carried
-      // wider and dropped lower than the forelimbs so a good half-metre of
-      // shank clears the flank: tucked tight under a 3.5 m body they were
-      // hidden by it from the battle camera, which left the paws reading as
-      // loose spheres lying on the grass with nothing joining them to anything.
-      parts.push(this._makeHuskLimbGeometry([
-        { x: s * 0.205, y: 0.352, z: -0.135, r: 0.102 },
-        { x: s * 0.256, y: 0.196, z: -0.248, r: 0.078 },
-        { x: s * 0.252, y: 0.108, z: -0.142, r: 0.062 },
-        { x: s * 0.244, y: 0.058, z: -0.052, r: 0.084 },
-      ]));
-    }
-
-    const merged = mergeGeometries(parts, false);
-    for (const g of parts) g.dispose();
-    merged.computeVertexNormals();
-    return merged;
-  }
-
-  /**
-   * One husk limb: hip to toe as a single closed surface.
-   *
-   * `joints` are `{x, y, z, r}` in the body's normalised space, hip first and
-   * toe last; the run is Catmull-Rom resampled so the knee and hock are curves
-   * rather than creases, and the radius channel is interpolated with it so the
-   * paw's bulge grows out of the shank instead of being stuck onto it.
-   *
-   * The sweep frame is carried, not recomputed per sample: a limb is close
-   * enough to straight that a Frenet frame is free to spin about the tangent
-   * wherever curvature dips through zero, which would twist the tube. Starting
-   * from world +X and re-orthogonalising against each new tangent keeps the
-   * frame continuous by construction.
-   *
-   * The toe closes with a half-ellipsoid cap of its own final radius, which is
-   * what makes the paw *be* the end of the leg. The hip end closes with a flat
-   * fan — it is buried inside the body, and an open tube would hand the
-   * inverted-hull pass a clear view down the bore, which it paints as a plate
-   * hanging in mid-air.
-   */
-  _makeHuskLimbGeometry(joints) {
-    const RADIAL = 12;
-    const SPAN = 9;         // resample steps per authored segment
-    const CAP = 4;          // rings in the closing toe cap
-    const n = joints.length;
-    const path = [];
-    for (let seg = 0; seg < n - 1; seg++) {
-      const p0 = joints[Math.max(0, seg - 1)];
-      const p1 = joints[seg];
-      const p2 = joints[seg + 1];
-      const p3 = joints[Math.min(n - 1, seg + 2)];
-      // The last sample of a segment is the first of the next, so it is emitted
-      // only by the final segment — otherwise every joint carries a duplicated
-      // ring and the tube self-shadows along four seams.
-      const last = seg === n - 2 ? SPAN : SPAN - 1;
-      for (let s = 0; s <= last; s++) {
-        const f = s / SPAN;
-        const spline = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * f
-          + (2 * a - 5 * b + 4 * c - d) * f * f
-          + (-a + 3 * b - 3 * c + d) * f * f * f);
-        path.push({
-          x: spline(p0.x, p1.x, p2.x, p3.x),
-          y: spline(p0.y, p1.y, p2.y, p3.y),
-          z: spline(p0.z, p1.z, p2.z, p3.z),
-          r: Math.max(0.004, spline(p0.r, p1.r, p2.r, p3.r)),
-        });
-      }
-    }
-
-    const pos = [];
-    const nrm = [];
-    const uv = [];
-    const idx = [];
-    const ring = RADIAL + 1;
-    const tangent = new THREE.Vector3();
-    const right = new THREE.Vector3(1, 0, 0);
-    const up = new THREE.Vector3();
-    const normal = new THREE.Vector3();
-
-    /** Emit one ring of `radius` at `p`, oriented on the carried frame. */
-    const emitRing = (p, radius, v) => {
-      for (let j = 0; j <= RADIAL; j++) {
-        const a = (j / RADIAL) * Math.PI * 2;
-        const ca = Math.cos(a);
-        const sa = Math.sin(a);
-        normal.copy(right).multiplyScalar(ca).addScaledVector(up, sa);
-        pos.push(p.x + normal.x * radius, p.y + normal.y * radius, p.z + normal.z * radius);
-        nrm.push(normal.x, normal.y, normal.z);
-        // Leather grain runs along the limb, matching the body's own 2.6 repeat.
-        uv.push(j / RADIAL, v * 1.4);
-      }
-    };
-
-    for (let i = 0; i < path.length; i++) {
-      const p = path[i];
-      const prev = path[Math.max(0, i - 1)];
-      const next = path[Math.min(path.length - 1, i + 1)];
-      tangent.set(next.x - prev.x, next.y - prev.y, next.z - prev.z);
-      if (tangent.lengthSq() < 1e-10) tangent.set(0, -1, 0);
-      tangent.normalize();
-      // Re-orthogonalise the carried right vector against the new tangent. If
-      // the two have gone parallel — which needs a limb doubled back on itself
-      // — fall back to the world axis the body sweep also uses.
-      right.addScaledVector(tangent, -right.dot(tangent));
-      if (right.lengthSq() < 1e-6) right.set(0, 0, 1).addScaledVector(tangent, -tangent.z);
-      right.normalize();
-      up.crossVectors(tangent, right).normalize();
-      emitRing(p, p.r, i / (path.length - 1));
-    }
-
-    // Toe cap: a half-ellipsoid carried on the final frame, so the paw is the
-    // tube's own end rather than a sphere resting near it.
-    const tip = path[path.length - 1];
-    const capLen = tip.r * 1.05;
-    for (let c = 1; c <= CAP; c++) {
-      const t = c / (CAP + 1);
-      const a = (t * Math.PI) / 2;
-      emitRing({
-        x: tip.x + tangent.x * Math.sin(a) * capLen,
-        y: tip.y + tangent.y * Math.sin(a) * capLen,
-        z: tip.z + tangent.z * Math.sin(a) * capLen,
-      }, tip.r * Math.cos(a), 1);
-    }
-
-    const rings = path.length + CAP;
-    for (let i = 0; i < rings - 1; i++) {
-      for (let j = 0; j < RADIAL; j++) {
-        const a = i * ring + j;
-        idx.push(a, a + ring, a + 1, a + 1, a + ring, a + ring + 1);
-      }
-    }
-    // Two fans: the flat hip end and the toe's pole.
-    for (const [end, dir] of [[0, -1], [rings - 1, 1]]) {
-      const src = end === 0 ? path[0] : tip;
-      const reach = end === 0 ? 0 : capLen;
-      const c = pos.length / 3;
-      pos.push(src.x + tangent.x * reach, src.y + tangent.y * reach, src.z + tangent.z * reach);
-      nrm.push(tangent.x * dir, tangent.y * dir, tangent.z * dir);
-      uv.push(0.5, end === 0 ? 0 : 1.4);
-      for (let j = 0; j < RADIAL; j++) {
-        const a = end * ring + j;
-        if (dir < 0) idx.push(c, a + 1, a);
-        else idx.push(c, a, a + 1);
-      }
-    }
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    geo.setIndex(idx);
-    return geo;
-  }
-
-  /**
-   * The crown of glasspetal shards, in the same normalised space as the body.
-   *
-   * Four-sided pyramids rather than cones: a faceted shard catches the key as a
-   * hard specular plane, which is what §4's crystal entry means by "reads
-   * through a hard specular band", and a smooth cone would only gradient. The
-   * bases are sampled off `_huskSpine`, so every shard is seated on the back
-   * whatever the body profile is later tuned to, and lengths, lean and roll are
-   * drawn from the scene stream so the ridge is jagged rather than a cockscomb.
-   */
-  _makeHuskCrownGeometry() {
-    const spine = this._huskSpine();
-    const rng = this.rng;
-    const parts = [];
-    const up = new THREE.Vector3(0, 1, 0);
-    const shard = (x, y, z, len, rad, leanX, leanZ) => {
-      const g = new THREE.ConeGeometry(rad, len, 4, 1);
-      g.translate(0, len * 0.5, 0);
-      // Roll about the shard's *own* axis, and strictly before the lean. A
-      // four-sided pyramid has only four facets, so without a roll every shard
-      // presents the same two to the camera and the ridge reads as extruded
-      // rather than grown. Rolling after the lean instead spins the tilted
-      // shard about world Y, which re-aims it: a shard authored to sweep back
-      // over the spine ends up lying across the flank as a flat plate, which is
-      // precisely the artefact this creature shipped with in its first pass.
-      g.rotateY(rng.range(0, Math.PI * 0.5));
-      g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(
-        up, new THREE.Vector3(leanX, 1, leanZ).normalize(),
-      ));
-      g.translate(x, y, z);
-      parts.push(g);
-    };
-    // Base radii are a fifth of length rather than a twentieth. A four-facet
-    // pyramid that is long and needle-thin presents as a *razor* the moment the
-    // camera catches it edge-on — a one-pixel blade with a rim light down it,
-    // which reads as a stray polygon rather than as glass. Keeping the taper
-    // shallow means the narrowest view of any shard is still a facet.
-    /** Point on the ridge line of the back, at spine parameter `u` in 0..1. */
-    const ridge = (u) => {
-      const s = spine[Math.round(u * (spine.length - 1))];
-      return { y: s.y + s.r * 0.86, z: s.z };
-    };
-
-    // Seven ridge shards. The profile peaks two-thirds of the way forward, over
-    // the shoulder yoke, so the tallest point of the silhouette sits above the
-    // heaviest part of the body instead of over the tail.
-    for (let i = 0; i < 7; i++) {
-      const u = 0.26 + (i / 6) * 0.50;
-      const base = ridge(u);
-      const t = i / 6;
-      const len = (0.10 + Math.sin(Math.min(1, t * 1.12) * Math.PI * 0.86) * 0.22) * rng.range(0.82, 1.18);
-      shard(rng.jitter(0.028), base.y - 0.01, base.z,
-        len, 0.040 + len * 0.20, rng.jitter(0.20), -0.34 - t * 0.16);
-    }
-    // Shoulder pair — the outer edge of the crown. Their lean is deliberately
-    // shallow: an earlier pass fanned them out near-horizontally, and a
-    // four-sided pyramid seen side-on is a *flat plate*, so what the frame
-    // actually showed was two grey slabs lying across the creature's back with
-    // no relationship to the ridge. Every shard on this animal therefore points
-    // within ~20° of the ridge's own lean, which is also what stops it reading
-    // as a pincushion.
-    for (const s of [1, -1]) {
-      shard(s * 0.118, 0.700, 0.190, rng.range(0.24, 0.31), 0.078, s * 0.26, -0.40);
-    }
-    // Brow horns, swept back over the skull — the detail that makes the head
-    // findable in a silhouette that is otherwise all shoulder.
-    for (const s of [1, -1]) {
-      shard(s * 0.068, 0.636, 0.402, rng.range(0.13, 0.17), 0.042, s * 0.22, 0.58);
-    }
-
-    const merged = mergeGeometries(parts, false);
-    for (const g of parts) g.dispose();
-    merged.computeVertexNormals();
-    return merged;
-  }
-
-  /* ------------------------------------------------------- calibration bay */
 
   /** 7x3 roughness/metalness grid — the standard PBR sanity check. */
   _buildSphereGrid(forge) {
@@ -2649,9 +1882,20 @@ ${shader.fragmentShader}`
       // Order matters: `setDof` clears any tracked target, so the subject
       // hand-off has to follow it. A station pose leaves the target cleared,
       // which is correct — its focal plane is a place in the world, not a face.
-      postfx.setDof(solved.focus, pose.aperture);
+      //
+      // `bokeh` is the third argument and closing the aperture is not a
+      // substitute for it. `DofPass` carries a *far-field floor* — a guaranteed
+      // 9.2 px of background defocus that ramps in over three depth doublings
+      // past the focal plane, independent of the f-number — so an f/22 stage
+      // still ships a soft cherry tree at 12 m, which is exactly what the first
+      // capture of this staging showed. Passing 0 zeroes both the physical CoC
+      // and that floor, which `PostFX` documents as the way a scene that wants
+      // a genuinely sharp stage asks for one. The plate is sharp from the
+      // near boots to the far boulders, so the meadow poses ask for it and the
+      // portrait — the one frame that wants its background gone — does not.
+      postfx.setDof(solved.focus, pose.aperture, pose.bokeh);
       if (solved.focusTarget) postfx.focusOn(solved.focusTarget);
-      postfx.setGrade(pose.grade ?? 'dusk', 0);
+      postfx.setGrade(pose.grade ?? 'battle', 0);
     }
     // The rig fits its cascades to the active camera; a cut without this leaves
     // the first frame after the cut shadowed for the previous framing.
@@ -2783,9 +2027,9 @@ ${shader.fragmentShader}`
    * outline is measuring the outline.
    *
    * Everything that is not a subject or the floor leaves frame: the sky dome,
-   * the horizon skirt, the treeline, the foreground grass, the mist and the
-   * motes. A silhouette check wants an empty backdrop, and the background clear
-   * carries the same white as the ground so the horizon line goes with them.
+   * the horizon skirt, the whole meadow and the petals. A silhouette check
+   * wants an empty backdrop, and the background clear carries the same white as
+   * the ground so the horizon line goes with them.
    */
   _enterMatte() {
     const hide = (obj) => {
@@ -2803,7 +2047,6 @@ ${shader.fragmentShader}`
     };
 
     matte(this.castGroup);
-    matte(this.enemyGroup);
 
     this._matteSwap.set(this.ground, this.ground.material);
     this.ground.material = this.matteGround;
@@ -2811,9 +2054,7 @@ ${shader.fragmentShader}`
 
     hide(this.sky?.mesh);
     hide(this.skirt);
-    hide(this.treeline);
-    hide(this.foreground);
-    hide(this.mist);
+    hide(this.meadow);
     hide(this.motes);
 
     this._sceneBackground = this.scene.background;
@@ -2840,12 +2081,9 @@ ${shader.fragmentShader}`
     // ART_BIBLE §2.1 specifies a *two-ended* fog: FOG_NEAR cool teal at ground
     // level and short distances, FOG_FAR warm parchment at horizon distance,
     // "so depth reads as cool→warm". `FogExp2` carries one colour, and Sky
-    // rightly drives it from the time-of-day table — which at the dusk key is
-    // the mauve #8A5E7A. Left alone that mauve is the single largest area of
-    // chroma in frame and the whole shot goes magenta, against REFERENCE §4's
-    // teal-dominant contract. Blending back toward FOG_NEAR is the closest a
-    // single-colour fog gets to the specified pair; the warm end still comes
-    // through because it is what the sky itself is rendering behind it.
+    // drives it from the time-of-day table. A light bias toward the cool end is
+    // the closest a single-colour fog gets to the specified pair — see
+    // FOG_COOLING for why it is now light rather than heavy.
     const fog = this.scene.fog;
     if (fog) fog.color.lerp(FOG_NEAR_TEAL, FOG_COOLING);
   }
@@ -2873,37 +2111,11 @@ ${shader.fragmentShader}`
 
     const t = this.engine.elapsed;
 
-    // Husk idle. ART_BIBLE §7.8 forbids anything on screen being frozen, and a
-    // 3.4 m creature is the last thing that can afford to be: a still boss
-    // reads as set dressing. The husks have no skeleton by design (see
-    // `_makeHuskBodyGeometry`), so the breath is carried on the root — a slow
-    // yaw sway plus a vertical swell, at ~0.11 Hz, which is deliberately below
-    // the party's idle rate so the two never sync into a metronome. Each husk
-    // keeps its own phase from the scene's own rng stream.
-    for (const e of this.enemies) {
-      const breath = Math.sin(t * 0.68 + e.phase);
-      e.root.rotation.z = breath * e.sway * 0.35;
-      e.root.position.y = e.baseY + breath * e.lift;
-      e.root.rotation.y = e.baseYaw + Math.sin(t * 0.41 + e.phase * 1.7) * e.sway;
-    }
-    // The hollow pulses with it — §2.2's prop band is 1.2–1.8, so the swing
-    // stays inside it and the crown never crosses into spell-core brightness.
-    if (this.crownMaterial && !this._silhouette) {
-      this.crownMaterial.emissiveIntensity = 1.5 + Math.sin(t * 0.53) * 0.22;
-    }
-    for (const m of this._mistCards) {
-      // Slow lateral crawl only: mist that bobs vertically reads as smoke.
-      m.mesh.position.x += m.drift * step;
-      if (m.mesh.position.x > MIST_SPAN.east) m.mesh.position.x -= MIST_WRAP;
-      m.mesh.quaternion.copy(this.camera.quaternion);
-      // Roll about the view axis after billboarding, so each puff samples the
-      // smoke texture at its own orientation. See `roll` in `_buildMist`.
-      if (m.roll) m.mesh.rotateZ(m.roll);
-      // Absolute, not accumulated — see `baseY` in `_buildMist`. 3 cm of swell
-      // is all the bank needs to stop reading as a decal, and it can never walk
-      // the pool up onto the party.
-      m.mesh.position.y = m.baseY + Math.sin(t * 0.21 + m.phase) * 0.03;
-    }
+    // Drive the meadow's gust from the same clamped step the cloth runs on.
+    // Flora falls back to a wall clock of its own if nobody claims it, which is
+    // right for a scene that just drops flora in and wrong for a capture: two
+    // runs at the same seed have to bend the same way.
+    updateFlora(step);
 
     const pos = this.motes.geometry.getAttribute('position');
     const seed = this._moteSeed;
@@ -2912,7 +2124,7 @@ ${shader.fragmentShader}`
       const fall = seed[i * 3 + 1];
       const sway = seed[i * 3 + 2];
       let y = pos.getY(i) - fall * step;
-      if (y < 0.02) y += 7.5;
+      if (y < 0.02) y += CHERRY.drift;
       pos.setY(i, y);
       // Petals are flat and light: they scull sideways as they fall rather
       // than dropping straight, which is the whole reason to animate them.
@@ -2940,10 +2152,13 @@ ${shader.fragmentShader}`
     this._setSilhouette(false);
     for (const c of this.cast) c.dispose();
     this.cast.length = 0;
-    // The husks own nothing `track` is not already holding — geometry,
-    // materials and the shared outline material are all tracked — so this is
-    // only about dropping the references the tick loop walks.
-    this.enemies.length = 0;
+    // Flora's builders own their own geometry and materials and hand back a
+    // `dispose()` for them. `Scene.track` never saw them, so this is the only
+    // place they can be released — a meadow is 200k+ triangles across a dozen
+    // instanced meshes and leaking it once per scene change is not survivable.
+    for (const root of this._flora) root.userData?.dispose?.();
+    this._flora.length = 0;
+    this.engine.get('ui')?.battle?.hide();
     // Both projector targets, its depth material, the resolve shader and the
     // quad geometry are tracked. Dropping the handle is what stops the service
     // tick — which has already been unregistered below — from ever finding a
