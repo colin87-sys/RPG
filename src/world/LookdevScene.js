@@ -478,29 +478,45 @@ const CAMERA_POSES = {
    * that runs from near-profile to three-quarter front, the meadow bank behind
    * them, the boulder wall and the sky above that.
    *
-   * **f/22, not f/6.3.** This is the largest single change to the pose table
-   * and it is a reference correction, not a taste call: the plate is sharp from
-   * the cast's boots to the far edge of the boulder wall, and it resolves
-   * individual florets at both. `REFERENCE_TARGET` §3's "backgrounds are soft"
-   * is simply not true of this image. At f/22 the circle of confusion never
-   * exceeds a pixel anywhere in the meadow, so DOF is effectively off while the
-   * composer stays in its normal path — which is what "minimal depth of field"
-   * has to mean when the same chain also has to run the portrait below.
+   * **f/22 and `bokeh: 0`, not f/6.3.** This is the largest single change to
+   * the pose table and it is a reference correction, not a taste call: the
+   * plate is sharp from the cast's boots to the far edge of the boulder wall,
+   * and it resolves individual florets at both. `REFERENCE_TARGET` §3's
+   * "backgrounds are soft" is simply not true of this image.
+   *
+   * The stop alone no longer buys that, and this is the trap worth recording:
+   * `dofShader.js` now carries a far-field *floor* keyed on `log2(z / focus)`,
+   * so past a couple of multiples of the focal plane it applies a fixed defocus
+   * that closing the aperture cannot reach — by design, since physical far CoC
+   * saturates and the composer needs some way to soften a horizon. `bokeh: 0`
+   * is the documented off switch for both terms at once, and it is the only
+   * thing that keeps the treeline as crisp as the plate has it while the same
+   * chain still runs the portrait below at its authored softness.
    */
   battle: {
     pos: [STAGE.camX, STAGE.camY, STAGE.camZ], look: STAGE_LOOK,
     fov: STAGE.fov, focus: 5.0, aperture: 22, bokeh: 0, grade: 'battle',
   },
   /**
-   * Command framing: the same axis pushed in one lens stop.
+   * Command framing: the same axis, pushed in.
    *
-   * This is the frame a player reads ability names against, so the line runs
-   * 33–52% of frame height and the outermost two figures crop at the edges.
+   * This is the frame a player reads ability names against, so it runs tighter
+   * than the shipped stage and lets the outermost figures crop at the edges.
    * Same near-pinhole stop and the same reason.
+   *
+   * **0.70 m of push, not 1.35.** A push along the view axis scales every
+   * slot's screen position by `d / (d − push)`, and it does so hardest on the
+   * *nearest* figure — which on this line is the lead. At 1.35 m Auren's slot
+   * ran from `ndc` −0.78 out to −1.16, i.e. wholly outside the frame, and the
+   * sheet's command framing duly shipped five of six characters with the party
+   * leader missing: "crop at the edges" is a claim about a shoulder, not about
+   * losing a cast member. 0.70 m puts him at −0.94 — cropped down one arm and
+   * still read as a figure — and holds the rear slot inside the right edge,
+   * where the HUD stack overlays rather than replaces it.
    */
   lineup: {
-    pos: [STAGE.camX, STAGE.camY, STAGE.camZ - 1.35], look: [STAGE.camX, STAGE_AIM_Y, STAGE.camZ - 1.35 - STAGE.aimDist],
-    fov: STAGE.fov, focus: 4.0, aperture: 22, bokeh: 0, grade: 'battle',
+    pos: [STAGE.camX, STAGE.camY, STAGE.camZ - 0.70], look: [STAGE.camX, STAGE_AIM_Y, STAGE.camZ - 0.70 - STAGE.aimDist],
+    fov: STAGE.fov, focus: 4.3, aperture: 22, bokeh: 0, grade: 'battle',
   },
   /** Battle station, battle lens, rendered as a **matte**. The silhouette check
    *  has to be run on the shipped composition or it is checking nothing — and
@@ -657,14 +673,21 @@ const FOG_COOLING = 0.18;
  * to run could not be evaluated, which is exactly what the review found.
  *
  * A matte is not a lighting state, it is a *material* state, so that is what
- * this now is: every cast and enemy surface swaps to unlit black, the ground to
- * unlit white, the sky, treeline, mist and motes drop out, and the backdrop is
+ * this now is: every cast surface swaps to unlit black, the ground to unlit
+ * white, the sky, the meadow and the petals drop out, and the backdrop is
  * cleared to the same white. Nothing in the frame can then be anything but 0 or
  * 1, whatever the rig, the probe or the toon shader are doing — and PostFX's
- * diagnostic path (which this pose already triggers) has bloom, DOF, grain,
- * vignette and the grade off, so nothing downstream can lift black off black
- * either. What is left is the only question the pass asks: are these six
- * shapes distinguishable.
+ * diagnostic path (which this pose already triggers) has bloom, grain, vignette
+ * and the grade off, so nothing downstream can lift black off black either.
+ * What is left is the only question the pass asks: are these six shapes
+ * distinguishable.
+ *
+ * Two stages of the chain the diagnostic path does *not* drop have to be
+ * neutralised from here, because PostFX has no way to know it is looking at a
+ * matte. DOF stays enabled, so the pose carries `bokeh: 0` — otherwise the
+ * far-field floor in `dofShader.js`, which is keyed on depth ratio and not on
+ * aperture, would soften the rear slots' edges and the check would grade a
+ * silhouette on a blur. And the HUD is DOM, so `_enterMatte` hides it.
  */
 const MATTE = {
   subject: 0x000000,
@@ -685,19 +708,21 @@ const MATTE = {
 /**
  * Contact shadows — a top-down occlusion projector, not a decal.
  *
- * REFERENCE §2 requires "visible ground with soft contact shadows" and the
- * shipped frame had none: six pairs of boots met the terrain with no occlusion
- * darkening at all, and the husks' paws floated.
+ * BRAVELY §7 requires "ground visible beneath them with soft contact shadows"
+ * and the shipped frame had none: six pairs of boots met the terrain with no
+ * occlusion darkening at all.
  *
- * The cascades cannot supply it. At the dusk key the sun is ~6° up, so a cast
- * shadow lands two metres downwind of the figure that threw it and there is
- * nothing whatsoever under the feet. The previous answer was a radial decal
- * sprite per character, and it failed for a reason no amount of tuning reaches:
- * a decal is a *transparent overlay*, drawn after the ground and therefore
- * after the ground's own shading, so it competes with — and loses to — the
- * low mist bank that composites over the same pixels a moment later. Measured
- * on the shipped frame it moved the floor under the party by 16%, which is
- * below the threshold at which an eye reads contact at all.
+ * The cascades cannot supply it, at this hour least of all. `STAGE_TIME_OF_DAY`
+ * puts the sun 48.6° up and front-left, so every cast shadow rakes away behind
+ * its own figure and there is nothing whatsoever under the feet — and unlike a
+ * low key it cannot even be leaned on, because a high sun is exactly what the
+ * plate has. The previous answer was a radial decal sprite per character, and
+ * it failed for a reason no amount of tuning reaches: a decal is a *transparent
+ * overlay*, drawn after the ground and therefore after the ground's own
+ * shading, so it composites against a surface that has already been lit and
+ * fogged instead of darkening the light itself. Measured on the shipped frame
+ * it moved the floor under the party by 16%, which is below the threshold at
+ * which an eye reads contact at all.
  *
  * So the technique is replaced rather than tuned. Occlusion is now *rendered*:
  *
@@ -711,19 +736,19 @@ const MATTE = {
  *  4. the ground material multiplies its own outgoing light by the result.
  *
  * Because it lands *inside* the ground's shading it is darkened by nothing and
- * washed out by nothing: fog and mist then sit over it exactly as they sit over
- * the rest of the floor, which is what depth is supposed to do to a shadow. It
- * also cannot z-fight, cannot be buried by terrain tessellation, follows the
- * animation for free, and grounds the husks — whose paws have no rig to hang a
- * decal off — on the same pass as the party.
+ * washed out by nothing: fog then sits over it exactly as it sits over the rest
+ * of the floor, which is what depth is supposed to do to a shadow. It also
+ * cannot z-fight, cannot be buried by terrain tessellation, and follows the
+ * animation for free.
  *
  * The first build of this projector produced a *correct* buffer that was
  * invisible on screen, and the reason is worth recording because it is a trap
  * the arithmetic hides. Its penumbra was two hex rings 1.8 and 4.2 texels out,
  * i.e. ~12 cm — narrower than a boot. A pool that never extends past the
  * silhouette that threw it is a pool the camera cannot see, because the figure
- * standing in it occludes the whole thing: at a 12° down-angle the only part of
- * a contact shadow that reaches the lens is the crescent *outside* the body.
+ * standing in it occludes the whole thing — and at this stage's 9° down-angle,
+ * shallower than the staging it was first tuned against, the only part of a
+ * contact shadow that reaches the lens is a thin crescent *outside* the body.
  * The blur is therefore not a smoothing step, it is the step that makes the
  * shadow visible at all, and it is sized against the figure (a 1.15 m chibi) —
  * not against the texel grid.
@@ -732,26 +757,29 @@ const CONTACT = {
   /** Occlusion buffer edge. 384 over ~12.8 m of stage is ~3.3 cm per texel —
    *  finer than a chibi's boot, which is the smallest thing that must read. */
   size: 384,
-  /** Metres of slack around the staged figures, so a boss leaning out of the
-   *  formation still projects and no figure sits on the buffer's clamp edge. */
+  /** Metres of slack around the staged figures, so a weapon or a cape carried
+   *  outside the formation still projects and no figure sits on the buffer's
+   *  clamp edge. */
   margin: 2.2,
-  /** Ortho station height. Must clear the tallest occluder — the boss husk is
-   *  3.5 m — or its crown clips and the pass reports it as absent. */
+  /** Ortho station height. Must clear the tallest occluder or its crown clips
+   *  and the pass reports the figure as absent. The cast tops out at 1.19 m,
+   *  so 5.6 m is deliberate headroom rather than a fit: it is what lets a slot
+   *  be restaged, or a mount or a set piece be parked on the stage, without the
+   *  contact pass silently dropping it. */
   camHeight: 5.6,
   /** Lowest world y the projector can see. The plateau is level at 0; the
    *  slack keeps the 8-bit depth range off the floor value itself. */
   floor: -0.8,
   /** Metres over which an occluder's contribution halves as it rises. 0.30 is
    *  boot-to-shin on a chibi, so the dark core still comes from what is actually
-   *  touching the ground while a hem or a paw pastern reads as half-contact. */
+   *  touching the ground while a hem or a trailing skirt reads as half-contact. */
   falloff: 0.30,
   /** Floor contribution from anything overhead at any height. This is what the
-   *  reference frames' broad soft ellipse *is*: a body occludes the sky over
-   *  its whole footprint, not only where it touches. At 0.15 the pool was a
-   *  boot-print; at 0.38 it is a figure's shadow with a boot-print inside it,
-   *  which is also what grounds a husk — a four-legged mass whose body is a
-   *  metre clear of the floor has almost no *contact* to report and would
-   *  otherwise stand on four small dots. */
+   *  plate's broad soft ellipse *is*: a body occludes the sky over its whole
+   *  footprint, not only where it touches. At 0.15 the pool was a boot-print;
+   *  at 0.38 it is a figure's shadow with a boot-print inside it, which is also
+   *  what keeps a wide silhouette — a skirt, a cape, a shield held off the hip —
+   *  from standing on nothing but the two dots its boots report. */
   ambient: 0.38,
   /** Peak fraction of the way to `tint` the ground is driven. */
   strength: 1.0,
@@ -770,8 +798,8 @@ const CONTACT = {
 /**
  * Render layer the occlusion pass draws.
  *
- * A layer rather than a second scene: the party and the husks have to stay in
- * the main graph to be lit, shadowed and posed, and a parallel graph holding
+ * A layer rather than a second scene: the party has to stay in the main graph
+ * to be lit, shadowed and posed, and a parallel graph holding
  * the same meshes is the kind of duplication that goes stale the first time
  * someone adds a prop. The projector camera is set to *only* this layer, so
  * the sky dome, the terrain and the whole meadow are excluded without touching
@@ -1380,9 +1408,9 @@ export class LookdevScene extends Scene {
     // head: the buffer then reports "occluder at 0.95 m" across the whole
     // footprint, the height weighting all but erases it, and the result is the
     // faint even smudge the first pass of this produced. Keeping the *farthest*
-    // surface instead reports the sole under a boot, the underside of the hem
-    // under a skirt and the paw under a husk — which is the geometry that is
-    // actually in contact with the ground.
+    // surface instead reports the sole under a boot and the underside of the
+    // hem under a skirt — which is the geometry that is actually in contact
+    // with the ground.
     const depthMaterial = this.track(new THREE.MeshDepthMaterial({
       depthPacking: THREE.BasicDepthPacking,
       depthFunc: THREE.GreaterDepth,
@@ -1502,9 +1530,9 @@ export class LookdevScene extends Scene {
       uContactArea: { value: new THREE.Vector3(cx - half, cz + half, 1 / span) },
       // A *transmission* colour, not a paint colour: the factor the ground's
       // own outgoing light is multiplied by where the shadow is fully closed.
-      // Deep, because the stage floor is already a low-value surface and a pool
-      // has to survive the low mist bank that composites over it. Tinted rather
-      // than neutral per ART_BIBLE §2.1, and the tint does real work here —
+      // Deep, because the stage floor is now a *bright* sunlit lawn and a pool
+      // that only takes a fifth off it does not read as contact at all. Tinted
+      // rather than neutral per ART_BIBLE §2.1, and the tint does real work —
       // SHADOW_TINT attenuates red about four times harder than blue, so the
       // pool cools as it darkens instead of going grey.
       uContactTint: { value: new THREE.Color(LIGHT.SHADOW_TINT).multiplyScalar(0.45) },
@@ -2030,6 +2058,16 @@ ${shader.fragmentShader}`
    * the horizon skirt, the whole meadow and the petals. A silhouette check
    * wants an empty backdrop, and the background clear carries the same white as
    * the ground so the horizon line goes with them.
+   *
+   * The HUD goes with them, and it is the one occluder this pass cannot reach
+   * by hiding an `Object3D`: `BattleUI` is DOM composited over the canvas, so
+   * no material swap and no `visible` flag touches it. Left up it costs the
+   * check both of its premises at once — the right-hand stack is opaque gold,
+   * green and blue over a frame whose entire claim is that it holds two values,
+   * and at 22% of frame width it lands squarely on the rear slot, so the party
+   * member most at risk of an indistinct silhouette is the one the diagnostic
+   * cannot see. `_exitMatte` puts it back, because every other pose in the
+   * sheet is a shipped composition and the plate carries the stack.
    */
   _enterMatte() {
     const hide = (obj) => {
@@ -2057,6 +2095,8 @@ ${shader.fragmentShader}`
     hide(this.meadow);
     hide(this.motes);
 
+    this.engine.get('ui')?.battle?.hide();
+
     this._sceneBackground = this.scene.background;
     this.scene.background = this.matteBackground;
     this.scene.environment = null;
@@ -2071,6 +2111,9 @@ ${shader.fragmentShader}`
     this.ground.receiveShadow = true;
     this.scene.background = this._sceneBackground ?? null;
     this.scene.environment = this._environment ?? null;
+    // Unconditional, and safe: `show()` is idempotent, and the stack is only
+    // ever hidden here in the first place because `_mountHud` put it up.
+    this.engine.get('ui')?.battle?.show();
   }
 
   /**
