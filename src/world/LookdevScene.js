@@ -7,7 +7,7 @@
  *     material bar and the chibi scale proxy. If the game looks wrong, this
  *     tells you which layer is lying — sky, probe, lighting rig, texture
  *     pipeline or post chain.
- *  2. **Battle stage**: the six roster characters staged as
+ *  2. **Battle stage**: the game's default party staged as
  *     `docs/reference/bravely01.jpg` stages its party — a loose line across the
  *     middle of frame in a bright, sharp, sunlit flower meadow.
  *
@@ -209,7 +209,7 @@ const STAGE_PLATEAU = { x: 0, z: 2.6, inner: 6.5, outer: 22 };
  * bed standing on level ground can do that from an eye-level camera, because
  * every plant of the same height then projects to the same screen row. At 3.1 m
  * over 22 m the far bed's racemes reach y ≈ 113 and its near edge sits at
- * y ≈ 430, which is 29% of frame and the closest a six-figure line leaves room
+ * y ≈ 430, which is 29% of frame and the closest the staged line leaves room
  * for.
  */
 const BANK = { from: 1.2, to: -22, height: 3.1, inner: 4.5, outer: 9.0 };
@@ -219,8 +219,8 @@ const BANK = { from: 1.2, to: -22, height: 3.1, inner: 4.5, outer: 9.0 };
  *
  * Everything the bed is made of is scattered about a centre *behind* the line,
  * but with a radius large enough to reach past it, so the bed needs a hard
- * front plane or lavender grows through the cast. 0.5 m sits 1.3 m behind the
- * deepest figure (Yshara at z = 1.77), which on the plate is about where the
+ * front plane or lavender grows through the cast. 0.5 m sits 1.7 m behind the
+ * deepest figure (Kite at z = 2.23), which on the plate is about where the
  * bed starts relative to the archer.
  */
 const FLORA_FRONT_EDGE = 0.5;
@@ -254,7 +254,7 @@ const LAWN_NEAR_LIMIT = STAGE.camZ - 2.2;
 const PATH = { x0: -1.0, z0: 4.8, dx: 0.75, dz: 1.0, feather: 1.2, width: 4.5 };
 
 /**
- * Where the cherry stands, and how high its petals drift.
+ * Where the cherry stands, how tall it is, and how high its petals drift.
  *
  * Module scope because two things need it and must not disagree: `_buildMeadow`
  * plants the tree, and `_buildMotes` seeds the falling petals in a column
@@ -274,8 +274,17 @@ const PATH = { x0: -1.0, z0: 4.8, dx: 0.75, dz: 1.0, feather: 1.2, width: 4.5 };
  * (−3.6, −4.5) and 3.2 m the canopy spans px 232 → 806 and y 15 → 265, which
  * puts it above the heads (320–383) and hard against the top edge, and leaves
  * the encounter its own column of frame.
+ *
+ * **`height` 4.4 → 5.4, and only the height.** At 4.4 the canopy crested at
+ * y ≈ 50 and left an open pale sky strip along x 0 → 560 of the top edge, which
+ * is the one corner the plate closes hardest — its blossom runs *off* the top
+ * left rather than stopping under it. Growing the tree rather than moving it
+ * nearer is deliberate: a metre of extra trunk raises the crown without lowering
+ * the canopy's underside, and the underside is the constraint, because it has to
+ * stay clear of Auren's crown at y 325. Measured on the 4.4 m capture that
+ * clearance was 75 px, and a taller tree at the same station keeps it.
  */
-const CHERRY = { x: -5.9, z: -6.4, height: 4.4, spread: 1.50, drift: 4.6 };
+const CHERRY = { x: -5.9, z: -6.4, height: 5.4, spread: 1.55, drift: 4.6 };
 
 /**
  * Grey slate, as a multiplier on whatever `props/RockForms.js` authored.
@@ -293,8 +302,20 @@ const CHERRY = { x: -5.9, z: -6.4, height: 4.4, spread: 1.50, drift: 4.6 };
  * `#8a96ab` and the cleaved sides' `#55617e` to `#3d4a66` — the plate's own
  * values to within a few code points, with the facet contrast untouched because
  * a multiply is the one operation that cannot change a ratio.
+ *
+ * **It shipped a stop hot anyway, and this is the corrected value.** Sampled
+ * across eight 60 px boxes along the wall's lit band the capture read a mean of
+ * V 0.55 at S 0.20–0.31, against `bravely01.jpg`'s massif at **V 0.36, S 0.52**
+ * — half again too bright and half as chromatic, which is why our rock came back
+ * as pale lilac card and the plate's reads as wet slate. The arithmetic the
+ * paragraph above relies on is what makes the fix a single number: because the
+ * tint multiplies in linear light, the *displayed* value scales by the tint's own
+ * sRGB code point, so V 0.55 → 0.36 is a flat 0.65 ×. Applied per channel as
+ * 0.62 / 0.68 / 0.76 rather than uniformly, which spends the same value drop on
+ * widening the red-to-blue gap and lands the saturation on the plate's 0.52
+ * instead of leaving it at 0.25.
  */
-const ROCK_TINT = 0xc2c6d6;
+const ROCK_TINT = 0x7887a3;
 
 /**
  * The ground's analytic height field.
@@ -388,19 +409,15 @@ function stagePlacement(slot) {
  *  1. **The world width is not negotiable.** Once the nearest figure's frame
  *     height `f` is chosen, the half-width the frame covers at that figure's
  *     depth is `aspect · H / 2f` — 2.71 m here — *whatever* the focal length.
- *     Six figures have to fit in that, which is a slot pitch of ~0.83 m against
- *     a ~0.25 m personal radius each.
+ *     Whoever stands in the line has to fit inside that 5.4 m, and it is the
+ *     constraint that decides how many of them there can be: see the four-figure
+ *     note below.
  *  2. **Heads land on a level line and cannot be separated vertically.** A
  *     camera at crown height projects every crown to the horizon row regardless
  *     of depth, so depth buys *feet* separation and nothing else. Horizontal
  *     clearance therefore has to be real: at these depths a head is 0.065–0.095
- *     of `ndc` across and the slot pitch is 0.26, so the nearest pair of skulls
- *     clears by 2.9×.
- *
- * Depths alternate near/far by ~1.1 m so the feet run staggers instead of
- * ruling a line across the frame, and the *shortest* characters (Emrys 1.00 m,
- * Seren 1.06 m) take near slots so the run's frame heights stay inside
- * 0.25–0.39 rather than fanning out with the roster's own 19% height spread.
+ *     of `ndc` across and the slot pitch is 0.337, so the nearest pair of skulls
+ *     clears by 3.5×.
  *
  * `face` is **degrees the head ends up off the lens axis** — 0 is straight down
  * the barrel, 90 is dead profile — and it is the single control over whether
@@ -421,62 +438,90 @@ function stagePlacement(slot) {
  * number that matters the number that is written down, and it holds whatever
  * the threat bearing or the slot's screen position later become.
  *
- * ## The 0.90× / +0.075 shift, and why the line could not simply stay put
+ * ## Where the two ends of the line are pinned
  *
  * Staging the encounter (see {@link ENCOUNTER}) costs frame width, and the
  * budget is fixed at both ends: the creature has to be *at* the left edge to be
  * the thing the line is addressing, and the HP/MP/BP stack owns everything past
  * `ndc` +0.56 — measured on the plate, whose own rightmost figure centres at
- * +0.49 with only her bow under the stack. The rebuilt encounter is longer and
- * further left than the floater it replaced, so the line gives up more of the
- * left edge again: it now spans `ndc` −0.50 → +0.56, and Auren's silhouette
- * starts at −0.61 exactly where the creature's ends. The alternative — a wider
- * lens — would have shrunk the near figure below the plate's measured 39% of
- * frame height, which is the one number this whole file is solved against.
+ * +0.49 with only her bow under the stack. The line therefore spans `ndc`
+ * −0.52 → +0.49, Kite centring exactly where the plate's archer does, and
+ * Auren's silhouette starting at −0.63 where the creature's ends. The
+ * alternative — a wider lens — would have shrunk the near figure below the
+ * plate's measured 39% of frame height, which is the one number this whole file
+ * is solved against.
  *
  * ## The recession, and the 35° that is not available
  *
- * The line used to alternate near/far by ~1.1 m in an order chosen only to
- * stagger the feet, which put six figures at effectively one station: every
- * silhouette met the meadow at the same depth, nothing overlapped anything, and
- * the frame read as a row of cut-outs pinned to a backdrop. The plate does not
- * do that. Measured on `bravely01.jpg` its four figures' feet land at y 745,
+ * Measured on `bravely01.jpg` the plate's four figures' feet land at y 745,
  * 755, 800 and 870 — a **monotone recession** from the figure nearest the
  * threat (Adelle, frame right, feet lowest) back to the one furthest from it
  * (Seth, frame left). Our threat is at frame *left*, so the same run is
- * mirrored: Auren nearest, Yshara deepest, 1.40 m of depth across the line and
- * every adjacent pair separated in z as well as in x.
+ * mirrored: Auren nearest, Kite deepest, 1.30 m of depth across the line and
+ * every adjacent pair separated in z as well as in x. A line at one station —
+ * which is what an order chosen only to stagger the feet produces — reads as a
+ * row of cut-outs pinned to a backdrop, because every silhouette then meets the
+ * meadow at the same depth and nothing overlaps anything.
  *
  * The review asked for the camera to sit **35° off the party line** and that is
  * not reachable at this frame's other constraints, which is worth writing down
  * rather than silently missing. The line's world width is fixed by the near
- * figure's frame height (see the invariant above) at 3.39 m here; the depth run
+ * figure's frame height (see the invariant above) at 3.16 m here; the depth run
  * is bounded by the frame-height band the plate itself holds, 0.29–0.39, which
- * at this roster's 1.00–1.26 m height spread allows depths of 4.20–5.60 and no
- * more. `atan(1.42 / 3.39)` is **22.7°**, and buying the remaining 12° costs
+ * at this party's 1.00–1.19 m height spread allows depths of 4.20–5.50 and no
+ * more. `atan(1.30 / 3.16)` is **22.4°**, and buying the remaining 13° costs
  * either a rear figure under 0.24 of frame height — below the size at which a
  * chibi's painted eyes resolve at all — or a wider lens, which flattens the
- * compression that is the plate's most distinctive property. 22.7° is what the
+ * compression that is the plate's most distinctive property. 22.4° is what the
  * frame has; it is two thirds of the ask and it is the whole of what the
  * geometry permits.
  *
- * Slot spacing lands at 0.62–0.84 m of world separation, mean 0.74, against a
- * chibi's ~0.50 m shoulder width — i.e. the 1.5-character pitch the review
- * specified, measured rather than assumed.
- *
  * `face` keeps the plate's *ordering* — the figure nearest the threat is the
- * most profile and the far end is the most frontal, 43°/45°/59°/75° on the plate
- * — but the whole column comes down 8–10°, because the plate's 75° is on a head
- * 148 px tall and ours are 90. At 68° a chibi's near eye is fully occluded by
- * its own cheek mass; 58° is where both eyes are still presented.
+ * most profile and the far end is the most frontal — but the column is
+ * compressed into 42°–58° against the plate's 43°–75° spread, because the
+ * plate's 75° sits on a head 148 px tall and ours are 90. At 68° a chibi's near
+ * eye is fully occluded by its own cheek mass; 58° is where both eyes are still
+ * presented, so it is the profile end of the range rather than a midpoint.
+ *
+ * ## Four figures, not six — the largest correction in this table
+ *
+ * Every number above was solved for a six-slot line and every one of them held;
+ * what did not hold is the premise. Measured on the shipped capture the six
+ * silhouettes sat at an `ndc` pitch of **0.212** against the plate's **0.37**,
+ * i.e. the line was packed to 57% of the reference spacing, adjacent
+ * silhouettes touched or overlapped at four of the five joins, and the two
+ * right-hand figures stood underneath the HUD stack rather than beside it. None
+ * of that is reachable by moving slots: constraint (1) above fixes the world
+ * width at 3.4 m once the near figure's frame height is chosen, so a six-figure
+ * line at plate spacing does not exist at the plate's own figure size. One of
+ * the two had to give, and the frame height is the number the whole file is
+ * solved against.
+ *
+ * The plate stages **four**, `roster.js` declares a four-strong
+ * `DEFAULT_PARTY` (and this line is that party), and `BattleUI` renders one row
+ * per member — so six was also what made our HUD stack 720 px tall against the
+ * plate's 455 and pushed it up over the treeline. Staging the game's own default
+ * party fixes the composition, the HUD height and the frame budget at once: two
+ * skinned rigs are the most expensive pair of objects in the scene, and dropping
+ * them is what pays for the lawn density and the rock mass below.
+ *
+ * At four slots the pitch is **0.337 of `ndc`** — the plate's 0.37 to within a
+ * silhouette's width — and world separations run 0.87 / 1.05 / 1.24 m against a
+ * chibi's ~0.50 m shoulder, i.e. two full character widths of air at the tight
+ * end. Frame heights land 0.39 / 0.30 / 0.29 / 0.29 against the plate's 0.39 →
+ * 0.30, and the line's recession is `atan(1.30 / 3.16)` = **22.4°**, which is
+ * the same angle the six-slot solve reached and for the same reasons.
+ *
+ * Composition is by id rather than by roster order: Auren leads at the threat
+ * end because he is the party's vanguard and the tallest thing in the line, and
+ * Emrys takes the second slot because at 1.00 m he is the shortest and a near
+ * slot is the only place his frame height stays inside the run's band.
  */
 const PARTY = [
-  { id: 'auren',  ndc: -0.500, depth: 4.20, face: 58 },
-  { id: 'emrys',  ndc: -0.288, depth: 4.55, face: 54 },
-  { id: 'seren',  ndc: -0.076, depth: 4.90, face: 50 },
-  { id: 'bramm',  ndc:  0.136, depth: 5.15, face: 50 },
-  { id: 'kite',   ndc:  0.348, depth: 5.40, face: 46 },
-  { id: 'yshara', ndc:  0.560, depth: 5.60, face: 42 },
+  { id: 'auren', ndc: -0.520, depth: 4.20, face: 58 },
+  { id: 'emrys', ndc: -0.183, depth: 4.63, face: 54 },
+  { id: 'seren', ndc:  0.153, depth: 5.06, face: 48 },
+  { id: 'kite',  ndc:  0.490, depth: 5.50, face: 42 },
 ];
 
 /**
@@ -490,24 +535,26 @@ const PARTY = [
  *    as "an abstract spiked-ball enemy", and it was a real constraint rather
  *    than a preference: the glassmane measured **1.79 × as long as it was tall**,
  *    which broadside at a threatening frame height is 0.87 of `ndc` — 43% of the
- *    image — and no arrangement of six characters and a HUD stack leaves that.
+ *    image — and no arrangement of a party line and a HUD stack leaves that.
  *    The floater fitted, and what shipped was a ribbed dome with no head, no
  *    limbs and no front. `Bestiary`'s stance rebuild fixes the *cause*: the
  *    animal now stands at 1.48 long per unit of height, and at the yaw this
  *    staging presents it at, 0.55 of `ndc`. A frame whose antagonist has a face,
  *    ears, four legs and a tail is worth the width.
- *  - **`height` 2.05 m against a 1.00–1.26 m cast** — 1.63 × the tallest figure
- *    in the line, which is the review's "~1.5 × character height" taken against
- *    the roster's tallest rather than its shortest. Bigger than anything in the
+ *  - **`height` 2.05 m against a 1.00–1.19 m line** — 1.72 × the tallest figure
+ *    staged, which is the review's "~1.5 × character height" taken against the
+ *    tallest member rather than the shortest. Bigger than anything in the
  *    line in world metres by a wide margin while sitting 2.7 m further from the
  *    lens, so it holds 0.34 of frame height against Auren's 0.39: the frame
  *    reads it as *large and further away*, which is the depth relationship an
  *    enemy needs, rather than as merely close.
- *  - **`ndc` −0.88, `depth` 8.20.** The pair is solved together against two hard
+ *  - **`ndc` −0.92, `depth` 8.20.** The pair is solved together against two hard
  *    edges. With `turnToLens` applied it stands at a heading of 42°, at which
- *    its projected silhouette is 2.63 m across — 0.495 of `ndc`, spanning
- *    −1.127 → −0.633 — and Auren's own silhouette starts at −0.610, so the two
- *    clear by 22 px and never overlap. The 26% of the creature past the left
+ *    its projected silhouette is 2.63 m across — 0.496 of `ndc`, spanning
+ *    −1.168 → −0.672 — and Auren's own silhouette starts at −0.63, so the two
+ *    clear by 40 px and never overlap. `ndc` came out from −0.88 with the
+ *    four-slot line: that line puts its lead 0.02 further left, which had closed
+ *    the old 22 px gap to nothing. The 34% of the creature past the left
  *    edge is the plate's own device (it puts its threat entirely off-frame)
  *    taken one step in. The depth is what makes that fit: at the previous
  *    staging's 5.60 the same animal covers 0.73 of `ndc` and buries the leader.
@@ -527,7 +574,7 @@ const PARTY = [
  */
 const ENCOUNTER = {
   id: 'glassmane',
-  ndc: -0.88,
+  ndc: -0.92,
   depth: 8.20,
   height: 2.05,
   hover: 0.014,
@@ -642,19 +689,20 @@ function headingTo(a, b) {
  * address is mirrored. The anchor is deliberately *not* the creature itself,
  * and the requirements that decide that are specific:
  *
- *  - **Far.** At 25 m the six slots' headings to it converge inside 7°, so the
+ *  - **Far.** At 25 m the four slots' headings to it converge inside 5°, so the
  *    line reads as watching one thing. Aimed at the creature 6 m away they fan
  *    by 25°, and the near-left figure ends up in dead profile while the
  *    far-right one is nearly frontal.
- *  - **On the creature's bearing, and re-solved when the creature moved.** The
- *    encounter now stands at −123.9° from the party centroid rather than the
- *    −99.6° the previous staging put it at, because it is both further left and
- *    2.5 m *deeper* than the line instead of level with it. The anchor is
- *    therefore placed by extending that exact bearing to 25 m rather than by
- *    keeping a coordinate: leaving the old (−18, 2.0) in place would have had
- *    the whole party watching a point 31° off the only thing in frame to watch,
- *    which is the kind of defect that survives a review because nothing in the
- *    picture says what the party is *supposed* to be looking at.
+ *  - **On the creature's bearing, and re-solved every time either end moves.**
+ *    From the four-slot centroid (0.07, 2.89) the encounter stands at −125.6°,
+ *    because it is both further left and 3.4 m *deeper* than the line rather
+ *    than level with it. The anchor is therefore placed by extending that exact
+ *    bearing to 25 m rather than by keeping a coordinate: a stale anchor has the
+ *    whole party watching a point tens of degrees off the only thing in frame to
+ *    watch, which is the kind of defect that survives a review because nothing
+ *    in the picture says what the party is *supposed* to be looking at. Dropping
+ *    two slots moved the centroid 0.4 m and the bearing 1.7°, and this constant
+ *    moved with it.
  *  - **Off frame**, at `ndc` ≈ −2.4, so the aim point itself never has to be
  *    modelled — the creature occupies the near end of the same bearing.
  *  - **At 1.10 m**, between the cast's own ~1.0 m eye line and the staged
@@ -668,7 +716,7 @@ function headingTo(a, b) {
  * presentation angle and subtracts whatever the gaze contributes, so it delivers
  * the authored `face` from any anchor position at all.
  */
-const GAZE_ANCHOR = new THREE.Vector3(-20.5, 1.10, -11.2);
+const GAZE_ANCHOR = new THREE.Vector3(-20.26, 1.10, -11.67);
 
 /**
  * How much of the way to the gaze anchor the head is allowed to travel.
@@ -772,9 +820,9 @@ const CAMERA_POSES = {
    * slot's screen position by `d / (d − push)`, and it does so hardest on the
    * *nearest* figure — which on this line is the lead. At 1.35 m Auren's slot
    * ran from `ndc` −0.78 out to −1.16, i.e. wholly outside the frame, and the
-   * sheet's command framing duly shipped five of six characters with the party
-   * leader missing: "crop at the edges" is a claim about a shoulder, not about
-   * losing a cast member. 0.70 m puts him at −0.94 — cropped down one arm and
+   * sheet's command framing duly shipped the line with its leader missing:
+   * "crop at the edges" is a claim about a shoulder, not about losing a cast
+   * member. 0.70 m puts him at −0.94 — cropped down one arm and
    * still read as a figure — and holds the rear slot inside the right edge,
    * where the HUD stack overlays rather than replaces it.
    */
@@ -838,13 +886,21 @@ const CAMERA_POSES = {
      * statement about the subject and the range that produces it depends on the
      * focal length and on whose head it is.
      *
-     * A chibi's crown-to-shoulder run is ~0.50 m and the head alone ~0.44 m, so
-     * 0.72 m frames the portrait with a shoulder's worth of costume under it
-     * and the head at ~61% of frame height. The previous 0.95 m put the head at
-     * 44% — a torso shot with a face in it, which is not enough face to judge
-     * an eye build on, and this frame's entire job is judging the eye build.
+     * **0.62 m, and the head is 0.31 m — not the 0.44 m this note used to
+     * assert.** Measured on the shipped capture rather than estimated: Auren's
+     * crown-to-chin ran y 90 → 560 of 1080, i.e. 43.5% of a frame covering
+     * 0.72 m, which is 0.313 m of head. That is what a 4.3-head chibi 1.16 m
+     * tall actually has, hair shell included, and it meant the pose was
+     * delivering a 43% head where the note claimed 61% — still a torso shot with
+     * a face in it, which is the exact defect the note was written to fix.
+     *
+     * 0.62 m puts the head at **50%** of frame height with the crown at y 139
+     * and the chin at y 679, so there is a quarter of the frame above the hair
+     * and a shoulder's worth of costume below the jaw. It does not go tighter
+     * because `aim.up` lifts the eyes off centre: at 0.55 m the crown lands at
+     * y 30 and a breath of the idle clip crops it.
      */
-    frame: 0.72,
+    frame: 0.62,
     // Camera 5 cm under the eye line: ART_BIBLE §5.4's "hero shots slightly
     // low", and on a chibi it also stops the 12°-down battle habit from
     // reading as a look down at a child.
@@ -853,7 +909,9 @@ const CAMERA_POSES = {
     // frame left: eyes land just over the upper third and the head is off the
     // centreline (§5.2). Signs matter — the aim point *is* frame centre, so a
     // negative `up` puts the eyes above it.
-    aim: { right: 0.12, up: -0.10 },
+    // Scaled with `frame` above, so the thirds placement is the same fraction
+    // of the image it was at 0.72 m rather than drifting up as the shot tightens.
+    aim: { right: 0.10, up: -0.07 },
     // f/11, not f/8. Focus rides the head bone (see `poseCamera`), so the plane
     // is on the eyes by construction; what the stop has to buy is enough depth
     // that the whole 0.44 m skull — brow to ear to jaw — is inside it. At this
@@ -945,7 +1003,7 @@ const FOG_COOLING = 0.18;
  * 1, whatever the rig, the probe or the toon shader are doing — and PostFX's
  * diagnostic path (which this pose already triggers) has bloom, grain, vignette
  * and the grade off, so nothing downstream can lift black off black either.
- * What is left is the only question the pass asks: are these six shapes
+ * What is left is the only question the pass asks: are these four shapes
  * distinguishable.
  *
  * Two stages of the chain the diagnostic path does *not* drop have to be
@@ -975,7 +1033,7 @@ const MATTE = {
  * Contact shadows — a top-down occlusion projector, not a decal.
  *
  * BRAVELY §7 requires "ground visible beneath them with soft contact shadows"
- * and the shipped frame had none: six pairs of boots met the terrain with no
+ * and the shipped frame had none: every pair of boots met the terrain with no
  * occlusion darkening at all.
  *
  * The cascades cannot supply it, at this hour least of all. `STAGE_TIME_OF_DAY`
@@ -1276,10 +1334,6 @@ export class LookdevScene extends Scene {
     geo.computeVertexNormals();
     this.track(geo);
 
-    // Repeat is solved from texel density, not taste: 900 m / 400 puts one
-    // tile every 2.25 m, which at the chibi scale is roughly one tile per two
-    // body heights — fine enough that the near ground carries detail, coarse
-    // enough that the tiling period never lands inside a single frame.
     // Cloned so the conditioning stays local; the clone shares the forge's
     // textures and the forge guards those against `disposeTree`.
     //
@@ -1289,7 +1343,15 @@ export class LookdevScene extends Scene {
     // `Flora.js` documents at length for its own materials, and for the same
     // reason: two greens multiplied give a black lawn, which is most of how the
     // previous stage floor ended up at L≈18 with no value left to shadow.
-    this.groundMaterial = forge.material('grass', { repeat: 400 }).clone();
+    // Repeat 900, not 400. 900 m / 900 is one tile per metre, and the tile is
+    // what supplies the streaking *between* the grass instances — the plate's
+    // near lawn resolves directional strokes about 6 cm long, and the finest
+    // feature an fBm can put inside a 2.25 m tile is nearer 30 cm. One tile per
+    // metre lands those strokes at 7–8 cm at the party's own depth. It costs
+    // nothing: `repeat` is a uniform on maps the forge already built, and the
+    // period is still far shorter than the frame is wide, so no tile boundary
+    // can land in shot twice.
+    this.groundMaterial = forge.material('grass', { repeat: 900 }).clone();
     this.groundMaterial.color.setRGB(1, 1, 1);
     this.groundMaterial.envMapIntensity = 0.35;
     // The contact projector and the floor's own value/chroma conditioning both
@@ -1362,16 +1424,23 @@ export class LookdevScene extends Scene {
    * Everything is placed by where it has to land *in frame*, then converted to
    * metres through the same lens the party is staged with (`TAN_HALF_H`):
    *
+   * (The table is a summary of the calls below and every entry in it is read
+   * back off them, because a layout note that has drifted from the layout is
+   * worse than none — this one had the cherry, the conifer, the wall and the
+   * belt all at stations they had been moved off.)
+   *
    * | element | world | why there |
    * |---|---|---|
-   * | mown lawn | (0, 3) r 15 | the cast stands on it; blades 9–17 cm so boots clear it, as they do on the plate |
+   * | mown lawn | (0, 3) r 15, 26 k | the cast stands on it; 6.5–11.5 cm blades at 37/m², dense enough to read as turf rather than as spikes |
+   * | ground cover | (0, 2) r 13 | broad low leaves pooling between the blades, so the floor is not one green |
    * | dirt path | bottom-left, see `_pathness` | the plate's warm path enters the bottom-left corner and leaves frame at the left edge |
-   * | bed, front band | (0, −1.5) r 9 | starts 1.8 m behind the deepest figure, so nothing grows through the line |
-   * | bed, main mass | (0, −8) r 14 | at that depth the frame is 14 m of half-width, so one field fills it edge to edge |
-   * | cherry | (−6.0, −2.2) h 3.6 | `ndc` −0.93 and its crown at `ndc_y` +0.93: the canopy closes the upper-left corner exactly as the plate's does |
-   * | conifer | (5.4, −6.0) h 4.6 | the plate's one mid-right tree, above and behind the bed's right half |
-   * | boulder wall | (−1, −13.5) size 2.6 | spans `ndc_y` 0.46→0.83, i.e. the top third, at 2.3× character height |
-   * | far belt | (0, −27) r 34 | the treeline, now *behind* the bank rather than standing in for it |
+   * | bed, front band | (0, −1.5) r 6–8.5 | starts 1.7 m behind the deepest figure, so nothing grows through the line |
+   * | bed, main mass | (0, −5.5) r 9–11 | at that depth the frame is 7 m of half-width, so one field fills it edge to edge |
+   * | foreground drift | (2.1, 4.55) r 1.25 | the plate's own bottom-right flowers, crossing in front of the line |
+   * | cherry | (−5.9, −6.4) h 5.4 | a background mass whose canopy runs off the top-left corner, as the plate's does |
+   * | broadleaf ×2 | (3.6, −8.5) and (6.9, −7.4) | the plate's two mid-right trees, above and behind the bed's right half |
+   * | boulder massif | (−1.8, −17.4) size 7.4 | the dominant upper-third mass: 268 px tall, 1.1 of `ndc` wide |
+   * | far belt | (0, −30) r 16, 10 + 10 | the treeline, *behind* the bank rather than standing in for it |
    *
    * ## Why nothing is faded out with distance
    *
@@ -1419,7 +1488,7 @@ export class LookdevScene extends Scene {
     // 15 m radius reaches to z = 18, i.e. ten metres *behind* the lens, and a
     // 0.12 m blade half a metre in front of the glass covers most of the frame:
     // the first capture of this meadow is a picture of that, blades crossing
-    // the whole image and burying six characters. The battle lens first meets
+    // the whole image and burying the cast. The battle lens first meets
     // the ground 2.2 m out (`atan` of the frustum's lower edge against
     // `STAGE.camY`), so anything nearer than `LAWN_NEAR_LIMIT` cannot be seen
     // as ground at all and can only ever be seen as a wall of grass.
@@ -1428,9 +1497,27 @@ export class LookdevScene extends Scene {
     // right for the plate at the plate's distance, but the plate's own lawn
     // resolves as *streaks* with no discrete blade anywhere, and at 2.2 m a
     // 0.17 m blade is 15% of frame height.
+    //
+    // **26 000 blades, not 13 000, and this is the correction the near ground
+    // needed most.** `buildGrassField`'s own lawn preset is 34 000 over a 14 m
+    // radius — 55 blades per m² — and this call had been carrying 13 000 over 15
+    // m, which is **18**. A third of the intended coverage is not a thinner lawn,
+    // it is a different material: every blade stands alone with bare ground
+    // around it, so the eye resolves each one as an object and the floor reads as
+    // sparse plastic spikes pushed into mud. Everything the builder does to make
+    // a blade read as a *streak* — the 1.25 reach, the 0.85 droop, the flat taper,
+    // all documented at length in `Flora.js` — depends on blades overlapping
+    // their neighbours, and at 18/m² they cannot reach each other.
+    //
+    // 26 000 over 15 m is 37/m², two thirds of the preset's density on a field
+    // that is 15% larger, and the near cut-off below still discards everything
+    // inside 2.2 m. The extra 13 000 instances are one draw call and no new
+    // material; what they cost is vertex work, and it is paid for several times
+    // over by the two rigs the four-slot line gave back, by eight fewer belt
+    // trees and by six fewer boulders.
     plant(buildGrassField, 0, 3.0, {
-      preset: 'lawn', radius: 15, count: 13000, falloff: 0.62, distanceGrowth: 0.9,
-      height: [0.055, 0.105],
+      preset: 'lawn', radius: 15, count: 26000, falloff: 0.62, distanceGrowth: 0.9,
+      height: [0.065, 0.115],
       mask: (x, z) => (z + 3.0 > LAWN_NEAR_LIMIT ? 0 : this._floraMask(x, z + 3.0)),
     });
 
@@ -1566,8 +1653,8 @@ export class LookdevScene extends Scene {
     // **Sized against the frame, not against the plant.** At z ≈ 4.5 the lens is
     // 3.1 m from the ground it stands on and the frame is 2.0 m of half-width,
     // so a 0.5 m flower there covers 22% of frame *height* — the first capture
-    // of this drift put lavender and tulips over three of the six party members
-    // from the waist down and into the HUD column. 0.26–0.40 m covers 12–18%,
+    // of this drift put lavender and tulips over half the party from the waist
+    // down and into the HUD column. 0.26–0.40 m covers 12–18%,
     // which is a band along the bottom edge rather than a hedge, and the whole
     // drift is pushed right to x 2.1 so its visible half sits in the corner the
     // HUD stack already owns instead of over a face.
@@ -1605,7 +1692,18 @@ export class LookdevScene extends Scene {
     plant(buildBroadleafTree, 3.6, -8.5, {
       count: 1, height: 5.4, spread: 1.16, lobes: 6, fringe: 220,
     });
-    plant(buildConiferTree, 6.6, -6.0, { count: 1, height: 4.6 });
+    // Frame right used to carry a lone conifer here, and it was the least
+    // plate-like object in the capture: a hard-edged 4.6 m cone of notched tiers
+    // filling x 1700→1920 from the top edge down to y 500, next to a HUD stack
+    // that is itself all straight lines. `bravely01.jpg` has no conifer anywhere
+    // near its right edge — it has a second broadleaf, trunk visible, rounded
+    // crown running off the top corner — so this is that tree instead. Cedars
+    // are not banished, they are simply where the plate keeps them: in the belt
+    // below, at a distance where a notched silhouette reads as variety rather
+    // than as a Christmas tree.
+    plant(buildBroadleafTree, 6.9, -7.4, {
+      count: 1, height: 5.0, spread: 1.10, lobes: 6, fringe: 160,
+    });
     // The belt. A 34 m scatter about z = −27 reached forward to z = +7, i.e.
     // to within a metre of the lens, and the first capture duly shipped conifers
     // standing in the flower bed at four times the party's height. It then went
@@ -1632,9 +1730,18 @@ export class LookdevScene extends Scene {
     // and the lobes carry the whole read) is *cheaper* per tree than the cedar
     // it replaces. The two scatters share a centre and overlapping radii so the
     // species interleave rather than occupying two halves of the horizon.
-    plant(buildConiferTree, 0, -30, { count: 11, radius: 16, height: 7.0 });
+    //
+    // Down from 11 + 11 to 10 + 10. The belt's job is to be a lid, and at 22 it
+    // was over-delivering: the band above the bed came back a solid green mass
+    // with no sky in it at all, where the plate lets daylight through between its
+    // crowns in three places. Twenty is where both measurements sit — the band
+    // still closes and the gaps are the plate's, not a hole — and it is two trees
+    // of the most expensive geometry on the stage given back toward the lawn
+    // density below. (8 + 8 was tried first and went too far the other way; the
+    // sky fraction of the top 200 px came back at 25% against the plate's 11%.)
+    plant(buildConiferTree, 0, -30, { count: 10, radius: 16, height: 7.0 });
     plant(buildBroadleafTree, 1.5, -29, {
-      count: 11, radius: 17, height: 6.4, spread: 1.20, lobes: 5, fringe: 0,
+      count: 10, radius: 17, height: 6.4, spread: 1.20, lobes: 5, fringe: 0,
     });
 
     // --- rock ---------------------------------------------------------------
@@ -1668,11 +1775,38 @@ export class LookdevScene extends Scene {
     // the rock from the near-white it rendered at down onto the plate's own
     // measured slate without touching the facet contrast. That is what makes the
     // two **mid-ground** clusters below viable — grey rock at 5 m has to be grey.
-    plant(buildBoulderCluster, -1.5, -18, {
-      count: 12, radius: 8, size: 5.0, chips: 22, tint: ROCK_TINT,
+    //
+    // **Fewer, bigger, and packed to a fifth of the spread.** Twelve blocks over
+    // a 16 m diameter is one block every 1.3 m against a 2.9 m block, so nothing
+    // touched anything: the capture shipped a row of separate pale pyramids
+    // standing shoulder to shoulder along the bed's crest — a picket fence, and
+    // the most artificial thing in the frame. The plate's wall is the opposite
+    // arrangement. It is a *pile*: three or four masses that interpenetrate, each
+    // several times the size of ours, with the cleaved faces of one running into
+    // the weathered top of the next and no gap anywhere.
+    //
+    // 9 blocks at `size` 7.4 (a 4.3 m box, by the same measured 0.58 m per unit
+    // of `size` the paragraph above establishes) over a 12.4 m spread guarantees
+    // that: the mean centre spacing is 1.4 m against a 4.3 m block, so every one
+    // of them is inside its neighbour. In frame it is 268 px tall against the
+    // plate's own 210 px band, and 1.1 of `ndc` wide, which is the dominant
+    // upper-third mass the plate has and our row of pyramids was not. It is also
+    // nine instances rather than twelve.
+    //
+    // The spread came back out from 4.6 m after the first capture of the packed
+    // arrangement: at that radius the pile was correct and *narrow*, a 380 px
+    // island with open sky either side of it, and the sky fraction of the top
+    // 200 px measured 25% against the plate's 11%. A massif has to be wide enough
+    // to be the lid as well as dense enough to be a pile.
+    plant(buildBoulderCluster, -1.8, -17.4, {
+      count: 9, radius: 6.2, size: 7.4, chips: 22, tint: ROCK_TINT,
     });
+    // The right-hand outcrop, same treatment: 4 interlocking blocks rather than
+    // 5 loose ones. It sits behind the broadleaf and only its shoulder is ever
+    // in frame, so it is sized to read as *more of the same formation* seen past
+    // a tree rather than as a second, smaller, separate pile.
     plant(buildBoulderCluster, 9.5, -16, {
-      count: 5, radius: 5, size: 4.0, chips: 12, tint: ROCK_TINT,
+      count: 4, radius: 3.0, size: 6.0, chips: 12, tint: ROCK_TINT,
     });
     // Mid-ground rock, half-buried in the bed either side of the line.
     //
@@ -1720,7 +1854,7 @@ export class LookdevScene extends Scene {
    *     growing out of a character's chest is the single most expensive defect
    *     this frame can ship. The cut-off is a plane just behind the deepest
    *     figure rather than a per-character disc: the plate's bed has a clean
-   *     front edge, and six discs would give it a scalloped one.
+   *     front edge, and a disc per character would give it a scalloped one.
    */
   _floraMask(x, z) {
     if (z > FLORA_FRONT_EDGE && z < STAGE.camZ + 1.0) {
@@ -1838,10 +1972,10 @@ export class LookdevScene extends Scene {
     let minX = Infinity; let maxX = -Infinity;
     let minZ = Infinity; let maxZ = -Infinity;
     // The creature is included, and it is the reason this loop reads a list
-    // rather than PARTY_PLACES directly. It stands 3.3 m west of and 4.1 m
-    // beyond the leftmost party slot, i.e. outside the buffer the six figures alone would size —
-    // and the ground shader resolves everything outside the buffer to *no*
-    // occlusion, so the omission would not fail loudly, it would just quietly
+    // rather than PARTY_PLACES directly. It stands 3.5 m west of and 4.1 m
+    // beyond the leftmost party slot, i.e. outside the buffer the line alone
+    // would size — and the ground shader resolves everything outside the buffer
+    // to *no* occlusion, so the omission would not fail loudly, it would just quietly
     // ship the largest thing in frame standing on nothing.
     for (const p of [...PARTY_PLACES, ENCOUNTER_PLACE]) {
       minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
@@ -2052,16 +2186,53 @@ export class LookdevScene extends Scene {
        * clamped so no fBm extreme can drive the floor to black or to white. It
        * supplies tiling variation and nothing else.
        */
-      // 0x66763f, up from 0x5f7233. Over the plate's mown lawn (x 300–1300,
-      // y 850–1050) mean saturation is 0.483 and ours measured 0.587 at a p50 of
-      // 100 against the plate's 112 — a green that is both darker and more
-      // chromatic than the reference. This lifts the red channel and leaves the
-      // green where `Flora.js` measured it, which drops the plane's own
-      // saturation from 0.55 to 0.47 without moving it off the p50 the blades
-      // are now authored to sit against.
-      uLawnColor: { value: new THREE.Color(0x66763f) },
+      // The value has been walked up twice. 0x5f7233 → 0x66763f lifted the red
+      // channel against a measured saturation of 0.587 where the plate's mown
+      // lawn (x 300–1300, y 850–1050) reads 0.483, and left the green where
+      // `Flora.js` had measured it.
+      //
+      // **0x8c9869, up again from 0x66763f, and the previous value was chasing
+      // the wrong statistic.** Both of the notes above compare *our floor* with
+      // *the plate's floor* at p50, and at p50 the two do agree tolerably. What
+      // they never compared is the top of the distribution, and that is where the
+      // whole difference lives: over x 300–1300, y 850–1050 the plate reads p50
+      // (96,119,90) and p90 **(151,156,98)** — a sunlit lawn whose highlights run
+      // most of the way to white — while the shipped capture read p50 (66,88,53)
+      // and p90 **(77,104,49)**. A 74-code-point gap at p90 against a 30-point
+      // gap at p50 is not a hue error, it is a floor with no *lit* end to its
+      // range at all, and it is why the bottom third of our frame read as damp
+      // moss under a bright sky.
+      //
+      // Lifting the albedo 1.37 × moves the whole distribution rather than its
+      // middle, which is what the measurement asks for; the shading model then
+      // puts the shadowed end back where p50 already was.
+      //
+      // **0x939855 — the lift's own follow-up, on the blue channel.** With the
+      // value correct the region mean over the same box came back
+      // (90.7, 116.2, 80.0) against the plate's (97.2, 117.6, 66.0): V exact at
+      // 0.46, and green exact, but B/G **0.69 against 0.56** and hue 102° against
+      // 84°. Our lawn was the right brightness and 18° too cold — a green lit by
+      // a blue sky rather than a green lit by the sun, which is the one thing a
+      // meadow at midday must not be. The excess arrives through the ambient and
+      // the probe, and the albedo's blue channel is the lever this file owns:
+      // 0x69 → 0x55 is the 0.81 × that takes rendered B/G to the plate's 0.56,
+      // and 0x8c → 0x93 the 1.05 × that takes R/G to its 0.82. Green is
+      // deliberately untouched, so the value the paragraph above solved for does
+      // not move. Saturation lands at 0.44 — the plate's own, measured.
+      uLawnColor: { value: new THREE.Color(0x939855) },
       uPathColor: { value: new THREE.Color(0xd8c096) },
-      uGroundDetail: { value: new THREE.Vector2(0.35, 0.85) },
+      // Nominal 0.32 and swing 0.55, down from 0.35 / 0.85.
+      //
+      // The swing is what the eye was reading as *blotches*: at 0.85 the fBm
+      // drove the floor over a 0.55–1.45 range, i.e. a factor of 2.6 between the
+      // light and dark ends of a pattern whose features were metre-scale at the
+      // old repeat, so the near ground carried dark smears a body-width across
+      // that no lawn has. The plate's mown grass varies too, but between patches
+      // of *streaking*, not in metre-wide pools. 0.55 halves the excursion into
+      // tiling variation the eye reads as surface rather than as staining, and
+      // the nominal comes down with it so the texture's own mean maps to 1.0
+      // instead of to a net darkening.
+      uGroundDetail: { value: new THREE.Vector2(0.32, 0.55) },
       /** `(x0, z0, dx, dz)` of {@link PATH}, plus its feather, evaluated per
        *  fragment so the boundary is exact instead of quantised to the 7 m
        *  terrain tessellation the 900 m plane can afford. */
@@ -2221,7 +2392,7 @@ ${shader.fragmentShader}`
   /* --------------------------------------------------------------- staging */
 
   /**
-   * Build the six roster characters and stage them across the middle of frame —
+   * Build the staged party and run them across the middle of frame —
    * see {@link PARTY} for the measurements the line is solved against.
    *
    * `lighting` is passed so `ToonMaterial` aliases the rig's key/rim uniform
@@ -2717,7 +2888,7 @@ ${shader.fragmentShader}`
     // would double-integrate the weather crossfade and the rig easing.
 
     // Under SwiftShader the first textured frames can take a quarter of a
-    // second. Feeding that straight into six verlet cloth rigs means 15
+    // second. Feeding that straight into four verlet cloth rigs means 15
     // substeps each and a visible whip; clamping keeps the pose stable and
     // costs nothing at real frame rates.
     const step = Math.min(dt, 1 / 30);

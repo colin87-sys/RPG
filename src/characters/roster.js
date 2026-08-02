@@ -981,7 +981,15 @@ export const ROSTER = Object.freeze([
     weapon: Object.freeze({
       kind: 'grimoire', mount: 'handL',
       width: 0.19, height: 0.24, thickness: 0.055,
-      orreryRings: 3, orreryRadius: 0.30,
+      // **0.085, not 0.30.** `orreryRadius` is a fraction of *body height*, not
+      // of the book, and `CharacterFactory` grows the three rings from it as
+      // `radius · H · (0.6 + 0.26 i)` — so 0.30 on a 1.00 m character put the
+      // outer ring at 34 cm, a 67 cm hoop around a 24 cm book on a figure whose
+      // whole torso is 40 cm. Shipped emissive, it read as a glowing orange
+      // hula-hoop swallowing his chest and was the loudest defect in the battle
+      // frame. At 0.085 the rings run 5.1–9.5 cm: a halo standing off the covers
+      // by half a book width, which is what an orrery on a grimoire is.
+      orreryRings: 3, orreryRadius: 0.085,
       tilt: 0.18, roll: -0.22,
       emissive: 1.1,
     }),
