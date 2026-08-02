@@ -29,6 +29,11 @@
  *     the entire chain out — including the environment Fresnel in
  *     `RE_IndirectSpecular_Toon`, which is the half that survived the previous
  *     `specGain: 0` and put a grazing sheen on every garment in the frame.
+ *     Whatever survives that dispatch is bounded three times in the composite,
+ *     and the third bound is stated on **mark plus surface** (`awToonSumBound`)
+ *     because that is the quantity a photograph of the plate measures: with
+ *     only the first two, 26% of every hair mass on the cast rendered at the
+ *     clip point while both were satisfied.
  *  3. **Indirect** is held, not applied, so the composite can decide once which
  *     albedo it multiplies. On a character class it is *partly* flattened
  *     (`TOON_FLAT_AMBIENT` plus `uToonAmbientFlatness`) so the ambient cannot
@@ -524,6 +529,23 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
       awSpecScale *= awToonSpecRelBound( awSpecPeak * awSpecScale, max3( awSurface ) );
     #endif
 
+    // ---- and the bound on the sum, which is what a camera measures ---------
+    // The two bounds above are both stated on the *mark*: one in absolute
+    // radiance, one as a ratio to the surface. Neither of them can promise the
+    // pixel does not clip, because a mark at 1.4x a surface that is already
+    // near the top of the tone curve is still white — and that is what the
+    // capture showed. Fraction of a zone above sRGB 235, ours against
+    // 'bravely01.jpg': hair mass 26.07% against 0.00%, pauldron 1.41% (peaking
+    // at 255) against 0.01% (peaking at 238). A quarter of every hair mass on
+    // the cast was a hole rather than a band, and no amount of narrowing the
+    // arc fixes a mark whose whole area sits at the clip point.
+    //
+    // Stated on the sum, through the same soft shoulder, so the mark spends the
+    // headroom the surface has left and no more. It applies to the sheen too:
+    // a fur collar's grazing lobe is the other term that can outrun its own
+    // albedo without either bound above noticing.
+    awSpecScale *= awToonSumBound( max3( awSurface ), awSpecPeak * awSpecScale );
+
     reflectedLight.directSpecular *= awSpecScale;
 
   #endif
@@ -567,7 +589,23 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
     + totalEmissiveRadiance;
   float awHeadroom = 1.0 - saturate( max3( awSoFar ) / max( uToonRimCeiling, 1e-3 ) );
 
-  vec3 awRimRad = uRimColor * ( awRim * awHeadroom * uToonRimGain * uRimStrength );
+  // The rim's **hue** is a material decision, not a rig one, and this is where
+  // the two part company. 'Lighting' publishes the back light's colour as
+  // 'RING_GLOW' (#5FB8B0), a strong teal, because that is what the ring in the
+  // sky is; a surface asked what to do with it answers differently depending on
+  // what it is made of. On 'bravely01.jpg' and 'bravely02.jpg' no character
+  // carries a coloured contour at all — separation is value and the ink line —
+  // and in 'shots/mp0-cast/cast-stage.png' a teal line traced the knight's
+  // pauldron, the whole back of her hair, the ponytail, the sword and the cape
+  // edge, which reads as a *coating* over the entire figure. That was the
+  // loudest plastic cue the frame had left.
+  //
+  // Desaturated at constant peak rather than dimmed, so the rig's solve for
+  // 'uRimStrength' still delivers the separation it sized for and only the hue
+  // is spent. 'uToonRimMax' remains the bound on the level.
+  vec3 awRimTint = mix( vec3( max3( uRimColor ) ), uRimColor, clamp( uToonRimTint, 0.0, 1.0 ) );
+
+  vec3 awRimRad = awRimTint * ( awRim * awHeadroom * uToonRimGain * uRimStrength );
   float awRimPeak = max3( awRimRad );
   awRimRad *= awToonSoftCap( awRimPeak, uToonRimMax ) / max( awRimPeak, 1e-5 );
   reflectedLight.directSpecular += awRimRad;

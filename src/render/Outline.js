@@ -156,18 +156,55 @@ import {
  * stops the darkening from also draining the hue and landing on a neutral
  * near-black.
  *
- * **`darkness` is 0.35**, up from 0.18, and the plates are why. Measured across
- * eleven silhouette crossings on `bravely01.jpg` and `bravely05.jpg`, where a
- * contour darkening exists at all it sits at roughly a third of the surface's
- * own value and keeps that surface's hue — the ninja's black coat against sky,
- * Seth's pauldron against lavender, Gloria's hat against foliage. At 0.18 the
- * line was 18% of the albedo, which on this cast's darker garments crushes
- * inside a code value of black however carefully the hue is preserved, and a
- * uniform black contour around every figure is the "sticker" read the review
- * scored. 0.35 keeps the line unambiguously darker than anything it borders
- * while leaving it legibly *coloured*: a navy coat takes a deep navy line and a
- * wine coat a deep wine one. `floor` still keeps the very darkest albedos off
- * zero, so no pure black lands on the subject (ART_BIBLE §2.3).
+ * **`darkness` is 0.14, and the correction is a colour-space one.** The number
+ * it replaces, 0.35, came from measuring the plates in *display* values — where
+ * a contour darkening exists at all it sits at roughly a third of the surface's
+ * own code value, and that reading is correct. But `darkness` is a multiplier
+ * on a **linear** albedo, and everything downstream of it is the ACES curve,
+ * which lifts hard at the bottom of its range. The two are not the same number,
+ * and using one for the other is why the line was invisible in
+ * `shots/mp0-cast/cast-stage.png`:
+ *
+ *   - A mid albedo on this cast has a peak channel near 0.35 linear (brown
+ *     hair, steel grey). At `darkness: 0.35` the line is 0.1225 linear.
+ *   - `ACES(0.1225) ≈ 0.165`; encoded to sRGB that is **113 code values**.
+ *   - The meadow it is drawn against measures p25 83 / p50 95 / p75 110.
+ *
+ * So the ink line was rendering at the same value as the background on the far
+ * side of it, which is precisely a line that is not there — and every capture
+ * since has shown figures with no contour at all, the silhouette carried
+ * entirely by the surface's own rim.
+ *
+ * 0.11 is the same intent evaluated in the right space. Solving "line lands at
+ * a third of the surface's *code value*" for the albedos this cast actually
+ * uses gives a remarkably flat answer, which is what makes a single constant
+ * legitimate here:
+ *
+ * | surface | albedo | line, linear | line, sRGB | surface, sRGB |
+ * |---|---|---|---|---|
+ * | cream hat | 0.85 | 0.094 | 96 | ~240 |
+ * | brown hair | 0.35 | 0.039 | 49 | ~130 |
+ * | steel plate | 0.35 | 0.039 | 49 | ~120 |
+ * | navy coat | 0.12 | `floor` → 0.014 | 26 | ~110 |
+ *
+ * The bright end is the case that decides the constant. A cream hat brim seen
+ * against lavender is where 0.14 still failed — 113 against a background
+ * running 110–140 — and 0.11 is what pulls it clear while leaving the mid
+ * albedos where the plate measurement puts them.
+ *
+ * It stays a *linear* multiplier because `shaders/outlineHull.js` applies the
+ * identical expression per fragment for hulls whose albedo varies per vertex
+ * (which is every character), and the CPU and GPU paths must not be allowed to
+ * disagree; correcting the constant rather than the maths is what keeps them
+ * identical.
+ *
+ * `floor` rises to 0.014 to match. The darkest garments on this cast would
+ * otherwise land inside a code value or two of black, and a pure black contour
+ * on the subject is what ART_BIBLE §2.3 forbids.
+ *
+ * `saturation` rises with it. Darkening further costs more hue, so 1.35 is what
+ * keeps a navy coat's line legibly navy and a wine coat's legibly wine at the
+ * new level rather than converging on a common near-neutral.
  *
  * `depthGuard` is a tie-breaker, in multiples of the lateral push. The shell is
  * offset in view-space *XY only* (see `shaders/outlineHull.js`), so it can never
@@ -188,9 +225,9 @@ import {
 export const OUTLINE_DEFAULTS = Object.freeze({
   enabled: true,
   width: 1.5,
-  darkness: 0.35,
-  saturation: 1.25,
-  floor: 0.008,
+  darkness: 0.11,
+  saturation: 1.35,
+  floor: 0.014,
   fog: false,
   depthGuard: 0.5,
 });
@@ -330,9 +367,11 @@ function toColor(v) {
  *
  * @param {THREE.ColorRepresentation} albedo the surface colour underneath.
  * @param {Object} [opts]
- * @param {number} [opts.darkness=0.35] value multiplier.
- * @param {number} [opts.saturation=1.25] HSV saturation multiplier.
- * @param {number} [opts.floor=0.008] minimum peak channel, so no line is black.
+ * @param {number} [opts.darkness=0.11] value multiplier, in **linear** space —
+ *   not in display values. See `OUTLINE_DEFAULTS` for why the distinction is
+ *   the difference between an ink line and no line at all.
+ * @param {number} [opts.saturation=1.35] HSV saturation multiplier.
+ * @param {number} [opts.floor=0.014] minimum peak channel, so no line is black.
  * @returns {THREE.Color}
  */
 export function outlineColorFor(albedo, opts = {}) {
@@ -698,7 +737,8 @@ export function buildOutlineGeometry(source, opts = {}) {
  *   character mesh a dark-warm line on hair and a dark-cool one on cloth.
  * @param {number} [opts.width=1] line weight in device pixels.
  * @param {number} [opts.darkness] / [opts.saturation] / [opts.floor] tint
- *   controls; meaningful with `vertexColors`, folded into the colour otherwise.
+ *   controls, in **linear** space; meaningful with `vertexColors`, folded into
+ *   the colour otherwise. See `OUTLINE_DEFAULTS`.
  * @param {boolean} [opts.fog=false] let the atmosphere lift the line. Off by
  *   default; see `OUTLINE_DEFAULTS`.
  * @param {THREE.Texture} [opts.alphaMap] / [opts.alphaTest] cutout, inherited

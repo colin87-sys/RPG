@@ -334,6 +334,65 @@ const DEFAULT_AMBIENT_FLATNESS = 0.28;
 const DEFAULT_RIM_MAX = 0.28;
 
 /**
+ * How much of the rig's rim **chroma** a surface keeps.
+ *
+ * `Lighting` publishes the back light's colour as `LIGHT.RING_GLOW` (`#5FB8B0`,
+ * a strong teal) because that is the colour of the ring in this world's sky.
+ * How much of it a *surface* returns is a material question, and the plates
+ * answer it: no character on `bravely01.jpg` or `bravely02.jpg` carries a
+ * coloured contour anywhere. Separation is done by value and by the ink line.
+ *
+ * In `shots/mp0-cast/cast-stage.png` a teal line ran the length of the knight's
+ * pauldron, the whole back of her hair, the ponytail, the sword and the cape
+ * edge, and the same line appears on every other figure. A contour in a colour
+ * the costume does not contain reads as a *coating* over the whole figure —
+ * after the hair band it was the loudest plastic cue in the frame, and the one
+ * the previous revision's "no more cyan piping" note did not actually remove
+ * (it removed the piping's hard *edge*; the colour survived as a wash).
+ *
+ * Spent as a desaturation at constant peak rather than as a dim, so the rig's
+ * solved level survives — `Lighting._solveCharacterRim` sizes `uRimStrength`
+ * against the character gains and must keep getting the separation it sized
+ * for. `rimMax` remains the bound on the level; this bounds only the hue.
+ *
+ * 0.22–0.30 on the character classes: enough teal left that the back light is
+ * legibly *this* world's ring rather than a white studio kicker, far too little
+ * to read as a piped edge. The prop classes keep more, and `crystal` keeps all
+ * of it — on glass the rim genuinely is the material.
+ */
+const DEFAULT_RIM_TINT = 0.28;
+
+/**
+ * The ceiling on **surface plus highlight**, as a pre-tone-map peak.
+ *
+ * The bound the model was missing, and the one the plate comparison is stated
+ * in. `specCeiling` bounds the mark in absolute radiance and `specRelMax`
+ * bounds it as a ratio to the surface underneath; neither can promise that the
+ * pixel does not clip, because a mark at 1.4× a surface already near the top of
+ * the tone curve is still white.
+ *
+ * Measured as the fraction of a zone above sRGB 235 —
+ *
+ * | zone | `bravely01.jpg` | `shots/mp0-cast` |
+ * |---|---|---|
+ * | hair mass | 0.00–0.02% (peak 225–245) | **26.07%** (peak 254) |
+ * | pauldron | 0.01% (peak 238) | 1.41% (peak 255) |
+ * | meadow | 0.00% | 0.00% |
+ *
+ * A quarter of every hair mass on the cast was at the clip point: the arc was
+ * not reading as a band, it was a hole with a ragged edge. Both existing bounds
+ * were satisfied throughout.
+ *
+ * 1.00 is the default and is deliberately generous — it is a *guard*, not a
+ * grade, and on a mid-valued surface with a discreet glint it never engages
+ * (the soft shoulder is the identity below half the ceiling). The classes whose
+ * marks were actually clipping state their own, lower: hair at 0.66 and metal
+ * at 0.92 put the brightest fragment of each at roughly the value the plate's
+ * brightest hair and brightest pauldron fragment measure.
+ */
+const DEFAULT_SPEC_SUM = 1.00;
+
+/**
  * Named surface classes.
  *
  * These exist so that six characters authored by different agents cannot end up
@@ -426,6 +485,11 @@ const DEFAULT_RIM_MAX = 0.28;
  *    It is bounded well below white all the same: the review measured "clipped
  *    speculars with no bloom", and a blob whose whole area sits at the clip point
  *    is a hole in the frame rather than a highlight.
+ *  - `specSum` — the bound on **surface plus mark**, and the only one of the
+ *    three that can promise the pixel does not clip; the other two are stated
+ *    on the mark alone and were both satisfied while a quarter of every hair
+ *    mass on the cast sat at 255. See `DEFAULT_SPEC_SUM`. It bounds the fur
+ *    sheen too.
  *  - `sheenGain` / `sheenRoughness` / `sheenColor` — the fur and feather lobe.
  *    Present only on classes that compile `TOON_SHEEN`.
  *  - `rimWidth` / `rimCeiling` / `rimMax` — how far the rim reaches in from the
@@ -434,6 +498,10 @@ const DEFAULT_RIM_MAX = 0.28;
  *    `DEFAULT_RIM_MAX`.
  *  - `rimGain` — a *ratio* between classes, not a brightness. `Lighting`
  *    normalises the absolute level away; see `CHARACTER_RIM_GAIN`.
+ *  - `rimTint` — how much of the rig's rim *chroma* the surface returns. The
+ *    rig's back light is teal; a teal contour on a costume reads as a coating,
+ *    and the plates carry no coloured contour on any character. See
+ *    `DEFAULT_RIM_TINT`.
  *  - `flat` — this class is a character surface, so procedural detail maps are
  *    dropped and `ambientFlatness` applies. `generic`, `leather` and `crystal`
  *    are the prop classes and keep their fBm detail: `world/Flora.js` shades
@@ -485,9 +553,13 @@ export const TOON_PRESETS = Object.freeze({
     // below makes it a compile-time absence, and `MATTE_CLASSES` makes it one a
     // caller cannot override.
     specColor: 0xffffff, specGain: 0.0, specThreshold: 0.50, specSoftness: 0.35,
-    specCeiling: 1.20, specRelMax: 0.0,
+    specCeiling: 1.20, specRelMax: 0.0, specSum: DEFAULT_SPEC_SUM,
     rimPower: 3.4, rimGain: CHARACTER_RIM_GAIN.generic, rimFloor: 0.35,
-    rimWidth: 0.75, rimCeiling: 1.50, rimMax: DEFAULT_RIM_MAX,
+    // Half the ring's chroma and a much lower cap than the props: a rim is a
+    // per-blade term on thirteen thousand instanced blades, so on the meadow it
+    // is not a contour at all but a teal cast over the whole ground plane. The
+    // plate's meadow has none.
+    rimWidth: 0.75, rimCeiling: 1.50, rimMax: 0.18, rimTint: 0.50,
     roughness: 0.58, metalness: 0.0, envMapIntensity: 0.45, envSpecular: 0.0,
     flat: false,
   },
@@ -535,8 +607,11 @@ export const TOON_PRESETS = Object.freeze({
     // The tightest rim in the set and the lowest cap. Skin is the brightest
     // albedo the cast owns, so it is the surface with the least headroom left —
     // and it is the one surface where a wide band eats into the painted face.
+    // The tightest and quietest rim in the set. A cheek is a broad convex
+    // surface, so the same band that is a sliver on a sword covers a third of a
+    // jaw here — and a teal jaw is the fastest way to lose a painted face.
     rimPower: 3.4, rimGain: CHARACTER_RIM_GAIN.skin, rimFloor: 0.40,
-    rimWidth: 0.50, rimCeiling: 1.35, rimMax: 0.16,
+    rimWidth: 0.32, rimCeiling: 1.35, rimMax: 0.045, rimTint: 0.20,
     roughness: 0.62, metalness: 0.0, envMapIntensity: 0.30, envSpecular: 0.0,
     flat: true,
   },
@@ -554,11 +629,19 @@ export const TOON_PRESETS = Object.freeze({
   // clump reads brighter than its front, grading between the two.
   hair: {
     terminator: 0.16, softness: 0.10, rampGamma: 1.00, edgePixels: DEFAULT_EDGE_PIXELS,
-    highBand: 0.72, highGain: 1.18,
+    // 1.10 rather than 1.18: with the mass brought down to the plate's level
+    // the top-plane lift is a readable eighth of a stop, and at 1.18 it was
+    // stacking on top of the arc and putting the crown itself into the clip.
+    highBand: 0.72, highGain: 1.10,
     shadowMix: 0.42, shadowSat: 1.28, shadowValue: 0.88,
     shadowLevel: 0.22, shadowGain: 1.0, shadowLift: 0.12, shadowFloor: 0.0,
     shadowDepth: 0.26,
-    ambientGain: 0.85, ambientFlatness: 0.35, envLevels: 0.0,
+    // Lowered from 0.85. Our hair mass measured p2 69 / p50 174 / p75 237 sRGB
+    // against the plate's p2 43 / p50 104 / p75 139 — the whole mass was
+    // sitting a stop and a half high, in the shoulder of the tone curve where
+    // everything the arc adds turns to white. A hair mass is the darkest large
+    // area on most of this cast and has to be lit like one.
+    ambientGain: 0.62, ambientFlatness: 0.35, envLevels: 0.0,
     // **One crisp arc.** The Kajiya-Kay lobe is unnormalised and lives in 0..1,
     // so at `specExponent: 160` it clears 0.55 only within about five degrees of
     // the half-vector being perpendicular to the strand axis — a band, not a
@@ -572,12 +655,36 @@ export const TOON_PRESETS = Object.freeze({
     // whatever the key is doing. Every bright pass on a hair mass in
     // `bravely01.jpg` and `bravely05.jpg` sits inside the mass's own value range
     // — Elvis's is a light warm grey on mid-brown, not a white streak.
-    specColor: SURFACE_TINT.SILK_SPEC, specGain: 0.85, specExponent: 160,
-    specThreshold: 0.55, specSoftness: 0.05, specAlbedoMix: 0.55,
-    specCeiling: 1.30, specRelMax: 0.40,
+    // At `specExponent: 160` the lobe clears its threshold within five degrees
+    // of the half-vector being perpendicular to the strand axis, which sounds
+    // narrow and is not: a sculpted clump's normal swings through far more than
+    // five degrees across each of its lumps, so the "arc" broke into a
+    // patchwork of disconnected white shards following the geometry — 26% of
+    // the mass at the clip point, against 0.00% anywhere on the plate's hair.
+    // 420 halves the angular width to three degrees, `specThreshold: 0.62`
+    // takes the shoulders off it, and the two together leave one pass over the
+    // crown instead of one per lump.
+    //
+    // `specAlbedoMix: 0.82` is the other half of the correction and it is a
+    // colour one. Every bright pass on a hair mass in `bravely01.jpg` is a
+    // lighter, slightly desaturated version of *that hair's own colour* —
+    // Elvis's is a warm grey on mid-brown, Adelle's a cool white on silver —
+    // and none of them is a white streak laid over the top. At 0.55 ours was
+    // nearly half neutral white, which is what a plastic wig looks like.
+    //
+    // Three bounds, and they do different jobs. `specRelMax: 0.40` keeps the
+    // arc inside 1.4× the mass it sits on, which is the ratio the plate shows.
+    // `specCeiling: 0.70` bounds the mark alone. `specSum: 0.66` is the one
+    // that guarantees it never clips: it bounds mark *plus surface*, so the arc
+    // spends whatever headroom the mass has left and no more, and the plate's
+    // hair peaks (225 on Elvis, 245 on white-haired Adelle) are reachable while
+    // 255 is not.
+    specColor: SURFACE_TINT.SILK_SPEC, specGain: 0.60, specExponent: 420,
+    specThreshold: 0.62, specSoftness: 0.08, specAlbedoMix: 0.82,
+    specCeiling: 0.70, specRelMax: 0.40, specSum: 0.66,
     aniso: true, anisoShift: 0.18,
     rimPower: 3.6, rimGain: CHARACTER_RIM_GAIN.hair, rimFloor: 0.32,
-    rimWidth: 0.62, rimCeiling: 1.50, rimMax: 0.24,
+    rimWidth: 0.40, rimCeiling: 1.50, rimMax: 0.07, rimTint: 0.25,
     // No environment reflection. Hair carries exactly one mark and the arc above
     // is it; a probe reflection under the arc is a second, smeared highlight
     // that slides with the camera instead of sitting on the volume.
@@ -624,8 +731,14 @@ export const TOON_PRESETS = Object.freeze({
     shadowDepth: 0.28,
     ambientGain: 0.80, ambientFlatness: DEFAULT_AMBIENT_FLATNESS, envLevels: 0.0,
     specGain: 0.0, specCeiling: 1.00,
+    // The rim is the last specular-shaped term a matte class can still carry —
+    // it is added to `directSpecular` — and on a garment it was reading as
+    // exactly the sheen this class exists to forbid: a teal line down every
+    // lapel, cuff and cape edge in `shots/mp0-cast/cast-stage.png`. Narrowed to
+    // the outer sliver, cut to a quarter of its level and desaturated, it holds
+    // a coat off the meadow behind it without putting a highlight on cloth.
     rimPower: 3.2, rimGain: CHARACTER_RIM_GAIN.cloth, rimFloor: 0.38,
-    rimWidth: 0.66, rimCeiling: 1.45, rimMax: 0.22,
+    rimWidth: 0.42, rimCeiling: 1.45, rimMax: 0.06, rimTint: 0.22,
     roughness: 0.92, metalness: 0.0, envMapIntensity: 0.28, envSpecular: 0.0,
     flat: true,
   },
@@ -651,11 +764,21 @@ export const TOON_PRESETS = Object.freeze({
     shadowDepth: 0.30,
     ambientGain: 0.95, ambientFlatness: 0.30, envLevels: 0.0,
     specGain: 0.0, specCeiling: 1.00,
-    sheen: true, sheenColor: SURFACE_TINT.SILK_SPEC, sheenGain: 0.85, sheenRoughness: 0.58,
-    // The widest rim in the set, and the only one that earns it: a fur edge is
-    // hundreds of grazing strand tips, so a back light genuinely lands on it.
+    // Charlie's lobe peaks at grazing angles and is deliberately ungated by the
+    // form band, so on a collar seen against the sky it is the whole silhouette
+    // that lights up. `specSum: 0.78` is what keeps that from becoming a white
+    // fringe: the sheen spends the headroom the collar's own albedo has left,
+    // which on Adelle's black trim (`bravely01.jpg`, p5 15 / p50 70 / p95 181,
+    // max 223) is a lot and on a pale shearling is very little — the same
+    // number giving the right answer on both, which is what the absolute gain
+    // could never do.
+    sheen: true, sheenColor: SURFACE_TINT.SILK_SPEC, sheenGain: 0.60, sheenRoughness: 0.58,
+    specSum: 0.78,
+    // Still the widest rim in the set, and the only one that earns it: a fur
+    // edge is hundreds of grazing strand tips, so a back light genuinely lands
+    // on it. It is the level and the hue that come down, not the reach.
     rimPower: 2.6, rimGain: CHARACTER_RIM_GAIN.fur, rimFloor: 0.35,
-    rimWidth: 0.85, rimCeiling: 1.50, rimMax: 0.26,
+    rimWidth: 0.58, rimCeiling: 1.50, rimMax: 0.10, rimTint: 0.30,
     // No environment reflection: the sheen already *is* fur's grazing response,
     // and a Fresnel over a probe on top of it is the same term twice, the second
     // time without the retro-reflection that makes the first one read as fibre.
@@ -675,11 +798,16 @@ export const TOON_PRESETS = Object.freeze({
     shadowLevel: 0.22, shadowGain: 1.0, shadowLift: 0.14, shadowFloor: 0.0,
     shadowDepth: 0.32,
     ambientGain: 0.90, ambientFlatness: 0.0, envLevels: 0.0,
-    specColor: 0xffffff, specGain: 0.70, specThreshold: 0.50, specSoftness: 0.35,
-    specCeiling: 1.10,
+    // Lowered with `GLOSS_CORE_FLOOR`, and for the same reason. `Bestiary`
+    // shades a creature that fills an eighth of the battle frame through this
+    // class, and at 0.70 gain over a 45% core shelf its hide came out as a
+    // lacquered shell. A hide takes a graded highlight; it does not take a
+    // lacquer.
+    specColor: 0xffffff, specGain: 0.45, specThreshold: 0.50, specSoftness: 0.35,
+    specCeiling: 1.10, specSum: 0.90,
     rimPower: 3.2, rimGain: CHARACTER_RIM_GAIN.leather, rimFloor: 0.35,
-    rimWidth: 0.72, rimCeiling: 1.50, rimMax: DEFAULT_RIM_MAX,
-    roughness: 0.66, metalness: 0.0, envMapIntensity: 0.40, envSpecular: 0.22,
+    rimWidth: 0.72, rimCeiling: 1.50, rimMax: 0.16, rimTint: 0.60,
+    roughness: 0.66, metalness: 0.0, envMapIntensity: 0.40, envSpecular: 0.12,
     flat: false,
   },
 
@@ -727,7 +855,14 @@ export const TOON_PRESETS = Object.freeze({
   metal: {
     terminator: 0.18, softness: 0.10, rampGamma: 1.00, edgePixels: DEFAULT_EDGE_PIXELS,
     highBand: 0.70, highGain: 1.22,
-    shadowMix: 0.30, shadowSat: 1.05, shadowValue: 0.80,
+    // The shadow band is darker and flatter than any other class's, which is
+    // what separates steel from painted board: a dielectric's shadow keeps its
+    // hue because it still has a diffuse term to keep it with, and a metal's
+    // does not. `shadowValue: 0.76` takes the recesses down to roughly the
+    // plate's p2 of 2.6 sRGB while the lit faces hold their mid grey — measured
+    // on Seth's pauldron, which runs p2 2.6 / p50 53.5 / p98 145 against ours
+    // at p2 9.6 / p50 116.6 / p98 222.
+    shadowMix: 0.30, shadowSat: 1.05, shadowValue: 0.76,
     shadowLevel: 0.16, shadowGain: 1.0, shadowLift: 0.06, shadowFloor: 0.0,
     shadowDepth: 0.15,
     // The lowest ambient in the set, lowered again after the first capture with
@@ -735,25 +870,42 @@ export const TOON_PRESETS = Object.freeze({
     // zero, the old `ambientGain` was lifting a pauldron to p50 203 sRGB against
     // the plate's 56 — a pale grey shell rather than steel. Armour is the one
     // class that should be reading almost entirely off the key and the probe.
-    ambientGain: 0.55, ambientFlatness: 0.15, envLevels: 0.0,
+    ambientGain: 0.42, ambientFlatness: 0.15, envLevels: 0.0,
     metalAlbedo: 0.28,
     // The threshold decides how much of the (already very tight) lobe survives
     // and `specSoftness` is how far up toward the mirror direction the mark
     // takes to reach full strength — a *grade*, not a shoulder, since there is
     // no core floor under it any more.
-    specColor: 0xffffff, specGain: 1.00, specThreshold: 0.35, specSoftness: 0.65,
-    // The highest ceiling in the character set, and still a long way under the
-    // clip point. A blob whose whole area sits at white is a hole in the frame,
-    // which is what the review measured as "clipped speculars with no bloom".
-    // No relative bound: a glint on steel is *meant* to outrun the surface, and
-    // it is small enough that it cannot flood the piece the way a hair band can.
-    specCeiling: 1.70, specRelMax: 0.0,
+    // **The size of the mark, restated.** `specThreshold: 0.35` over a 0.65
+    // shoulder graded the mark from lobe 0.35 all the way to the mirror
+    // direction — at the clamped exponent of 510 that is a 3.7° cone in the
+    // half-vector, which on the low curvature of a chibi pauldron covers a
+    // quarter of the plate. What the capture showed was a soft white oval on
+    // each shoulder and one on the breastplate: a plastic bubble, not a glint.
+    // The plate's armour carries a scatter of *small* marks along rolled edges
+    // and is otherwise valued entirely by the form ramp.
+    //
+    // 0.58 over a 0.22 grade halves the mark's angular radius and gives it a
+    // defined edge instead of a gradient that fades across the whole piece.
+    specColor: 0xffffff, specGain: 1.00, specThreshold: 0.58, specSoftness: 0.22,
+    // Still the highest allowance in the character set — a glint on steel is
+    // *meant* to outrun the surface, which is why this class alone declines the
+    // relative bound. What it may not do is clip: ours peaked at 255 against the
+    // plate's brightest pauldron fragment at 238, and a blob whose whole area
+    // sits at white is a hole in the frame rather than a highlight. `specSum`
+    // is the bound that states that, and it is stated on mark plus surface
+    // because that is the quantity the plate was measured on.
+    specCeiling: 1.00, specRelMax: 0.0, specSum: 0.92,
     rimPower: 3.6, rimGain: CHARACTER_RIM_GAIN.metal, rimFloor: 0.30,
-    rimWidth: 0.58, rimCeiling: 1.90, rimMax: 0.28,
+    rimWidth: 0.38, rimCeiling: 1.90, rimMax: 0.10, rimTint: 0.30,
     // The one character class that keeps its environment reflection, because on
     // the plates it *is* the material — a pauldron's continuous 5 → 190 sRGB
-    // sweep is a probe, not a lobe.
-    roughness: 0.28, metalness: 1.0, envMapIntensity: 1.2, envSpecular: 0.85,
+    // sweep is a probe, not a lobe. Trimmed from 0.85/1.2 with `ambientGain`,
+    // because with all three at their previous levels the plate read as a pale
+    // grey shell (p50 117) rather than as steel (plate p50 54): the reflection
+    // has to be the thing that *varies* across the piece, not the thing that
+    // fills it.
+    roughness: 0.28, metalness: 1.0, envMapIntensity: 1.0, envSpecular: 0.60,
     flat: true,
   },
 
@@ -769,10 +921,13 @@ export const TOON_PRESETS = Object.freeze({
     shadowLevel: 0.12, shadowGain: 1.0, shadowLift: 0.30, shadowFloor: 0.90,
     shadowDepth: 0.90,
     ambientGain: 0.95, ambientFlatness: 0.50, envLevels: 0.0,
+    // A catch-light is the one mark in the frame that is allowed to reach the
+    // clip point — it is four pixels across and it *is* the eye — so the sum
+    // bound is set well above anything a lit iris can reach and never engages.
     specColor: 0xffffff, specGain: 1.40, specThreshold: 0.30, specSoftness: 0.02,
-    specCeiling: 2.40,
+    specCeiling: 2.40, specSum: 2.40,
     rimPower: 3.4, rimGain: 0.50, rimFloor: 0.20,
-    rimWidth: 0.85, rimCeiling: 1.50, rimMax: 0.20,
+    rimWidth: 0.85, rimCeiling: 1.50, rimMax: 0.20, rimTint: 0.50,
     roughness: 0.24, metalness: 0.0, envMapIntensity: 0.40, envSpecular: 0.35,
     flat: true,
   },
@@ -788,14 +943,20 @@ export const TOON_PRESETS = Object.freeze({
     shadowDepth: 0.62,
     ambientGain: 0.95, ambientFlatness: 0.0, envLevels: 0.0,
     specColor: 0xffffff, specGain: 1.20, specThreshold: 0.45, specSoftness: 0.25,
-    specCeiling: 2.40,
+    // A gemstone's ping is a set-piece effect sitting over its own emissive and
+    // is meant to blaze; both ceilings are set above anything the class can
+    // reach so neither engages. This is the class the bounds are *not* for.
+    specCeiling: 2.40, specSum: 2.60,
     // The one class that wants a broad wrap rather than a sliver: on glass the
     // fresnel *is* the material, so the width stays at the identity value and
     // the band is the bare `pow(1 - N·V, k)` it always was. The cap is the
     // highest in the set because a crystal's own emissive already sits at
     // 1.2–1.8 and the rim must still be visible over it.
+    // The one class that keeps the ring's colour outright: on glass the rim
+    // *is* the material, and a crystal lit by this world's sky is supposed to
+    // carry that sky's teal.
     rimPower: 1.6, rimGain: 1.60, rimFloor: 0.30,
-    rimWidth: 1.00, rimCeiling: 2.00, rimMax: 0.90,
+    rimWidth: 1.00, rimCeiling: 2.00, rimMax: 0.90, rimTint: 1.00,
     roughness: 0.25, metalness: 0.0, envMapIntensity: 0.9, envSpecular: 0.9,
     flat: false,
   },
@@ -1010,6 +1171,9 @@ const DETAIL_MAP_KEYS = Object.freeze(['normalMap', 'roughnessMap', 'aoMap', 'bu
  *   the rim's. Metal carries the highest, still well under the clip point.
  * @param {number} [opts.specRelMax] bound on the highlight stated as a fraction
  *   of the diffuse level underneath. 0 disables it; hair runs 0.40.
+ * @param {number} [opts.specSum] bound on **surface plus highlight**, the only
+ *   one of the three that can promise the pixel does not clip. Applies to the
+ *   fur sheen as well. See `DEFAULT_SPEC_SUM`.
  * @param {number} [opts.envSpecular] gain on the environment probe's specular.
  *   Ignored on a `MATTE_CLASSES` preset, where the whole Fresnel term is
  *   compiled out.
@@ -1024,6 +1188,9 @@ const DETAIL_MAP_KEYS = Object.freeze(['normalMap', 'roughnessMap', 'aoMap', 'bu
  *   against.
  * @param {number} [opts.rimMax] absolute cap on the rim's own radiance. The
  *   bound that keeps the band off white; see `DEFAULT_RIM_MAX`.
+ * @param {number} [opts.rimTint] 0–1, how much of the rig's rim *chroma* the
+ *   surface returns. Spent as a desaturation at constant peak, so the rig's
+ *   solved level is untouched. See `DEFAULT_RIM_TINT`.
  * @param {boolean} [opts.aniso] force the anisotropic highlight on or off.
  * @param {THREE.Vector3} [opts.anisoDirection] world-space strand axis.
  * @returns {THREE.MeshStandardMaterial} patched, ready to add to a scene.
@@ -1183,6 +1350,11 @@ export function createToonMaterial(opts = {}) {
     // far hotter than anything else on the cast and the rim never may. See
     // `DEFAULT_SPEC_CEILING`.
     uToonSpecCeiling: { value: opts.specCeiling ?? p.specCeiling ?? DEFAULT_SPEC_CEILING },
+    // The bound on mark *plus* surface, which is the only one that can promise
+    // the pixel does not clip. See `DEFAULT_SPEC_SUM`. Uploaded unconditionally
+    // alongside `uToonSpecCeiling` because the sheen path reaches it too and
+    // that path is selected by a different define.
+    uToonSpecSum: { value: opts.specSum ?? p.specSum ?? DEFAULT_SPEC_SUM },
     uToonRimPower: { value: opts.rimPower ?? p.rimPower },
     uToonRimGain: { value: opts.rimGain ?? p.rimGain },
     uToonRimFocus: { value: toVec2(opts.rimFocus, DEFAULT_RIM_FOCUS) },
@@ -1191,6 +1363,9 @@ export function createToonMaterial(opts = {}) {
     uToonRimWidth: { value: opts.rimWidth ?? p.rimWidth ?? DEFAULT_RIM_WIDTH },
     uToonRimCeiling: { value: opts.rimCeiling ?? p.rimCeiling ?? DEFAULT_RIM_CEILING },
     uToonRimMax: { value: opts.rimMax ?? p.rimMax ?? DEFAULT_RIM_MAX },
+    // How much of the rig's rim *chroma* this surface returns. The level stays
+    // the rig's; only the hue is a material decision. See `DEFAULT_RIM_TINT`.
+    uToonRimTint: { value: opts.rimTint ?? p.rimTint ?? DEFAULT_RIM_TINT },
 
     // ---- battle feedback --------------------------------------------------
     uToonPulse: { value: toColor(opts.pulse ?? 0x000000) },
@@ -1394,6 +1569,7 @@ const SCALAR_KEYS = Object.freeze({
   specAlbedoMix: 'uToonSpecAlbedoMix',
   specCeiling: 'uToonSpecCeiling',
   specRelMax: 'uToonSpecRelMax',
+  specSum: 'uToonSpecSum',
   sheenGain: 'uToonSheenGain',
   sheenRoughness: 'uToonSheenRoughness',
   rimPower: 'uToonRimPower',
@@ -1402,6 +1578,7 @@ const SCALAR_KEYS = Object.freeze({
   rimWidth: 'uToonRimWidth',
   rimCeiling: 'uToonRimCeiling',
   rimMax: 'uToonRimMax',
+  rimTint: 'uToonRimTint',
   pulseRate: 'uToonPulseRate',
   anisoShift: 'uToonAnisoShift',
 });

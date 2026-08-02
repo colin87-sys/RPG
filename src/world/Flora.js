@@ -117,9 +117,20 @@ export const FLORA_PALETTE = Object.freeze({
   /** Lawn, masked g>r+8 & g>b+25, n=200 491: p10 #2b4b1b, p50 #5b763c, p90 #7e9659. */
   GRASS_ROOT: 0x2b4b1b,
   GRASS_TIP: 0x86a05a,
-  /** The bed's tall tufts read cooler and deeper than the mown lawn. */
-  MEADOW_ROOT: 0x1f3f16,
-  MEADOW_TIP: 0x6f9040,
+  /**
+   * The bed's tall tufts.
+   *
+   * Warmed from `#1f3f16`/`#6f9040`. Those were picked to read "cooler and deeper
+   * than the mown lawn", which is true of the *value* and false of the *hue*: on
+   * the plate the tall grass standing between the lavender is the yellowest green
+   * in the frame — masked over the bed's foliage it runs p50 `#54702c`, i.e. a
+   * red-to-blue ratio of 1.35, where the old pair sat at 1.24 and 1.11. Under the
+   * shading model that half-step toward blue is what made our bed read as a
+   * blue-green hedge behind a violet mass instead of as the plate's warm meadow
+   * with violet standing in it. The value relationship to the lawn is unchanged.
+   */
+  MEADOW_ROOT: 0x2a4415,
+  MEADOW_TIP: 0x7c9a3e,
 
   /** Lavender florets, masked b>g+45 & r>g+10, n=25 424. */
   LAVENDER_DEEP: 0x4a2f8c,
@@ -154,6 +165,45 @@ export const FLORA_PALETTE = Object.freeze({
   CONIFER_DEEP: 0x1a3c20,
   CONIFER_LIT: 0x557546,
   CONIFER_BARK: 0x50442f,
+
+  /**
+   * The broadleaf standing behind the bed at plate centre-right.
+   *
+   * A different tree from the conifers in every measurable way and that is the
+   * point: masked over its canopy the hue runs 92° against the cedars' 128°, the
+   * mass is *rounded* rather than tiered, and its lit crown at p90 `#8aa447` is
+   * two stops above anything on a cedar. Ours had one tree species repeated
+   * twenty-two times, which is what a monoculture actually looks like.
+   */
+  BROADLEAF_DEEP: 0x21401b,
+  BROADLEAF_MID: 0x3f6b28,
+  BROADLEAF_LIT: 0x84a446,
+  /** Broadleaf bark is a warm grey-brown, much lighter than the cherry's maroon. */
+  BROADLEAF_BARK: 0x4b3d2b,
+  BROADLEAF_BARK_LIT: 0x7a674c,
+
+  /**
+   * Tall seed-head grass — the species that gives the plate's bed its top edge.
+   *
+   * At frame right, standing a head above the lavender, the plate carries loose
+   * straw-coloured panicles on bare green stalks. They are the only warm, pale
+   * vertical in the bed and they are what stops the violet mass reading as a
+   * wall: the eye gets a second height and a second hue at the same station.
+   */
+  SEED_STALK: 0x6d8a38,
+  SEED_HEAD: 0xb5ad68,
+  SEED_HEAD_PALE: 0xdcd6a4,
+
+  /**
+   * Low broadleaf ground cover — the dark rosettes between the lawn and the bed.
+   *
+   * Deliberately *darker* than the lawn it sits in. On the plate the ground
+   * around the party is not one green: broad low leaves pool in the hollows at
+   * roughly two thirds the lawn's luminance, and that mottling is most of what
+   * keeps a large area of grass from reading as felt.
+   */
+  COVER_ROOT: 0x24400f,
+  COVER_TIP: 0x6f8c34,
 
   /** The small wildflowers dotted through the bed — instance colours. */
   PETAL_WHITE: 0xf0efe2,
@@ -793,6 +843,9 @@ function stemGeometry(opts) {
   return geo;
 }
 
+/** Shared world up. Read-only by convention — nothing here writes it. */
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
+
 const _m4 = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _e = new THREE.Euler();
@@ -865,6 +918,175 @@ function instanced(geo, material, count, fill, { castShadow = false, receiveShad
   mesh.computeBoundingSphere();
   if (material.userData.floraWind) mesh.onBeforeRender = tickWindClock;
   return mesh;
+}
+
+/**
+ * A recursive branching skeleton, shared by every tree in this module that has
+ * one.
+ *
+ * Extracted from the cherry rather than written for the broadleaf, because the
+ * two trees differ in their *canopy*, not in their wood: both are a trunk that
+ * forks three ways, then two-or-three ways per order, with each order drooping
+ * harder than its parent because thin wood cannot hold itself up. Growing the
+ * broadleaf's canopy on a second, independently-written skeleton would have been
+ * the fastest way to end up with two trees that light differently at the trunk.
+ *
+ * The defaults are the cherry's own, exactly, and the `rng` draw order is
+ * unchanged from the inlined version — a tree is dressed off this stream and a
+ * reordered draw is a differently-shaped tree in every capture that follows.
+ *
+ * @param {Object} o
+ * @param {Object} o.rng deterministic source.
+ * @param {number} o.length trunk segment length in metres.
+ * @param {number} o.radius trunk radius at the ground.
+ * @param {number} [o.maxDepth=4] branching orders.
+ * @param {number} [o.lean=0.07] how far off vertical the trunk may start.
+ * @param {number} [o.twigDepth=2] the first order that carries foliage anchors.
+ *   Below it a canopy hangs off the trunk, which is the classic tell of a tree
+ *   whose foliage was scattered in a sphere.
+ * @param {number} [o.droop] gravity added to the direction per step at depth 0.
+ * @param {number} [o.droopPerDepth] extra gravity per branching order.
+ * @param {[number,number]} [o.spread] how far a child leaves its parent's axis.
+ * @param {[number,number]} [o.rise] upward bias added to a child's direction.
+ * @returns {{segments: Array, twigs: Array}} `segments` are `{a,b,ra,rb,depth}`
+ *   for the wood; `twigs` are `{p,d,depth}` anchors for whatever hangs on it.
+ */
+function growSkeleton(o) {
+  const {
+    rng, length, radius,
+    maxDepth = 4, lean = 0.07, twigDepth = 2,
+    droop = 0.055, droopPerDepth = 0.032, wander = 0.10,
+    spread = [0.55, 1.05], rise = [0.04, 0.28],
+    lengthDecay = [0.58, 0.76], radiusDecay = [0.56, 0.72],
+    taper = 0.42,
+  } = o;
+
+  const segments = [];
+  const twigs = [];
+
+  const grow = (origin, dir, len, rad, depth) => {
+    const steps = depth === 0 ? 4 : 3;
+    const stepLen = len / steps;
+    const p = origin.clone();
+    const d = dir.clone();
+    let r = rad;
+    for (let i = 0; i < steps; i++) {
+      const nr = rad * (1 - ((i + 1) / steps) * taper);
+      const b = p.clone().addScaledVector(d, stepLen);
+      segments.push({ a: p.clone(), b: b.clone(), ra: r, rb: nr, depth });
+      if (depth >= twigDepth) twigs.push({ p: b.clone(), d: d.clone(), depth });
+      p.copy(b);
+      r = nr;
+      d.y -= droop + depth * droopPerDepth;
+      d.x += rng.jitter(wander);
+      d.z += rng.jitter(wander);
+      d.normalize();
+    }
+    if (depth >= maxDepth) return;
+    const children = depth === 0 ? 3 : rng.int(2, 3);
+    for (let c = 0; c < children; c++) {
+      const child = d.clone();
+      const a = rng.range(0, Math.PI * 2);
+      const side = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+      // Orthogonalise against the parent so the spread angle means what it says
+      // whatever direction the parent happens to point.
+      side.addScaledVector(d, -side.dot(d));
+      if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+      side.normalize();
+      child.addScaledVector(side, rng.range(spread[0], spread[1]));
+      child.y += rng.range(rise[0], rise[1]);
+      child.normalize();
+      grow(
+        p, child,
+        len * rng.range(lengthDecay[0], lengthDecay[1]),
+        r * rng.range(radiusDecay[0], radiusDecay[1]),
+        depth + 1,
+      );
+    }
+  };
+
+  grow(
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(rng.jitter(lean), 1, rng.jitter(lean)).normalize(),
+    length, radius, 0,
+  );
+  return { segments, twigs };
+}
+
+/**
+ * Turn a skeleton's segments into one merged bark geometry.
+ *
+ * Radial count falls with branching order — a fourth-order twig is under two
+ * pixels across at any distance a battle camera uses, and a 7-gon there costs
+ * the same as a 7-gon on the trunk.
+ *
+ * @param {Array} segments from {@link growSkeleton}.
+ * @param {number} maxDepth for the bark colour ramp's normalisation.
+ * @param {number|THREE.Color} darkHex bark in the canopy's shade.
+ * @param {number|THREE.Color} litHex young wood at the branch tips.
+ */
+function barkGeometry(segments, maxDepth, darkHex, litHex) {
+  const parts = [];
+  const axis = new THREE.Vector3();
+  const dark = lin(darkHex);
+  const lit = lin(litHex);
+  const barkColor = new THREE.Color();
+  for (const s of segments) {
+    axis.subVectors(s.b, s.a);
+    const len = axis.length();
+    if (len < 1e-4) continue;
+    const radial = s.depth === 0 ? 7 : (s.depth < 3 ? 5 : 4);
+    const cyl = new THREE.CylinderGeometry(s.rb, s.ra, len, radial, 1, true);
+    // Young wood is the lighter, redder colour; the trunk is nearly black in the
+    // plate wherever the canopy shades it.
+    barkColor.copy(dark).lerp(lit, Math.min(1, s.depth / maxDepth));
+    const n = cyl.getAttribute('position').count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      col[i * 3] = barkColor.r;
+      col[i * 3 + 1] = barkColor.g;
+      col[i * 3 + 2] = barkColor.b;
+    }
+    cyl.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    axis.normalize();
+    _q.setFromUnitVectors(WORLD_UP, axis);
+    _v3.copy(s.a).addScaledVector(axis, len * 0.5);
+    _s3.set(1, 1, 1);
+    cyl.applyMatrix4(_m4.compose(_v3, _q, _s3));
+    parts.push(cyl);
+  }
+  return mergeAndDispose(parts);
+}
+
+/**
+ * Multiply a geometry's vertex colours by a tint, in place, in linear light.
+ *
+ * The escape hatch for a prop whose colours are authored in another module.
+ * `props/RockForms.js` writes the plate's *facet relationship* — a pale
+ * weathered top over a cleaved blue side — and that relationship is correct;
+ * what it cannot know is the exposure of the frame it will end up in. Ours
+ * renders those faces at sRGB 180+ against the plate's own p50 of 137, i.e. the
+ * rock is a full stop hotter than the reference and reads as chalk.
+ *
+ * Doing it here rather than through `material.color` is the module's standing
+ * rule: the material is white, the albedo is the vertex attribute, and a second
+ * colour on the material is how two greens end up multiplying to a black lawn.
+ *
+ * @param {THREE.BufferGeometry} geo
+ * @param {number|THREE.Color|null} tint sRGB hex read as "what a white face
+ *   becomes". `null` is a no-op, so a caller may pass an absent option straight
+ *   through.
+ */
+function tintVertexColors(geo, tint) {
+  if (tint === null || tint === undefined) return geo;
+  const attr = geo.getAttribute('color');
+  if (!attr) return geo;
+  const t = lin(tint);
+  for (let i = 0; i < attr.count; i++) {
+    attr.setXYZ(i, attr.getX(i) * t.r, attr.getY(i) * t.g, attr.getZ(i) * t.b);
+  }
+  attr.needsUpdate = true;
+  return geo;
 }
 
 /** Give a returned root a `dispose()` for the geometry and materials it owns.
@@ -1073,6 +1295,25 @@ export function buildGrassField(opts = {}) {
 }
 
 /**
+ * The two ends of the plate's violet, as the anchors a drift's `hueShift` pulls
+ * toward.
+ *
+ * A single lavender colour is what made our bed a wall. Masked over the plate's
+ * bed the violet is not one hue at all: it separates into a cold indigo in the
+ * shaded interior runs (hue 262°) and a warm red-violet on the sunlit near
+ * drifts (hue 288°), a 26° spread that survives at every distance in the frame
+ * because it is *drift-scale* — one clump is cold, the clump beside it is warm —
+ * rather than per-plant noise, which averages to grey at four pixels.
+ *
+ * These two are therefore deliberately **not** in `FLORA_PALETTE`: that table
+ * holds measured percentiles of a masked region, and these are the endpoints of
+ * an authored spread, applied at half strength so no drift ever leaves the
+ * measured p10–p90 band.
+ */
+const LAVENDER_INDIGO = 0x3a2fa4;
+const LAVENDER_MAGENTA = 0x9a55c0;
+
+/**
  * A drift of lavender: tall vertical spikes of individual florets.
  *
  * The plate's lavender is the element that carries the bed. Each plant is a fan
@@ -1096,6 +1337,8 @@ export function buildGrassField(opts = {}) {
  * @param {number} [opts.paleFraction=0.08] share of near-white spikes; the plate
  *   has roughly one in twelve.
  * @param {number} [opts.foliage=1] multiplier on the basal leaf count; 0 omits it.
+ * @param {number} [opts.hueShift=0] −1 … +1, indigo … magenta. See
+ *   {@link LAVENDER_INDIGO}.
  * @returns {THREE.Group} with `userData.dispose()`.
  */
 export function buildLavender(opts = {}) {
@@ -1123,9 +1366,15 @@ export function buildLavender(opts = {}) {
     tipColor: FLORA_PALETTE.LAVENDER_STEM,
   }));
 
-  const deep = lin(FLORA_PALETTE.LAVENDER_DEEP);
-  const mid = lin(FLORA_PALETTE.LAVENDER_MID);
-  const pale = lin(FLORA_PALETTE.LAVENDER_PALE);
+  // The whole raceme ramp, rotated toward one end of the plate's own violet
+  // spread. See {@link LAVENDER_INDIGO} for what the two anchors are and why
+  // this exists at all.
+  const hueShift = opts.hueShift ?? 0;
+  const anchor = lin(hueShift < 0 ? LAVENDER_INDIGO : LAVENDER_MAGENTA);
+  const shift = Math.min(1, Math.abs(hueShift)) * 0.5;
+  const deep = lin(FLORA_PALETTE.LAVENDER_DEEP).lerp(anchor, shift * 0.7);
+  const mid = lin(FLORA_PALETTE.LAVENDER_MID).lerp(anchor, shift);
+  const pale = lin(FLORA_PALETTE.LAVENDER_PALE).lerp(anchor, shift * 0.45);
   const floretColor = new THREE.Color();
 
   for (let w = 0; w < whorls; w++) {
@@ -1513,92 +1762,17 @@ export function buildBlossomTree(opts = {}) {
   group.name = 'blossom-tree';
 
   /* --- skeleton ----------------------------------------------------------- */
-  const segments = [];
-  /** Anchor points on the outer branches, for the blossom to hang from. */
-  const twigs = [];
-  const barkDark = lin(FLORA_PALETTE.BARK_DARK);
-  const barkLit = lin(FLORA_PALETTE.BARK_LIT);
-
-  const grow = (origin, dir, length, radius, depth) => {
-    const steps = depth === 0 ? 4 : 3;
-    const stepLen = length / steps;
-    const p = origin.clone();
-    const d = dir.clone();
-    let r = radius;
-    for (let i = 0; i < steps; i++) {
-      const nr = radius * (1 - ((i + 1) / steps) * 0.42);
-      const b = p.clone().addScaledVector(d, stepLen);
-      segments.push({ a: p.clone(), b: b.clone(), ra: r, rb: nr, depth });
-      // Only the outer two orders carry flowers. A cherry blooms on its young
-      // wood, and hanging blossom off the trunk is the classic tell of a tree
-      // whose canopy was scattered in a sphere.
-      if (depth >= 2) twigs.push({ p: b.clone(), d: d.clone(), depth });
-      p.copy(b);
-      r = nr;
-      // Gravity plus wander. The droop is what gives a cherry its weeping arc,
-      // and it grows with depth because thin wood cannot hold itself up.
-      d.y -= 0.055 + depth * 0.032;
-      d.x += rng.jitter(0.10);
-      d.z += rng.jitter(0.10);
-      d.normalize();
-    }
-    if (depth >= maxDepth) return;
-    const children = depth === 0 ? 3 : rng.int(2, 3);
-    for (let c = 0; c < children; c++) {
-      const child = d.clone();
-      const a = rng.range(0, Math.PI * 2);
-      const side = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
-      // Orthogonalise against the parent so the spread angle means what it says
-      // whatever direction the parent happens to point.
-      side.addScaledVector(d, -side.dot(d));
-      if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
-      side.normalize();
-      child.addScaledVector(side, rng.range(0.55, 1.05));
-      child.y += rng.range(0.04, 0.28);
-      child.normalize();
-      grow(p, child, length * rng.range(0.58, 0.76), r * rng.range(0.56, 0.72), depth + 1);
-    }
-  };
-
-  const trunkLength = height * 0.34;
-  grow(
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(rng.jitter(0.07), 1, rng.jitter(0.07)).normalize(),
-    trunkLength,
-    height * 0.042,
-    0,
-  );
+  // Only the outer two orders carry flowers (`twigDepth`). A cherry blooms on
+  // its young wood, and hanging blossom off the trunk is the classic tell of a
+  // tree whose canopy was scattered in a sphere.
+  const { segments, twigs } = growSkeleton({
+    rng, length: height * 0.34, radius: height * 0.042, maxDepth, twigDepth: 2,
+  });
 
   /* --- branch geometry ---------------------------------------------------- */
-  const branchParts = [];
-  const up = new THREE.Vector3(0, 1, 0);
-  const axis = new THREE.Vector3();
-  const barkColor = new THREE.Color();
-  for (const s of segments) {
-    axis.subVectors(s.b, s.a);
-    const len = axis.length();
-    if (len < 1e-4) continue;
-    const radial = s.depth === 0 ? 7 : (s.depth < 3 ? 5 : 4);
-    const cyl = new THREE.CylinderGeometry(s.rb, s.ra, len, radial, 1, true);
-    // Young wood is the lighter, redder colour; the trunk is nearly black in the
-    // plate wherever the canopy shades it.
-    barkColor.copy(barkDark).lerp(barkLit, Math.min(1, s.depth / maxDepth));
-    const n = cyl.getAttribute('position').count;
-    const col = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) {
-      col[i * 3] = barkColor.r;
-      col[i * 3 + 1] = barkColor.g;
-      col[i * 3 + 2] = barkColor.b;
-    }
-    cyl.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    axis.normalize();
-    _q.setFromUnitVectors(up, axis);
-    _v3.copy(s.a).addScaledVector(axis, len * 0.5);
-    _s3.set(1, 1, 1);
-    cyl.applyMatrix4(_m4.compose(_v3, _q, _s3));
-    branchParts.push(cyl);
-  }
-  const branchGeo = mergeAndDispose(branchParts);
+  const branchGeo = barkGeometry(
+    segments, maxDepth, FLORA_PALETTE.BARK_DARK, FLORA_PALETTE.BARK_LIT,
+  );
 
   const branchMat = floraMaterial({
     name: 'flora:blossom-bark',
@@ -1671,7 +1845,9 @@ export function buildBlossomTree(opts = {}) {
   const anchor = new THREE.Vector3();
 
   const clusters = instanced(clusterGeo, clusterMat, clusterCount, (i, m, c) => {
-    const t = twigs.length ? twigs[rng.int(0, twigs.length - 1)] : { p: new THREE.Vector3(0, height, 0), d: up, depth: maxDepth };
+    const t = twigs.length
+      ? twigs[rng.int(0, twigs.length - 1)]
+      : { p: new THREE.Vector3(0, height, 0), d: WORLD_UP, depth: maxDepth };
     // Jitter along and around the twig so clusters sit on the wood rather than
     // at a point on it, and scale the jitter to the canopy so a bigger tree does
     // not get a tighter-looking bloom.
@@ -1888,6 +2064,9 @@ export function buildConiferTree(opts = {}) {
  *   three times the cluster radius, because the plate scatters them well out
  *   across the lawn.
  * @param {Object} [opts.forge] an `AssetForge`, to bind its `stone` detail maps.
+ * @param {number} [opts.tint] sRGB hex read as "what a white face becomes",
+ *   multiplied into the rock's vertex colours in linear light. See
+ *   {@link tintVertexColors}.
  * @returns {THREE.Group} with `userData.dispose()`.
  */
 export function buildBoulderCluster(opts = {}) {
@@ -1896,6 +2075,7 @@ export function buildBoulderCluster(opts = {}) {
   const radius = opts.radius ?? 5;
   const size = opts.size ?? 2.4;
   const chipCount = opts.chips ?? 26;
+  const tint = opts.tint ?? null;
 
   const group = new THREE.Group();
   group.name = 'boulders';
@@ -1950,7 +2130,7 @@ export function buildBoulderCluster(opts = {}) {
   // `mergeGeometries` returns null for an empty list, so a caller asking for
   // chips only ( `count: 0` ) must not reach it.
   if (blocks.length > 0) {
-    const wallGeo = mergeAndDispose(blocks);
+    const wallGeo = tintVertexColors(mergeAndDispose(blocks), tint);
     const wall = new THREE.Mesh(wallGeo, material);
     wall.name = 'boulder-wall';
     wall.castShadow = true;
@@ -1961,7 +2141,7 @@ export function buildBoulderCluster(opts = {}) {
 
   /* --- scatter chips ------------------------------------------------------ */
   if (chipCount > 0) {
-    const chipGeo = createStoneChipGeometry({ rng, size: size * 0.16 });
+    const chipGeo = tintVertexColors(createStoneChipGeometry({ rng, size: size * 0.16 }), tint);
     const places = scatter({
       rng,
       count: chipCount,
@@ -2131,4 +2311,527 @@ export function buildFlowerPatch(opts = {}) {
   group.add(blooms);
 
   return ownResources(group, [stemGeo, bloomGeo], [stemMat, bloomMat]);
+}
+
+/**
+ * Tall seed-head grass — the bed's second height and its only warm vertical.
+ *
+ * This is the species our meadow was missing and the plate leans on hardest.
+ * Zoom the plate's bed at frame right and it is not a violet mass at all: it is
+ * violet racemes at 1.05–1.35 m with **bare green stalks carrying loose straw
+ * panicles standing 20–40 cm above them**, and the pale spindles reading against
+ * the sky are what give the bed a ragged top edge instead of a mown one. Ours
+ * had exactly one thing at that station, and one thing at one height is a wall
+ * however well it is coloured.
+ *
+ * Measured off the plate against the knight's 419 px: the panicles crest at
+ * 0.95–1.15 × character (1.5–1.85 m at our 1.6 m scale), the panicle itself is
+ * the top 22% of the plant, and it runs 0.10–0.13 of its own length across —
+ * narrower than a lavender raceme, which is most of what separates the two
+ * silhouettes at the eight pixels they actually occupy.
+ *
+ * Built as a **clump**, not a blade: a stalk with its panicle plus three basal
+ * blades merged into one instance, so a clump has a base as well as a top and
+ * the bed does not look like a field of aerials. One draw call.
+ *
+ * @param {Object} [opts]
+ * @param {number} [opts.radius=8] drift radius in metres.
+ * @param {number} [opts.count=420] clumps.
+ * @param {[number,number]} [opts.height=[1.35,1.85]] stalk height, metres.
+ * @param {number} [opts.panicle=0.22] fraction of the height carrying seed.
+ * @param {number} [opts.whorls=8] seed whorls up the panicle.
+ * @returns {THREE.InstancedMesh} with `userData.dispose()`.
+ */
+export function buildSeedGrass(opts = {}) {
+  const { rng, lighting, heightAt, mask } = common(opts);
+  const radius = opts.radius ?? 8;
+  const count = opts.count ?? 420;
+  const [hMin, hMax] = opts.height ?? [1.35, 1.85];
+  const panicle = opts.panicle ?? 0.22;
+  const whorls = opts.whorls ?? 8;
+
+  const parts = [];
+  // The stalk. Thinner and straighter than a lavender stem — this grass holds
+  // its head up and only the panicle nods, which is the opposite of a raceme
+  // and reads as a different plant from a hundred metres.
+  parts.push(stemGeometry({
+    height: 1.0,
+    radiusBottom: 0.0055,
+    radiusTop: 0.0028,
+    bend: 0.09,
+    segments: 4,
+    rootColor: FLORA_PALETTE.MEADOW_ROOT,
+    tipColor: FLORA_PALETTE.SEED_STALK,
+  }));
+
+  const seedDeep = lin(FLORA_PALETTE.SEED_STALK);
+  const seedMid = lin(FLORA_PALETTE.SEED_HEAD);
+  const seedPale = lin(FLORA_PALETTE.SEED_HEAD_PALE);
+  const seedColor = new THREE.Color();
+  const stalkTop = 1 - panicle;
+  for (let w = 0; w < whorls; w++) {
+    const u = w / (whorls - 1);
+    const y = stalkTop + panicle * (0.02 + u * 0.98);
+    // A panicle is a *spindle*: widest a third of the way up and drawn to a
+    // point at both ends. A cylinder of seed reads as a bulrush, which is a
+    // different plant entirely and one the plate does not have.
+    const spindle = Math.pow(Math.sin(Math.PI * (0.10 + u * 0.86)), 0.75);
+    const scale = panicle * (0.42 + 0.72 * spindle);
+    // Green at the base of the head where the seed is still unripe, bleaching
+    // to straw at the tip — the same direction the lavender's ramp runs, so the
+    // two species read as lit by the same sun.
+    seedColor.copy(seedDeep).lerp(seedMid, Math.min(1, u * 2.1));
+    if (u > 0.45) seedColor.lerp(seedPale, (u - 0.45) / 0.55 * 0.85);
+
+    const spikelets = petalWhorlGeometry({
+      petals: 3,
+      rows: 2,
+      phase: w * 2.31,
+      // Reach is under half the lavender's for the same plant height, which is
+      // the whole silhouette difference between the two species.
+      radius: (t) => 0.010 + 0.030 * t,
+      height: (t) => -0.030 + 0.110 * t,
+      width: (t) => 0.011 * (1 - t * 0.65),
+      cup: 0.28,
+      colorAt: () => seedColor,
+    });
+    parts.push(placed(spikelets, 0, y, 0, 0, 0, 0, scale, scale, scale));
+  }
+
+  // Basal blades. Three, splayed, at a third of the stalk — a clump of grass
+  // has a skirt, and without one every instance floats on a stick.
+  for (let b = 0; b < 3; b++) {
+    const blade = bladeGeometry({
+      segments: 5,
+      droop: 0.80,
+      taper: 0.52,
+      rootColor: FLORA_PALETTE.MEADOW_ROOT,
+      tipColor: FLORA_PALETTE.MEADOW_TIP,
+      upBlend: 0.38,
+    });
+    const h = rng.range(0.26, 0.46);
+    placed(blade, 0, 0, 0, 0.10, b * 2.09 + rng.jitter(0.4), 0, 0.026, h, h * 0.85, 'YXZ');
+    parts.push(blade);
+  }
+
+  const geo = setSway(mergeAndDispose(parts), (x, y) => y);
+  const material = floraMaterial({
+    name: 'flora:seed-grass',
+    lighting,
+    wind: true,
+    // The tallest, thinnest thing in the bed, so it bends furthest and fastest.
+    // A meadow where the seed heads move less than the lavender under them reads
+    // as plastic even when every colour is right.
+    windGain: 0.16,
+    windChop: 1.15,
+    shadowDepth: FOLIAGE_SHADOW_DEPTH,
+    roughness: 0.9,
+  });
+
+  const places = scatter({
+    rng, count, radius,
+    innerRadius: opts.innerRadius ?? 0,
+    falloff: opts.falloff ?? 0.4,
+    // Seed grass grows through the lavender in loose runs rather than as its own
+    // stand; high clumping is what interleaves the two instead of banding them.
+    clumping: opts.clumping ?? 0.62,
+    mask,
+  });
+
+  const mesh = instanced(geo, material, places.length, (i, m, c) => {
+    const p = places[i];
+    const h = rng.range(hMin, hMax);
+    _e.set(rng.jitter(0.16), rng.range(0, Math.PI * 2), rng.jitter(0.16));
+    _q.setFromEuler(_e);
+    _v3.set(p.x, heightAt(p.x, p.z), p.z);
+    _s3.set(h, h, h);
+    m.compose(_v3, _q, _s3);
+    const v = rng.range(0.84, 1.16);
+    c.setRGB(v * rng.range(0.99, 1.07), v, v * rng.range(0.86, 0.98));
+    return rng.range(0.8, 1.35);
+  }, { castShadow: false, receiveShadow: true });
+
+  mesh.name = 'seed-grass';
+  return ownResources(mesh, [geo], [material]);
+}
+
+/**
+ * Low broadleaf ground cover — the dark rosettes that break up a lawn.
+ *
+ * The fifth species, and the one that works at the bottom of frame where the
+ * others are all too tall to reach. On the plate the ground the party stands on
+ * is not one green: broad flat leaves pool between the grass at roughly two
+ * thirds its luminance, in patches a metre across, and that mottling is most of
+ * what keeps 200 000 px of lawn from reading as felt. Ours had a single blade
+ * species there and duly shipped a uniform mat.
+ *
+ * A rosette rather than a plant: five broad leaves splayed almost flat from one
+ * crown, which is the shape that reads from a camera looking down at it. Grass
+ * is a silhouette read and ground cover is a plan read, so they need opposite
+ * geometry — that is the reason this is not a `buildGrassField` preset.
+ *
+ * @param {Object} [opts]
+ * @param {number} [opts.radius=9]
+ * @param {number} [opts.count=900] rosettes.
+ * @param {[number,number]} [opts.size=[0.16,0.34]] leaf span, metres.
+ * @returns {THREE.InstancedMesh} with `userData.dispose()`.
+ */
+export function buildGroundCover(opts = {}) {
+  const { rng, lighting, heightAt, mask } = common(opts);
+  const radius = opts.radius ?? 9;
+  const count = opts.count ?? 900;
+  const [sMin, sMax] = opts.size ?? [0.16, 0.34];
+  const leaves = opts.leaves ?? 5;
+
+  const parts = [];
+  for (let i = 0; i < leaves; i++) {
+    const leaf = bladeGeometry({
+      segments: 4,
+      // Nearly a full quarter-turn of droop with almost no taper: a broad
+      // rounded lamina rather than a blade. `taper` 0.20 holds 82% of the width
+      // nine tenths of the way out, which is a leaf; the lawn's 0.38 is a strap
+      // and the meadow's 0.62 is a needle.
+      droop: 1.05,
+      taper: 0.20,
+      rootColor: FLORA_PALETTE.COVER_ROOT,
+      tipColor: FLORA_PALETTE.COVER_TIP,
+      // Highest up-blend in the module. These are seen from almost directly
+      // above and their true normals are nearly horizontal, so without it a
+      // patch of ground cover goes black under a high key.
+      upBlend: 0.74,
+    });
+    // Laid over toward horizontal, each leaf on its own azimuth. `'YXZ'` so the
+    // azimuth stays the outer rotation — see `placed`.
+    placed(
+      leaf, 0, 0, 0,
+      Math.PI * 0.40 + rng.jitter(0.18), (i / leaves) * Math.PI * 2 + rng.jitter(0.3), 0,
+      0.34, 0.62, 0.55,
+      'YXZ',
+    );
+    parts.push(leaf);
+  }
+
+  const geo = setSway(
+    mergeAndDispose(parts),
+    // Anchored at the crown, free at the leaf tips: lever is radial distance,
+    // not height, because this plant has almost none.
+    (x, y, z) => Math.min(1, Math.hypot(x, z) / 0.55),
+  );
+
+  const material = floraMaterial({
+    name: 'flora:ground-cover',
+    lighting,
+    wind: true,
+    // Barely moves. A broad low leaf on a short petiole is the stiffest thing in
+    // the meadow, and cover that waves like grass destroys the height cue the
+    // species exists to provide.
+    windGain: 0.018,
+    windChop: 0.4,
+    shadowDepth: FOLIAGE_SHADOW_DEPTH,
+    roughness: 0.92,
+  });
+
+  const places = scatter({
+    rng, count, radius,
+    innerRadius: opts.innerRadius ?? 0,
+    falloff: opts.falloff ?? 0.5,
+    // The plate's cover sits in patches a metre across, not as a sprinkle.
+    clumping: opts.clumping ?? 0.72,
+    mask,
+  });
+
+  const mesh = instanced(geo, material, places.length, (i, m, c) => {
+    const p = places[i];
+    const s = rng.range(sMin, sMax);
+    _e.set(rng.jitter(0.12), rng.range(0, Math.PI * 2), rng.jitter(0.12));
+    _q.setFromEuler(_e);
+    _v3.set(p.x, heightAt(p.x, p.z) - s * 0.03, p.z);
+    _s3.set(s, s * rng.range(0.7, 1.0), s);
+    m.compose(_v3, _q, _s3);
+    const v = rng.range(0.82, 1.12);
+    c.setRGB(v * rng.range(0.96, 1.06), v, v * rng.range(0.84, 0.98));
+    return rng.range(0.7, 1.2);
+  }, { castShadow: false, receiveShadow: true });
+
+  mesh.name = 'ground-cover';
+  return ownResources(mesh, [geo], [material]);
+}
+
+/**
+ * A broadleaf — rounded canopy masses on real wood.
+ *
+ * The plate has **two** tree species behind its meadow and we shipped one,
+ * twenty-two times. Its cedars are tiered and notched; the tree at plate centre
+ * (x ≈ 1180–1400, y ≈ 60–300) is the opposite read in every axis: a single
+ * rounded crown built of four or five overlapping *lobes* with clear gaps of sky
+ * between them, wider than it is tall above a clean bole, and a full 36° warmer
+ * in hue than the cedars beside it. Half the belt is this now, and a treeline of
+ * two silhouettes is the cheapest depth cue in the frame.
+ *
+ * The canopy is modelled as lobes rather than scattered as cards, and that is
+ * the load-bearing decision. A broadleaf crown at 25 m is a *mass* — its read is
+ * the rounded value gradient across each lobe and the dark gap between lobes,
+ * neither of which a cloud of billboards produces. The leaf detail that a mass
+ * alone cannot give arrives as a fringe of instanced sprigs on the lobes' outer
+ * shells, which breaks the silhouette without paying for interior geometry
+ * nothing will ever see.
+ *
+ * Authored at **unit height** and scaled per instance, so a grove is three draw
+ * calls at any count.
+ *
+ * @param {Object} [opts]
+ * @param {number} [opts.count=1] trees; above one they are instanced.
+ * @param {number} [opts.height=6.0] height in metres.
+ * @param {number} [opts.spread=1.12] crown width as a multiple of height.
+ * @param {number} [opts.lobes=6] canopy masses. Five or six is the plate's read;
+ *   past eight the gaps close and it becomes a ball again.
+ * @param {number} [opts.fringe] leaf sprigs on the lobe shells. Defaults to 200
+ *   for a single hero tree and **0** for a grove, where at 25 m a sprig is under
+ *   a pixel and the mass carries the whole read.
+ * @param {number} [opts.radius=8] scatter radius when `count > 1`.
+ * @param {Object} [opts.forge] an `AssetForge`, to bind its `bark` detail maps.
+ * @returns {THREE.Group} with `userData.dispose()`.
+ */
+export function buildBroadleafTree(opts = {}) {
+  const { rng, lighting, forge, heightAt, mask } = common(opts);
+  const count = opts.count ?? 1;
+  const height = opts.height ?? 6.0;
+  const spread = opts.spread ?? 1.12;
+  const lobeCount = opts.lobes ?? 6;
+  const fringeCount = opts.fringe ?? (count === 1 ? 200 : 0);
+  const maxDepth = opts.depth ?? 3;
+
+  const group = new THREE.Group();
+  group.name = 'broadleaf';
+
+  /* --- skeleton, in unit-height space ------------------------------------- */
+  // Against the cherry: a third less droop and twice the upward bias, because a
+  // broadleaf reaches for the light and a flowering cherry weeps. `twigDepth` 1
+  // rather than 2 — the lobes hang off the main forks, which is what puts a
+  // crown *over* a bole instead of a cloud around a stick.
+  const { segments, twigs } = growSkeleton({
+    rng, length: 0.30, radius: 0.030, maxDepth, twigDepth: 1,
+    droop: 0.022, droopPerDepth: 0.020,
+    spread: [0.42, 0.86], rise: [0.18, 0.52],
+    lengthDecay: [0.62, 0.82], radiusDecay: [0.58, 0.74],
+  });
+  const branchGeo = barkGeometry(
+    segments, maxDepth, FLORA_PALETTE.BROADLEAF_BARK, FLORA_PALETTE.BROADLEAF_BARK_LIT,
+  );
+
+  /* --- canopy lobes -------------------------------------------------------- */
+  const crownRadius = spread * 0.5;
+  const deep = lin(FLORA_PALETTE.BROADLEAF_DEEP);
+  const mid = lin(FLORA_PALETTE.BROADLEAF_MID);
+  const litLeaf = lin(FLORA_PALETTE.BROADLEAF_LIT);
+  const lobeColor = new THREE.Color();
+  /** Lobe centres and radii, kept so the fringe can sit on the shells the
+   *  canopy actually built rather than on a sphere it might have built. */
+  const shells = [];
+  const lobeParts = [];
+  // Anchors are drawn from the *outer* twigs so the lobes sit where the wood
+  // ends. Striding rather than sampling: a random draw clusters two lobes on one
+  // branch and leaves a quadrant of the crown empty, which on a shape made of
+  // five masses is immediately visible.
+  const outer = twigs.filter((t) => t.depth >= maxDepth - 1);
+  const pool = outer.length ? outer : twigs;
+  for (let i = 0; i < lobeCount; i++) {
+    const t = pool[Math.floor((i + 0.5) * pool.length / lobeCount) % pool.length];
+    const r = crownRadius * rng.range(0.40, 0.56);
+    const centre = new THREE.Vector3()
+      .copy(t.p)
+      .addScaledVector(t.d, r * 0.35)
+      .add(_v3.set(rng.jitter(0.09), rng.jitter(0.05), rng.jitter(0.09)));
+    // Keep every lobe over the bole. A branch that wandered wide would otherwise
+    // hang a mass off the side of the tree with nothing under it.
+    const reach = Math.hypot(centre.x, centre.z);
+    if (reach > crownRadius * 0.72) {
+      centre.x *= (crownRadius * 0.72) / reach;
+      centre.z *= (crownRadius * 0.72) / reach;
+    }
+    shells.push({ centre, radius: r });
+
+    // 9x6 is 90 triangles and, being indexed, closes to genuinely smooth normals
+    // — which is the entire point of a lobe. An icosahedron at the same triangle
+    // count is non-indexed and would come back faceted, i.e. a low-poly ball.
+    const lobe = new THREE.SphereGeometry(1, 9, 6);
+    const pos = lobe.getAttribute('position');
+    // Three incommensurate lobes of deformation on the unit direction. Sampled
+    // from *position* rather than from the RNG so coincident seam vertices agree
+    // and the surface stays closed; the RNG supplies only the phases.
+    const pa = rng.range(0, 6.28);
+    const pb = rng.range(0, 6.28);
+    const pc = rng.range(0, 6.28);
+    const cols = new Float32Array(pos.count * 3);
+    for (let v = 0; v < pos.count; v++) {
+      _v3.fromBufferAttribute(pos, v);
+      const k = 1
+        + 0.20 * Math.sin(_v3.x * 2.7 + pa) * Math.cos(_v3.y * 3.1 + pb)
+        + 0.13 * Math.sin(_v3.z * 4.3 + pc);
+      _v3.multiplyScalar(k);
+      pos.setXYZ(v, _v3.x, _v3.y * 0.82, _v3.z);
+      // A crown's value structure is vertical: sky-lit on top, in its own shade
+      // underneath. Painting it into the albedo is what keeps the mass reading
+      // as a mass when the terminator falls somewhere else entirely.
+      const u = _v3.y * 0.5 + 0.5;
+      lobeColor.copy(deep).lerp(mid, Math.min(1, u * 1.8));
+      if (u > 0.55) lobeColor.lerp(litLeaf, (u - 0.55) / 0.45 * 0.85);
+      cols[v * 3] = lobeColor.r;
+      cols[v * 3 + 1] = lobeColor.g;
+      cols[v * 3 + 2] = lobeColor.b;
+    }
+    lobe.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+    lobe.computeVertexNormals();
+    lobeParts.push(placed(lobe, centre.x, centre.y, centre.z, 0, 0, 0, r, r, r));
+  }
+  const canopyGeo = setSway(
+    mergeAndDispose(lobeParts),
+    // The whole crown flexes together and the bole does not, so the lever is
+    // height above the ground rather than distance from a branch.
+    (x, y) => Math.min(1, Math.max(0, (y - 0.35) / 0.65)),
+  );
+
+  /* --- leaf fringe --------------------------------------------------------- */
+  let fringeGeo = null;
+  let fringeMat = null;
+  if (fringeCount > 0) {
+    const sprigParts = [];
+    for (let i = 0; i < 4; i++) {
+      const leaf = bladeGeometry({
+        segments: 3,
+        droop: 0.72,
+        taper: 0.26,
+        rootColor: FLORA_PALETTE.BROADLEAF_MID,
+        tipColor: FLORA_PALETTE.BROADLEAF_LIT,
+        upBlend: 0.45,
+      });
+      placed(
+        leaf, 0, 0, 0,
+        0.5 + rng.jitter(0.5), (i / 4) * Math.PI * 2 + rng.jitter(0.4), 0,
+        0.5, 1.0, 0.8,
+        'YXZ',
+      );
+      sprigParts.push(leaf);
+    }
+    fringeGeo = setSway(mergeAndDispose(sprigParts), (x, y) => Math.min(1, y * 1.6));
+    fringeMat = floraMaterial({
+      name: 'flora:broadleaf-fringe',
+      lighting,
+      wind: true,
+      windGain: 0.05,
+      windChop: 1.0,
+      shadowDepth: FOLIAGE_SHADOW_DEPTH,
+      roughness: 0.88,
+    });
+  }
+
+  /* --- materials ----------------------------------------------------------- */
+  const barkMat = floraMaterial({
+    name: 'flora:broadleaf-bark',
+    lighting,
+    side: THREE.FrontSide,
+    roughness: 0.95,
+    shadowDepth: 0.30,
+    normalMap: forge?.texture('bark/normal') ?? undefined,
+    roughnessMap: forge?.texture('bark/roughness') ?? undefined,
+  });
+  const canopyMat = floraMaterial({
+    name: 'flora:broadleaf-canopy',
+    lighting,
+    wind: true,
+    windGain: 0.055,
+    windChop: 0.7,
+    // A crown is the one piece of foliage in the module thick enough to be
+    // genuinely opaque in its interior, so it takes less transmission lift than
+    // a blade — which is what lets the gaps between lobes stay dark and the
+    // masses stay separable.
+    shadowDepth: 0.40,
+    roughness: 0.9,
+    side: THREE.FrontSide,
+  });
+
+  /* --- placement ----------------------------------------------------------- */
+  const places = count === 1
+    ? [{ x: 0, z: 0, t: 0 }]
+    : scatter({
+      rng, count, radius: opts.radius ?? 8,
+      innerRadius: opts.innerRadius ?? 0,
+      falloff: opts.falloff ?? 0.4,
+      mask,
+    });
+
+  const scales = new Float32Array(places.length);
+  const yaws = new Float32Array(places.length);
+  for (let i = 0; i < places.length; i++) {
+    scales[i] = height * rng.range(0.78, 1.22);
+    yaws[i] = rng.range(0, Math.PI * 2);
+  }
+  const place = (i, m) => {
+    const p = places[i];
+    _e.set(0, yaws[i], 0);
+    _q.setFromEuler(_e);
+    _v3.set(p.x, heightAt(p.x, p.z), p.z);
+    _s3.set(scales[i], scales[i], scales[i]);
+    m.compose(_v3, _q, _s3);
+  };
+
+  const trunks = instanced(branchGeo, barkMat, places.length, (i, m, c) => {
+    place(i, m);
+    const v = rng.range(0.86, 1.12);
+    c.setRGB(v * rng.range(1.0, 1.06), v, v * rng.range(0.9, 1.0));
+    return 0;
+  }, { castShadow: true, receiveShadow: true });
+  trunks.name = 'broadleaf-trunks';
+  group.add(trunks);
+
+  const canopy = instanced(canopyGeo, canopyMat, places.length, (i, m, c) => {
+    place(i, m);
+    // Level and warmth only. A second green multiplied into the lobe ramp takes
+    // a whole grove to near black — the same trap the conifer records.
+    const v = rng.range(0.84, 1.16);
+    c.setRGB(v * rng.range(0.94, 1.08), v, v * rng.range(0.86, 1.0));
+    return rng.range(0.85, 1.2);
+  }, { castShadow: true, receiveShadow: true });
+  canopy.name = 'broadleaf-canopy';
+  group.add(canopy);
+
+  const geometries = [branchGeo, canopyGeo];
+  const materials = [barkMat, canopyMat];
+
+  if (fringeGeo) {
+    // One fringe budget shared across every tree in the group, so a grove that
+    // asked for sprigs does not multiply them by its own count.
+    const perTree = Math.max(1, Math.round(fringeCount / places.length));
+    const total = perTree * places.length;
+    const fringe = instanced(fringeGeo, fringeMat, total, (i, m, c) => {
+      const tree = Math.floor(i / perTree);
+      const shell = shells[rng.int(0, shells.length - 1)];
+      // A point on the lobe's own shell, pushed just proud of it so the sprig
+      // reads against the mass rather than being swallowed by it.
+      const a = rng.range(0, Math.PI * 2);
+      const y = rng.range(-0.75, 1.0);
+      const r = Math.sqrt(Math.max(0, 1 - y * y));
+      _t3.set(Math.cos(a) * r, y, Math.sin(a) * r);
+      _v3.copy(shell.centre).addScaledVector(_t3, shell.radius * 0.98);
+      // Grown outward along the shell normal, which is what makes the fringe a
+      // fringe rather than a halo of randomly-tumbled leaves.
+      _q.setFromUnitVectors(WORLD_UP, _t3);
+      const s = rng.range(0.055, 0.10);
+      _s3.set(s, s, s);
+      _m4.compose(_v3, _q, _s3);
+      // Fold the tree's own placement in afterwards, since the shell positions
+      // are authored in the unit-height space the canopy was built in.
+      place(tree, m);
+      m.multiply(_m4);
+      const v = rng.range(0.8, 1.2);
+      c.setRGB(v * rng.range(0.96, 1.08), v, v * rng.range(0.86, 1.0));
+      return rng.range(0.9, 1.5);
+    }, { castShadow: false, receiveShadow: true });
+    fringe.name = 'broadleaf-fringe';
+    group.add(fringe);
+    geometries.push(fringeGeo);
+    materials.push(fringeMat);
+  }
+
+  return ownResources(group, geometries, materials);
 }

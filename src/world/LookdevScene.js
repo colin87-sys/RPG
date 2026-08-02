@@ -64,7 +64,8 @@ import { LIGHT } from '../art/Palette.js';
 import { makeNoise, smootherstep } from '../art/noise.js';
 import {
   buildGrassField, buildLavender, buildTulips, buildBlossomTree,
-  buildConiferTree, buildBoulderCluster, buildFlowerPatch,
+  buildConiferTree, buildBroadleafTree, buildBoulderCluster, buildFlowerPatch,
+  buildSeedGrass, buildGroundCover,
   updateFlora, setFloraWind, FLORA_PALETTE,
 } from './Flora.js';
 import { buildCreature } from './Bestiary.js';
@@ -273,7 +274,26 @@ const PATH = { x0: -1.0, z0: 4.8, dx: 0.75, dz: 1.0, feather: 1.2, width: 4.5 };
  * puts it above the heads (320–383) and hard against the top edge, and leaves
  * the encounter its own column of frame.
  */
-const CHERRY = { x: -3.6, z: -4.8, height: 3.6, spread: 1.45, drift: 4.0 };
+const CHERRY = { x: -5.9, z: -6.4, height: 4.4, spread: 1.50, drift: 4.6 };
+
+/**
+ * Grey slate, as a multiplier on whatever `props/RockForms.js` authored.
+ *
+ * That module writes the plate's *facet relationship* — a pale weathered top
+ * over a cleaved blue side — and the relationship is right; what it cannot know
+ * is the exposure of the frame it lands in. Measured on our own capture the wall
+ * renders p50 sRGB 180+ where the plate's top band reads **p50 57 at 0.53
+ * saturation**, so the rock is better than a stop hot and comes back as chalk
+ * against a meadow that is correctly keyed. Two rounds of staging notes in
+ * `_buildMeadow` record the consequence: the wall could not be allowed to grow,
+ * because every extra block *lifted* the top of frame instead of closing it.
+ *
+ * `0xc2c6d6` multiplied in linear light takes the up-faces' `#b4bcc6` to about
+ * `#8a96ab` and the cleaved sides' `#55617e` to `#3d4a66` — the plate's own
+ * values to within a few code points, with the facet contrast untouched because
+ * a multiply is the one operation that cannot change a ratio.
+ */
+const ROCK_TINT = 0xc2c6d6;
 
 /**
  * The ground's analytic height field.
@@ -406,22 +426,56 @@ function stagePlacement(slot) {
  * budget is fixed at both ends: the creature has to be *at* the left edge to be
  * the thing the line is addressing, and the HP/MP/BP stack owns everything past
  * `ndc` +0.56 — measured on the plate, whose own rightmost figure centres at
- * +0.49 with only her bow under the stack. Six figures at the previous 0.26 slot
- * pitch spanned 1.32 of the 1.55 that leaves, so the whole line moves right by
- * 0.075 and compresses by 10%. That is a real cost and it is the *only* one
- * paid: the tightest resulting silhouette gap is 39 px at 1920 (Auren to Bramm),
- * against 90 px between the plate's own two closest figures. The alternative —
- * a wider lens — would have shrunk the near figure below the plate's measured
- * 39% of frame height, which is the one number this whole file is solved
- * against.
+ * +0.49 with only her bow under the stack. The rebuilt encounter is longer and
+ * further left than the floater it replaced, so the line gives up more of the
+ * left edge again: it now spans `ndc` −0.50 → +0.56, and Auren's silhouette
+ * starts at −0.61 exactly where the creature's ends. The alternative — a wider
+ * lens — would have shrunk the near figure below the plate's measured 39% of
+ * frame height, which is the one number this whole file is solved against.
+ *
+ * ## The recession, and the 35° that is not available
+ *
+ * The line used to alternate near/far by ~1.1 m in an order chosen only to
+ * stagger the feet, which put six figures at effectively one station: every
+ * silhouette met the meadow at the same depth, nothing overlapped anything, and
+ * the frame read as a row of cut-outs pinned to a backdrop. The plate does not
+ * do that. Measured on `bravely01.jpg` its four figures' feet land at y 745,
+ * 755, 800 and 870 — a **monotone recession** from the figure nearest the
+ * threat (Adelle, frame right, feet lowest) back to the one furthest from it
+ * (Seth, frame left). Our threat is at frame *left*, so the same run is
+ * mirrored: Auren nearest, Yshara deepest, 1.40 m of depth across the line and
+ * every adjacent pair separated in z as well as in x.
+ *
+ * The review asked for the camera to sit **35° off the party line** and that is
+ * not reachable at this frame's other constraints, which is worth writing down
+ * rather than silently missing. The line's world width is fixed by the near
+ * figure's frame height (see the invariant above) at 3.39 m here; the depth run
+ * is bounded by the frame-height band the plate itself holds, 0.29–0.39, which
+ * at this roster's 1.00–1.26 m height spread allows depths of 4.20–5.60 and no
+ * more. `atan(1.42 / 3.39)` is **22.7°**, and buying the remaining 12° costs
+ * either a rear figure under 0.24 of frame height — below the size at which a
+ * chibi's painted eyes resolve at all — or a wider lens, which flattens the
+ * compression that is the plate's most distinctive property. 22.7° is what the
+ * frame has; it is two thirds of the ask and it is the whole of what the
+ * geometry permits.
+ *
+ * Slot spacing lands at 0.62–0.84 m of world separation, mean 0.74, against a
+ * chibi's ~0.50 m shoulder width — i.e. the 1.5-character pitch the review
+ * specified, measured rather than assumed.
+ *
+ * `face` keeps the plate's *ordering* — the figure nearest the threat is the
+ * most profile and the far end is the most frontal, 43°/45°/59°/75° on the plate
+ * — but the whole column comes down 8–10°, because the plate's 75° is on a head
+ * 148 px tall and ours are 90. At 68° a chibi's near eye is fully occluded by
+ * its own cheek mass; 58° is where both eyes are still presented.
  */
 const PARTY = [
-  { id: 'auren',  ndc: -0.627, depth: 4.15, face: 68 },
-  { id: 'bramm',  ndc: -0.393, depth: 5.30, face: 62 },
-  { id: 'seren',  ndc: -0.159, depth: 4.45, face: 55 },
-  { id: 'kite',   ndc:  0.093, depth: 5.60, face: 58 },
-  { id: 'emrys',  ndc:  0.327, depth: 4.75, face: 52 },
-  { id: 'yshara', ndc:  0.561, depth: 5.95, face: 45 },
+  { id: 'auren',  ndc: -0.500, depth: 4.20, face: 58 },
+  { id: 'emrys',  ndc: -0.288, depth: 4.55, face: 54 },
+  { id: 'seren',  ndc: -0.076, depth: 4.90, face: 50 },
+  { id: 'bramm',  ndc:  0.136, depth: 5.15, face: 50 },
+  { id: 'kite',   ndc:  0.348, depth: 5.40, face: 46 },
+  { id: 'yshara', ndc:  0.560, depth: 5.60, face: 42 },
 ];
 
 /**
@@ -431,47 +485,52 @@ const PARTY = [
  * through the same {@link stagePlacement}, because the only thing that matters
  * about an enemy's position is where it lands in frame relative to the line.
  *
- *  - **`driftbell`, not the quadruped.** Read off the built buffers rather than
- *    chosen by taste: the glassmane is 1.78 × as long as it is tall, so at a
- *    frame height that reads as a threat it is 0.87 of `ndc` wide seen broadside
- *    — 43% of the image — and there is no arrangement of six characters and a
- *    HUD stack that leaves that much. The driftbell is 0.58 wide per unit of
- *    height and vertical, so it buys its screen presence in the one axis the
- *    frame has spare. It is also the cheapest of the three — 1 236 triangles
- *    with the hull off, against a meadow of 1.7 M — i.e. free.
- *  - **`height` 1.70 m against a 1.00–1.19 m cast.** 42% of frame height at this
- *    depth, where the nearest party member is 37%. Bigger than anything in the
- *    line in both world metres and screen pixels, which is what "reads as a
- *    threat" has to mean when the reference gives no enemy to measure. It was
- *    2.00, and the projected bounding box of that came back 633 px wide against
- *    a 417 px silhouette — because at this `ndc` the creature straddles the
- *    steepest part of the frustum and its near tendrils sit at a visibly
- *    different `ndc` scale from its far ones. Screen presence on this stage is
- *    bought in *height*; the width is a tax on it.
- *  - **`ndc` −0.90, i.e. clipped by the left edge.** Its far flank lands at
- *    px 288 of 1920 against Auren's left shoulder at 254, so the 34 px of
- *    overlap is a rear tendril passing behind him — a depth cue, since the
- *    creature is 1.5 m further from the lens. Roughly a quarter of it falls off
- *    the edge, and that is the point rather than a compromise: a threat the
- *    frame cannot contain is the plate's own device (it puts its threat entirely
- *    off-frame) taken one step in.
- *  - **`depth` 5.60**, i.e. between the two rear slots. Nearer than the bed's
- *    front edge, so no lavender grows through it, and on the *near* side of the
- *    party's centroid — which is what lets {@link GAZE_ANCHOR} sit on the
- *    creature's own bearing while still opening every face toward the lens.
+ *  - **The quadruped, not the floater.** This is the correction the review found
+ *    as "an abstract spiked-ball enemy", and it was a real constraint rather
+ *    than a preference: the glassmane measured **1.79 × as long as it was tall**,
+ *    which broadside at a threatening frame height is 0.87 of `ndc` — 43% of the
+ *    image — and no arrangement of six characters and a HUD stack leaves that.
+ *    The floater fitted, and what shipped was a ribbed dome with no head, no
+ *    limbs and no front. `Bestiary`'s stance rebuild fixes the *cause*: the
+ *    animal now stands at 1.48 long per unit of height, and at the yaw this
+ *    staging presents it at, 0.55 of `ndc`. A frame whose antagonist has a face,
+ *    ears, four legs and a tail is worth the width.
+ *  - **`height` 2.05 m against a 1.00–1.26 m cast** — 1.63 × the tallest figure
+ *    in the line, which is the review's "~1.5 × character height" taken against
+ *    the roster's tallest rather than its shortest. Bigger than anything in the
+ *    line in world metres by a wide margin while sitting 2.7 m further from the
+ *    lens, so it holds 0.34 of frame height against Auren's 0.39: the frame
+ *    reads it as *large and further away*, which is the depth relationship an
+ *    enemy needs, rather than as merely close.
+ *  - **`ndc` −0.88, `depth` 8.20.** The pair is solved together against two hard
+ *    edges. It stands at a heading of 56° off the lens, at which its projected
+ *    silhouette is 2.96 m across — 0.558 of `ndc`, spanning −1.159 → −0.601 —
+ *    and Auren's own silhouette starts at −0.610, so the two meet within a
+ *    pixel and never overlap. The 28% of the creature past the left edge is the
+ *    plate's own device (it puts its threat entirely off-frame) taken one step
+ *    in. The depth is what makes that fit: at the previous staging's 5.60 the
+ *    same animal covers 0.82 of `ndc` and buries the party leader.
+ *  - **It stands on the lawn, a metre in front of the bed's front edge.** Not an
+ *    accident of the solve: at 2.05 m its belly line is 0.9 m and the bed's
+ *    lavender runs to 1.5, so an animal placed *in* the flowers loses all four
+ *    legs to them — and legs are half of what makes this creature legible as an
+ *    animal rather than as the abstract mass it replaced. The bed rising behind
+ *    it supplies the depth relationship instead.
  *
  * `hover` is the metres of vertical travel the idle bob covers, and `bobRate`
  * its radians per second. Everything in `buildCreature` is merged into three
- * meshes with no rig, so the root is the only thing there is to animate — which
- * for a thing that floats is exactly enough.
+ * meshes with no rig, so the root is the only thing there is to animate. For the
+ * floater that was a drift; for a standing animal it is **breathing** — 14 mm at
+ * 1.05 rad/s, an order under the bell's 55 mm, because a quadruped whose whole
+ * body rises and falls by a hand's width is a quadruped that is hovering.
  */
 const ENCOUNTER = {
-  id: 'driftbell',
-  ndc: -0.90,
-  depth: 5.60,
-  height: 1.70,
-  hover: 0.055,
-  bobRate: 0.85,
+  id: 'glassmane',
+  ndc: -0.88,
+  depth: 8.20,
+  height: 2.05,
+  hover: 0.014,
+  bobRate: 1.05,
   /** Fixed, so two captures of this stage dress the creature identically —
    *  `buildCreature` seeds its mottle and its tendril drift off this. */
   seed: 0x5c0a11ed,
@@ -563,28 +622,33 @@ function headingTo(a, b) {
  * address is mirrored. The anchor is deliberately *not* the creature itself,
  * and the requirements that decide that are specific:
  *
- *  - **Far.** At 18 m the six slots' headings to it converge inside 6°, so the
- *    line reads as watching one thing. Aimed at the creature 4.5 m away they fan
+ *  - **Far.** At 25 m the six slots' headings to it converge inside 7°, so the
+ *    line reads as watching one thing. Aimed at the creature 6 m away they fan
  *    by 25°, and the near-left figure ends up in dead profile while the
  *    far-right one is nearly frontal.
- *  - **On the creature's bearing.** From the party centroid the creature lies at
- *    −99.6° and this anchor at −92.3°: 7° apart, which at chibi head scale is
- *    invisible. So the line reads as watching the thing that is actually there,
- *    without inheriting the fan that watching it exactly would cost.
- *  - **Off frame**, at `ndc` ≈ −2.8, so the aim point itself never has to be
+ *  - **On the creature's bearing, and re-solved when the creature moved.** The
+ *    encounter now stands at −123.9° from the party centroid rather than the
+ *    −99.6° the previous staging put it at, because it is both further left and
+ *    2.5 m *deeper* than the line instead of level with it. The anchor is
+ *    therefore placed by extending that exact bearing to 25 m rather than by
+ *    keeping a coordinate: leaving the old (−18, 2.0) in place would have had
+ *    the whole party watching a point 31° off the only thing in frame to watch,
+ *    which is the kind of defect that survives a review because nothing in the
+ *    picture says what the party is *supposed* to be looking at.
+ *  - **Off frame**, at `ndc` ≈ −2.4, so the aim point itself never has to be
  *    modelled — the creature occupies the near end of the same bearing.
- *  - **At eye height**, so the look-at tilts no head up or down. 1.0 m is the
- *    cast's own eye line, and it is also where the driftbell's eye arc sits at
- *    the staged scale, so the party is not looking over its head.
+ *  - **At 1.10 m**, between the cast's own ~1.0 m eye line and the staged
+ *    creature's eye at 1.14 m, so the look-at tilts no head measurably up or
+ *    down and the party is not looking over the animal's head.
  *
- * The z is the *mirror* of the previous right-hand anchor and that matters more
- * than it looks: an anchor deeper than the line (z below the centroid's 2.70)
- * puts every base heading past profile *away* from the lens, and `turn` then has
- * to spend itself climbing back to square before it can open a face at all. At
- * z = 2.0 the base headings land within 4° of profile, which is the geometry
- * the `turn` column was measured for.
+ * That the anchor is now *deeper* than the line is fine where it would not have
+ * been under the old `turn` column, and the distinction is worth keeping: `turn`
+ * stated a rotation relative to the threat bearing, so a bearing past profile
+ * cost it its whole range. {@link presentationRotation} solves for an absolute
+ * presentation angle and subtracts whatever the gaze contributes, so it delivers
+ * the authored `face` from any anchor position at all.
  */
-const GAZE_ANCHOR = new THREE.Vector3(-18.0, 1.00, 2.00);
+const GAZE_ANCHOR = new THREE.Vector3(-20.5, 1.10, -11.2);
 
 /**
  * How much of the way to the gaze anchor the head is allowed to travel.
@@ -1348,6 +1412,18 @@ export class LookdevScene extends Scene {
       mask: (x, z) => (z + 3.0 > LAWN_NEAR_LIMIT ? 0 : this._floraMask(x, z + 3.0)),
     });
 
+    // --- ground cover, in front of and around the line ----------------------
+    // The fifth species and the only one that lives on the party's own side of
+    // the bed. On the plate the floor the cast stands on is not one green: broad
+    // low leaves pool between the grass in patches a metre across, and that
+    // mottling is most of what stops 200 000 px of lawn reading as felt — which
+    // is exactly what ours did. Same near cut-off as the lawn, for the same
+    // reason.
+    plant(buildGroundCover, 0, 2.0, {
+      radius: 13, count: 1400, size: [0.16, 0.36], falloff: 0.5,
+      mask: (x, z) => (z + 2.0 > LAWN_NEAR_LIMIT ? 0 : this._floraMask(x, z + 2.0)),
+    });
+
     // --- the bed -----------------------------------------------------------
     // Front band first: shorter and sparser, so the bed's near edge reads as a
     // ragged margin rather than as a wall that starts at full height.
@@ -1363,18 +1439,65 @@ export class LookdevScene extends Scene {
       preset: 'meadow', radius: 8.5, count: 2200, height: [0.38, 0.72], falloff: 0.5,
       mask: behindLine(-1.5),
     });
-    // The near band is where a raceme is actually resolvable — 3 cm at 9 m is
-    // 5 px, against 2 px at the mass's depth — so it carries the highest
-    // density in the meadow (20 plants/m²) and the least grass to hide it.
-    plant(buildLavender, 0, -1.5, {
-      radius: 6.5, count: 2600, height: [1.05, 1.40], falloff: 0.35, mask: behindLine(-1.5),
-    });
+    /**
+     * The bed is now **interleaved drifts of three lavender variants**, not one
+     * field of one plant.
+     *
+     * The review's finding was that our bed is "a monoculture … one lavender
+     * spike instanced into a wall", and it was right for a reason no density or
+     * palette change reaches: two `buildLavender` calls at one height range and
+     * one hue produce one plant repeated 7 200 times, and a hundred metres of
+     * one plant is a wall whatever colour it is. The plate's own bed separates
+     * into drifts — a cold indigo run behind, a warm red-violet one catching the
+     * sun in front, a shorter denser mat at the margin — across a 26° hue spread
+     * and a 40% height spread, and the *boundaries between drifts* are as much
+     * of the read as the flowers.
+     *
+     * So each band is planted three times at three heights and three `hueShift`
+     * values, each with its own scatter (and therefore its own clump seeds), on
+     * radii that deliberately overlap so the drifts interpenetrate rather than
+     * banding. Total spike count comes **down** from 7 200 to 5 400: the variety
+     * is free, and the 1 800 spikes it gives back pay for the two new species
+     * and the extra tulips below.
+     *
+     * The near band is where a raceme is actually resolvable — 3 cm at 9 m is
+     * 5 px, against 2 px at the mass's depth — so it keeps the highest density
+     * and the least grass to hide it.
+     */
+    const lavenderDrifts = [
+      { r: 6.5, n: 900, h: [1.15, 1.45], hue: +0.85 },
+      { r: 6.0, n: 700, h: [0.95, 1.25], hue: -0.70 },
+      { r: 7.2, n: 600, h: [1.05, 1.35], hue: +0.10 },
+    ];
+    for (const d of lavenderDrifts) {
+      plant(buildLavender, 0, -1.5, {
+        radius: d.r, count: d.n, height: d.h, hueShift: d.hue,
+        falloff: 0.35, foliage: 0.55, mask: behindLine(-1.5),
+      });
+    }
     // Tulips and wildflowers take the same cut-off as everything else in the
     // bed. Without it their scatter reaches the lens: a 0.085 m tulip head a
     // metre from the glass is a 200 px white blob over the cast's boots, which
     // is what the previous capture shipped across its whole bottom edge.
-    plant(buildTulips, 0, -1.2, { radius: 7.5, count: 260, mask: behindLine(-1.2) });
-    plant(buildFlowerPatch, 0, -0.6, { radius: 8.0, count: 320, mask: behindLine(-0.6) });
+    //
+    // **Height 0.66–0.92 m, not 0.42–0.62.** This module's own header records
+    // the plate measurement — "heads sit just under the lavender tips" — and
+    // then shipped a range that puts every tulip head 40 cm *below* the bottom
+    // of the racemes, where nothing in the frame can see it. That single number
+    // is why our bed has no red in it: the flowers were built, coloured and
+    // scattered correctly and then planted underneath the plant they were meant
+    // to punctuate. The count comes up with the height, because a red accent
+    // that appears once per 30 lavender is not an accent, it is a blemish.
+    plant(buildTulips, 0, -1.2, {
+      radius: 7.5, count: 420, height: [0.66, 0.92], mask: behindLine(-1.2),
+    });
+    plant(buildFlowerPatch, 0, -0.6, { radius: 8.0, count: 360, mask: behindLine(-0.6) });
+    // Seed grass through the near band — the bed's top edge. See
+    // `Flora.buildSeedGrass`: this is the species that stands *above* the
+    // lavender, so it is what stops the bed cresting on one flat line.
+    plant(buildSeedGrass, 0, -2.2, {
+      radius: 7.0, count: 420, height: [1.30, 1.80], mask: behindLine(-2.2),
+    });
 
     // The mass. One field at 14 m fills the frame edge-to-edge at its own depth,
     // which is why the bed does not need a second cluster either side.
@@ -1391,23 +1514,68 @@ export class LookdevScene extends Scene {
     // out 0.003 against the plate's 0.080. The plate's own bed is both *nearer*
     // (its front edge is a metre behind the archer) and far denser, and it is
     // the only thing behind the cast — grass is the exception in it, not the
-    // rule. So the mass moves 2.5 m forward, tightens to a 10 m radius, gains
-    // half again as many plants (16/m²), and the meadow grass sharing that
-    // ground drops by 40% and gets shorter so the racemes stand clear of it.
-    plant(buildLavender, 0, -5.5, {
-      radius: 10, count: 4600, falloff: 0.4, mask: behindLine(-5.5),
+    // rule. So the mass sits 2.5 m forward of where it started, at a 10 m
+    // radius, and the meadow grass sharing that ground is shorter than it.
+    for (const d of [
+      { r: 10.0, n: 1400, h: [1.05, 1.35], hue: -0.55 },
+      { r: 9.0, n: 1000, h: [1.15, 1.50], hue: +0.75 },
+      { r: 11.0, n: 800, h: [0.90, 1.20], hue: +0.15 },
+    ]) {
+      plant(buildLavender, 0, -5.5, {
+        radius: d.r, count: d.n, height: d.h, hueShift: d.hue,
+        falloff: 0.4, foliage: 0.55, mask: behindLine(-5.5),
+      });
+    }
+    plant(buildTulips, 0, -5.0, {
+      radius: 9, count: 900, height: [0.72, 1.02], mask: behindLine(-5.0),
     });
-    plant(buildTulips, 0, -5.0, { radius: 9, count: 560, mask: behindLine(-5.0) });
+    plant(buildSeedGrass, 0, -6.0, {
+      radius: 10.5, count: 640, height: [1.35, 1.90], mask: behindLine(-6.0),
+    });
+
+    // --- foreground framing --------------------------------------------------
+    // The plate's bed does not stop at the party line: at frame right it comes
+    // forward past the archer and her boots are *in* it, and the bottom-right
+    // sixth of the image is flowers crossing in front of the cast. That is the
+    // depth cue our frame had nowhere else — every other layer is strictly
+    // behind the line, so the party read as pasted onto the meadow rather than
+    // standing in it.
+    //
+    // Kept short (0.30–0.55 m, i.e. knee height on a chibi) and confined to the
+    // one column of floor no figure stands on: at this depth the frame is only
+    // 2.2 m of half-width, so anything much left of centre would cross the
+    // party's own silhouettes rather than frame them.
+    plant(buildLavender, 1.55, 5.05, {
+      radius: 1.5, count: 260, height: [0.34, 0.58], hueShift: +0.6, falloff: 0.2, foliage: 0.8,
+    });
+    plant(buildTulips, 1.35, 4.85, { radius: 1.6, count: 90, height: [0.30, 0.46] });
+    plant(buildSeedGrass, 1.9, 5.2, { radius: 1.2, count: 70, height: [0.62, 0.95] });
 
     // --- trees --------------------------------------------------------------
     // 1200 clusters, not 420. The plate's cherry is an opaque mass of blossom
     // with the branch structure only glimpsed inside it; at 420 the armature is
     // the read and the tree looks dead. Clusters are instanced off the branch
     // segments they grew on, so the extra density is one draw call either way.
+    //
+    // Moved out to (−5.9, −6.4) and grown to 4.4 m, which is the plate's own
+    // placement rather than a compromise around the encounter. Measured there,
+    // the blossom is a **corner** mass: x 0 → 640 of 1920 and y 90 → 560, i.e.
+    // it runs off the top-left edge and its lower limit stops well above the
+    // party's heads. At this station the canopy spans `ndc` −1.03 → −0.29 with
+    // its crown past the top edge, and the creature — dark hide, 6 m nearer —
+    // stands against it in the strongest value contrast in the frame.
     plant(buildBlossomTree, CHERRY.x, CHERRY.z, {
       height: CHERRY.height, spread: CHERRY.spread, clusters: 1200,
     });
-    plant(buildConiferTree, 5.4, -6.0, { count: 1, height: 4.6 });
+    // The broadleaf, camera-right and behind the bed. The plate has **two** tree
+    // species and we shipped one twenty-two times; this is the other, and its
+    // rounded lobed crown against the cedars' notched tiers is the cheapest
+    // depth cue available in the upper third of frame. `fringe` is on because
+    // this one is close enough for a leaf to be several pixels.
+    plant(buildBroadleafTree, 3.6, -8.5, {
+      count: 1, height: 5.4, spread: 1.16, lobes: 6, fringe: 220,
+    });
+    plant(buildConiferTree, 6.6, -6.0, { count: 1, height: 4.6 });
     // The belt. A 34 m scatter about z = −27 reached forward to z = +7, i.e.
     // to within a metre of the lens, and the first capture duly shipped conifers
     // standing in the flower bed at four times the party's height. It then went
@@ -1425,7 +1593,19 @@ export class LookdevScene extends Scene {
     // **cheaper**: 22 trees at this height merge to 43 k triangles against the
     // 51 k the previous 26 cost, which is the trade this file owes the capture
     // budget for the boulders and the creature.
-    plant(buildConiferTree, 0, -30, { count: 22, radius: 16, height: 7.0 });
+    //
+    // **Half of it is broadleaf now.** Twenty-two copies of one silhouette is
+    // the definition of the monoculture the review found, and a treeline is the
+    // one place in the frame where a second species costs nothing: the broadleaf
+    // is authored at unit height and instanced, so eleven of them are three draw
+    // calls, and its bare crown (`fringe: 0` — at 25 m a sprig is under a pixel
+    // and the lobes carry the whole read) is *cheaper* per tree than the cedar
+    // it replaces. The two scatters share a centre and overlapping radii so the
+    // species interleave rather than occupying two halves of the horizon.
+    plant(buildConiferTree, 0, -30, { count: 11, radius: 16, height: 7.0 });
+    plant(buildBroadleafTree, 1.5, -29, {
+      count: 11, radius: 17, height: 6.4, spread: 1.20, lobes: 5, fringe: 0,
+    });
 
     // --- rock ---------------------------------------------------------------
     // **Forward from z = −26 to z = −18, and up from `size` 2.8 to 5.0.** The
@@ -1453,20 +1633,42 @@ export class LookdevScene extends Scene {
     // the band the plate actually shows. The whole cluster is 558 triangles
     // across 23 instances at any size, so the correction is free.
     //
-    // **The wall should not grow past this**, and the reason is a value defect
-    // this file cannot reach. The plate's rock is a dark blue-grey: its top
-    // 200 px read p50 57 sRGB at 0.53 saturation. Ours renders near-white, so
-    // once the blocks were tall enough to fill that band they took it to p50
-    // 109 at 0.27 — the wall closes the sky, which is the structural win, but it
-    // *lifts* the band while doing it. Any further rock makes the top of frame
-    // brighter than the reference rather than darker, so `props/RockForms.js`
-    // owning the plate's slate is the prerequisite for a taller wall.
-    plant(buildBoulderCluster, -1.5, -18, { count: 12, radius: 8, size: 5.0, chips: 22 });
-    plant(buildBoulderCluster, 9.5, -16, { count: 5, radius: 5, size: 4.0, chips: 12 });
+    // The value defect that used to cap the wall's height is fixed rather than
+    // worked around: every cluster now carries {@link ROCK_TINT}, which brings
+    // the rock from the near-white it rendered at down onto the plate's own
+    // measured slate without touching the facet contrast. That is what makes the
+    // two **mid-ground** clusters below viable — grey rock at 5 m has to be grey.
+    plant(buildBoulderCluster, -1.5, -18, {
+      count: 12, radius: 8, size: 5.0, chips: 22, tint: ROCK_TINT,
+    });
+    plant(buildBoulderCluster, 9.5, -16, {
+      count: 5, radius: 5, size: 4.0, chips: 12, tint: ROCK_TINT,
+    });
+    // Mid-ground rock, half-buried in the bed either side of the line.
+    //
+    // The far wall is 20 m out and reads as *landscape*; the plate also carries
+    // boulders at the bed's own depth — a grey mass immediately behind and
+    // between its figures, with lavender growing over its foot — and those are
+    // what give the meadow a middle distance at all. Without them our bed ran
+    // from the party straight to the horizon with nothing but flowers in
+    // between, so there was no scale reference anywhere in the 15 m the eye
+    // spends most of its time in. `size` 2.4 measures ~1.4 m of block, i.e. a
+    // head over the lavender it sits in and a head under the party's own
+    // silhouettes at that depth.
+    plant(buildBoulderCluster, -2.8, -4.9, {
+      count: 4, radius: 2.2, size: 2.4, chips: 10, tint: ROCK_TINT,
+    });
+    plant(buildBoulderCluster, 5.1, -5.6, {
+      count: 3, radius: 1.8, size: 2.0, chips: 8, tint: ROCK_TINT,
+    });
     // The plate keeps a few loose stones on the mown grass in the near corners.
     // Small enough to be scale cues rather than props.
-    plant(buildBoulderCluster, 4.2, 5.0, { count: 3, radius: 1.1, size: 0.42, chips: 10 });
-    plant(buildBoulderCluster, -5.0, 4.2, { count: 2, radius: 0.9, size: 0.36, chips: 8 });
+    plant(buildBoulderCluster, 4.2, 5.0, {
+      count: 3, radius: 1.1, size: 0.42, chips: 10, tint: ROCK_TINT,
+    });
+    plant(buildBoulderCluster, -5.0, 4.2, {
+      count: 2, radius: 0.9, size: 0.36, chips: 8, tint: ROCK_TINT,
+    });
 
     this.scene.add(group);
     this.meadow = group;
@@ -1606,8 +1808,8 @@ export class LookdevScene extends Scene {
     let minX = Infinity; let maxX = -Infinity;
     let minZ = Infinity; let maxZ = -Infinity;
     // The creature is included, and it is the reason this loop reads a list
-    // rather than PARTY_PLACES directly. It stands 1.6 m west of the leftmost
-    // party slot, i.e. outside the buffer the six figures alone would size —
+    // rather than PARTY_PLACES directly. It stands 3.3 m west of and 4.1 m
+    // beyond the leftmost party slot, i.e. outside the buffer the six figures alone would size —
     // and the ground shader resolves everything outside the buffer to *no*
     // occlusion, so the omission would not fail loudly, it would just quietly
     // ship the largest thing in frame standing on nothing.

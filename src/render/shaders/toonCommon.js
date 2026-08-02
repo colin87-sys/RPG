@@ -101,6 +101,14 @@
  *     mark may never exceed `uToonSpecRelMax` of the diffuse level beneath it,
  *     evaluated in the composite where that level is finally known. Hair runs
  *     0.40, i.e. 1.4× the surface at most.
+ *  7b. `awToonSumBound` — the bound on **mark plus surface**, and the one the
+ *     model was missing. The two above are both stated on the mark alone, and
+ *     both were satisfied while 26% of every hair mass on the cast rendered at
+ *     the clip point (the plate's hair: 0.00%) — because a mark at 1.4× a
+ *     surface already in the shoulder of the tone curve is still white. Stated
+ *     on the sum, through the same soft shoulder, it is the only one of the
+ *     three that can promise a band reads as a band rather than as a hole.
+ *     It bounds the fur sheen too, which the other two do not reach.
  *  8. `awToonSheen` — a Charlie/Neubelt lobe for fur and feather trim, which is
  *     the one surface class whose silhouette is meant to read as broken rather
  *     than as a clean edge. Independent of the three gloss classes.
@@ -117,6 +125,12 @@
  *     band, which drew a hard 1.3 px light line around every silhouette *and
  *     every internal contour* — visible in our capture as the cyan piping
  *     outlining the knight's arm, cape and greaves. The plate has no such line.
+ *     Removing the *edge* left the *colour* behind, and a teal wash along every
+ *     contour reads as a coating over the whole figure; the composite now
+ *     spends `uToonRimTint` of the rig's chroma and keeps its level, so the
+ *     back light still separates the cast from the meadow without tinting it.
+ *     It is the last specular-shaped term a matte class can still carry, which
+ *     is why it belongs in this list at all.
  *
  * There is **no ramp texture and no noise of any kind**: no procedural surface
  * noise ever touches a character (ANIME_PIPELINE's absolute rule). Clothing
@@ -205,7 +219,38 @@ uniform float uToonRimFloor;
 uniform float uToonRimWidth;
 uniform float uToonRimCeiling;
 uniform float uToonRimMax;
+
+// How much of the rig's rim *chroma* this surface keeps. The rig publishes
+// 'RING_GLOW' (#5FB8B0, a strong teal) as the back light's colour, and on the
+// reference plates no character carries a coloured edge at all — separation is
+// carried by value and by the ink line. A teal contour traced down a pauldron,
+// a hair mass and a coat lapel is read as a *coating*, which is the single
+// loudest plastic cue the capture had left. Desaturating at constant peak
+// rather than dimming keeps the rig's solved level intact, so 'Lighting' still
+// gets the separation it sizes for; only the hue is spent.
+uniform float uToonRimTint;
+
 uniform float uToonSpecCeiling;
+
+// The bound that decides whether the frame clips, and the one the model was
+// missing. 'uToonSpecCeiling' bounds the *mark* and 'uToonSpecRelMax' bounds it
+// against the surface underneath — neither of them bounds the **sum**, which is
+// what a camera sees. Measured on 'shots/mp0-cast' against 'bravely01.jpg',
+// taking the fraction of a zone above sRGB 235:
+//
+// | zone | plate | ours |
+// |---|---|---|
+// | Elvis / Auren hair mass | 0.00% | 26.07% |
+// | Adelle hair mass | 0.02% | — |
+// | Seth pauldron | 0.01% | 1.41% (and max 255 against the plate's 238) |
+//
+// A quarter of our hair mass was at the clip point: the arc was not reading as
+// a band at all, it was a hole. Both existing bounds were satisfied the whole
+// time, because a mark 1.4x a surface that is *already* near the top of the
+// tone curve is still white. This states the ceiling on 'surface + mark'
+// through the same soft shoulder, so the mark spends whatever headroom is left
+// and no more.
+uniform float uToonSpecSum;
 
 uniform vec3  uToonPulse;
 uniform float uToonPulseRate;
@@ -627,7 +672,24 @@ float awToonArcShape( const in float lobe ) {
  * '2 / α² - 2' mapping, so 'roughness: 0.66' on leather means the same thing here
  * as it does on a stock 'MeshStandardMaterial'.
  */
-const float GLOSS_CORE_FLOOR = 0.45;
+/**
+ * The floor under a prop highlight's core, and the last surviving piece of the
+ * plateau that made every surface in the frame read as vinyl.
+ *
+ * At 0.45 the mark paid 45% of full gain the instant the lobe cleared its
+ * threshold, so the highlight's *extent* was a flat shelf with a small brighter
+ * core sitting inside it — the signature of moulded plastic. Taking that shape
+ * away from armour, cloth, skin and hair was right; leaving the shelf on the
+ * three classes that kept the shape only moved the defect onto the props, and
+ * 'world/Bestiary.js' shades a creature that fills an eighth of the battle
+ * frame through 'leather'.
+ *
+ * 0.15 keeps what the shape is *for* — a hide and a gemstone genuinely carry a
+ * graded rather than a drawn highlight — while making the gradation start near
+ * nothing, so the mark's edge is where the lobe dies rather than where a
+ * constant shelf ends.
+ */
+const float GLOSS_CORE_FLOOR = 0.15;
 
 float awToonGlossLobe( const in vec3 n, const in vec3 l, const in vec3 v, const in float roughness ) {
 
@@ -722,6 +784,34 @@ float awToonSoftCap( const in float x, const in float c ) {
   float span = max( c - k, 1e-4 );
 
   return min( x, k ) + span * ( 1.0 - exp( - max( x - k, 0.0 ) / span ) );
+
+}
+
+/**
+ * The bound stated on **surface plus mark**, which is the quantity a photograph
+ * of the plate actually measures.
+ *
+ * The scale that keeps 'base + mark' under 'uToonSpecSum' once the soft
+ * shoulder has had its say. Identity while the pair is inside budget — the
+ * shoulder is the identity below half the ceiling, so a discreet glint on a
+ * mid-valued plate never touches this — and it takes back only the *excess*,
+ * so a mark on a dark coat keeps its full contrast while the same mark on a
+ * sunlit hair mass is the one that gets spent down.
+ *
+ * Written against peaks rather than per channel so the mark's hue survives: a
+ * gold blade's ping stays gold and a warm hair band stays warm, exactly as with
+ * the two bounds upstream of it.
+ *
+ * 'base' is subtracted *after* the shoulder rather than before, which is what
+ * makes the term degrade gracefully: on a surface already at or past the
+ * ceiling on its own the allowance goes to zero and the mark disappears, rather
+ * than going negative and inverting.
+ */
+float awToonSumBound( const in float base, const in float mark ) {
+
+  float allowed = max( awToonSoftCap( base + mark, max( uToonSpecSum, 1e-3 ) ) - base, 0.0 );
+
+  return min( 1.0, allowed / max( mark, 1e-5 ) );
 
 }
 

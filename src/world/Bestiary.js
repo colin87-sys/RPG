@@ -142,8 +142,18 @@ export const BESTIARY = Object.freeze({
     name: 'Glassmane',
     archetype: 'quadruped',
     element: 'dark',
-    /** Metres, ground to the tip of the crest. Shoulder lands at 1.08 m. */
-    height: 1.35,
+    /**
+     * Metres, ground to the tip of the crest; the withers land at 0.86 of that.
+     *
+     * Raised from 1.35 with the stance rebuild (see {@link buildGlassmane}).
+     * 1.52 against a 1.00–1.19 m cast puts a field encounter a clear head and
+     * shoulders over the party rather than level with it, which is what the
+     * *lead* creature has to do — a battle frame in which the threat and the
+     * party measure the same has no antagonist in it, only a sixth party member
+     * facing the wrong way. A scene staging it as the frame's subject overrides
+     * this upward again; `LookdevScene.ENCOUNTER` runs 1.80.
+     */
+    height: 1.52,
     description:
       'An ashland courser that beds down in spent-magic drifts. Glasspetals fuse '
       + 'into the ridge of its neck as it ages, so an old one walks under a crest '
@@ -844,9 +854,58 @@ function eye(hide, lens, o) {
  *    quadruped read as a table.
  *  - **The crest is a value break, not a colour one.** The mane shards are the
  *    only bright thing above the shoulder line, so the eye lands on the head end.
+ *
+ * ## The stance rebuild, and why it was structural rather than a tuning pass
+ *
+ * This animal was authored as a field mob and then asked to be the frame's
+ * antagonist, and it failed at that for one measurable reason: it was **1.78 ×
+ * as long as it was tall**. A creature with that ratio, staged broadside at a
+ * frame height that reads as a threat, is 0.87 of `ndc` across — 43% of the
+ * image — and a six-figure line plus the HP/MP/BP stack does not leave that
+ * much. The stage's own answer was to drop it and stage the floater instead,
+ * which is how the shipped frame came to have an abstract ribbed dome in it
+ * where an animal belonged. No amount of repositioning reaches that; the
+ * proportion is the defect.
+ *
+ * So the animal stands up. {@link STANCE} lifts the trunk, neck, skull, tail and
+ * every plate hung off them by 0.15 of the authoring height while the paws stay
+ * planted, which lengthens all four legs by the same amount; the tail loses
+ * 0.08, being the one part that is pure length and contributes nothing to the
+ * height it is measured against. Read off the built buffers at a staged 1.80 m
+ * the ratio is now **1.48** against 1.79, and the yawed projection the stage
+ * actually uses is 2.07 m — half of `ndc` at the encounter's depth, against the
+ * 0.87 that got it rejected. It is also a better animal: a courser carries its
+ * chest well clear of the ground, and the previous build's 0.48-unit legs under
+ * a 0.34-unit-deep barrel read as a badger.
+ *
+ * Three head corrections ride with it, all aimed at the same target — that a
+ * creature at 400 px of frame height has to resolve as a *face*:
+ *
+ *  - **Eyes at 0.052 against 0.037.** Module finding 3 sets lens diameter at
+ *    0.19–0.31 of head width and the old pair sat at the bottom of that band;
+ *    on a head presented three-quarter rather than broadside, the far eye is
+ *    foreshortened to about 60% and fell under the size at which an eye reads as
+ *    an eye at all. They also face further forward (0.83 of the facing vector on
+ *    z against 0.72) so both are presented from the stage's own bearing.
+ *  - **Ears.** The single cheapest "this is an animal" cue there is, and the
+ *    build had none — the skull's only projections were a pair of swept-back
+ *    horns, which read as a helmet. Two of them, low and wide on the cranium so
+ *    they break the skull's outline where the horns do not.
+ *  - **An open mouth line.** The jaw drops 0.02 clear of the muzzle and a plate
+ *    in the socket colour — the darkest value on the animal — fills the seam, so
+ *    the head carries a dark horizontal mark under the eyes. A closed muzzle at
+ *    this scale is a snout; a dark line under it is a mouth.
  */
 function buildGlassmane(hide, glow, lens, ctx) {
   const { pal, rng, noise, sphere, lensSphere } = ctx;
+  /**
+   * How far the body sits above the ground it was originally authored at, in
+   * authoring units. Applied through {@link Y} to everything carried by the
+   * skeleton and *not* to the paws, which is what turns a lift into a leg.
+   */
+  const STANCE = 0.15;
+  /** Body-frame height: authored elevation plus the stance lift. */
+  const Y = (v) => v + STANCE;
   const tintBody = hideTinter(pal, noise, {
     mottle: 0.07, bandFreq: 9, bandDepth: 0.34, bandColor: pal.hide, noiseFreq: 6,
   });
@@ -868,46 +927,57 @@ function buildGlassmane(hide, glow, lens, ctx) {
   // so the animal would read as a string of bubbles; one swept skin has exactly
   // one contour.
   const trunk = sweep(hide, [
-    [0, 0.520, -0.560, 0.030, 0.90, 0.00],
-    [0, 0.545, -0.440, 0.120, 1.10, 0.10],
-    [0, 0.552, -0.300, 0.158, 1.26, 0.16],
-    [0, 0.560, -0.140, 0.136, 1.04, 0.20],
-    [0, 0.590, 0.010, 0.150, 1.02, 0.26],
-    [0, 0.625, 0.150, 0.172, 1.06, 0.30],
-    [0, 0.605, 0.285, 0.158, 1.14, 0.22],
-    [0, 0.580, 0.380, 0.108, 0.98, 0.16],
-    [0, 0.540, 0.470, 0.086, 0.92, 0.14],
-    [0, 0.495, 0.550, 0.080, 0.92, 0.12],
-    [0, 0.464, 0.618, 0.106, 1.14, 0.10],
-    [0, 0.448, 0.698, 0.072, 0.92, 0.06],
-    [0, 0.432, 0.772, 0.046, 0.80, 0.02],
-    [0, 0.428, 0.822, 0.016, 0.70, 0.00],
+    [0, Y(0.520), -0.560, 0.030, 0.90, 0.00],
+    [0, Y(0.545), -0.440, 0.120, 1.10, 0.10],
+    [0, Y(0.552), -0.300, 0.158, 1.26, 0.16],
+    [0, Y(0.560), -0.140, 0.136, 1.04, 0.20],
+    [0, Y(0.590), 0.010, 0.150, 1.02, 0.26],
+    [0, Y(0.625), 0.150, 0.172, 1.06, 0.30],
+    [0, Y(0.605), 0.285, 0.158, 1.14, 0.22],
+    [0, Y(0.580), 0.380, 0.108, 0.98, 0.16],
+    [0, Y(0.540), 0.470, 0.086, 0.92, 0.14],
+    [0, Y(0.495), 0.550, 0.080, 0.92, 0.12],
+    [0, Y(0.464), 0.618, 0.106, 1.14, 0.10],
+    [0, Y(0.448), 0.698, 0.072, 0.92, 0.06],
+    [0, Y(0.432), 0.772, 0.046, 0.80, 0.02],
+    [0, Y(0.428), 0.822, 0.016, 0.70, 0.00],
   ], { samples: 30, radial: 10, belly: 0.30, tint: tintBody });
 
-  // Lower jaw, hung under the muzzle and darker than the hide — a mouth line is
-  // a shadow the shading model will not draw for us at this scale.
+  // Lower jaw, dropped 0.02 clear of the muzzle and darker than the hide. The
+  // gap is the point: a mouth at this scale is a dark horizontal mark under the
+  // eyes, and a shading model with a soft terminator will not draw one on a
+  // closed muzzle at any light angle.
   sweep(hide, [
-    [0, 0.436, 0.610, 0.042, 0.95, 0.00],
-    [0, 0.418, 0.690, 0.036, 0.90, 0.00],
-    [0, 0.408, 0.762, 0.024, 0.80, 0.00],
-    [0, 0.406, 0.806, 0.008, 0.70, 0.00],
+    [0, Y(0.416), 0.610, 0.042, 0.95, 0.00],
+    [0, Y(0.398), 0.690, 0.036, 0.90, 0.00],
+    [0, Y(0.388), 0.762, 0.024, 0.80, 0.00],
+    [0, Y(0.386), 0.806, 0.008, 0.70, 0.00],
   ], { samples: 8, radial: 7, belly: 0.35, tint: flatTinter(pal.hide) });
+  // The seam itself, in the darkest colour on the animal, spanning the gap the
+  // dropped jaw opened so the mouth reads as an aperture and not as a groove
+  // between two tubes.
+  plate(hide, {
+    center: [0, Y(0.424), 0.706], axis: [0, -0.10, 1], normal: [0, 1, 0.06],
+    length: 0.190, width: 0.062, rise: -0.014, lip: 0.008,
+    color: darkCol, ridgeColor: darkCol,
+  });
 
   // Legs. Four sweeps, radial 6: a hexagonal limb is indistinguishable from a
-  // round one once it is 40 px tall and costs 40% of the raster.
+  // round one once it is 40 px tall and costs 40% of the raster. The hip end
+  // rides the stance lift and the paw does not, which is what lengthens them.
   for (const s of [1, -1]) {
     sweep(hide, [
-      [s * 0.112, 0.520, 0.250, 0.076],
-      [s * 0.120, 0.340, 0.292, 0.058],
-      [s * 0.116, 0.175, 0.232, 0.040],
-      [s * 0.114, 0.072, 0.258, 0.036],
+      [s * 0.112, Y(0.520), 0.250, 0.076],
+      [s * 0.120, Y(0.300), 0.292, 0.058],
+      [s * 0.116, Y(0.115), 0.232, 0.040],
+      [s * 0.114, 0.078, 0.258, 0.036],
       [s * 0.112, 0.040, 0.300, 0.044],
     ], { samples: 12, radial: 6, tint: tintLimb });
     sweep(hide, [
-      [s * 0.128, 0.510, -0.300, 0.090],
-      [s * 0.136, 0.352, -0.226, 0.070],
-      [s * 0.128, 0.195, -0.352, 0.044],
-      [s * 0.120, 0.070, -0.302, 0.036],
+      [s * 0.128, Y(0.510), -0.300, 0.090],
+      [s * 0.136, Y(0.330), -0.226, 0.070],
+      [s * 0.128, Y(0.145), -0.352, 0.044],
+      [s * 0.120, 0.076, -0.302, 0.036],
       [s * 0.118, 0.040, -0.262, 0.044],
     ], { samples: 12, radial: 6, tint: tintLimb });
 
@@ -929,18 +999,18 @@ function buildGlassmane(hide, glow, lens, ctx) {
     // the only light-valued mass on the body and they sit exactly where a
     // quadruped's form is hardest to read — the joint between limb and trunk.
     plate(hide, {
-      center: [s * 0.148, 0.640, 0.205], axis: [0, -0.30, 1], normal: [s * 0.92, 0.38, 0],
+      center: [s * 0.148, Y(0.640), 0.205], axis: [0, -0.30, 1], normal: [s * 0.92, 0.38, 0],
       length: 0.235, width: 0.155, rise: 0.044, lip: 0.032,
       color: plateCol, ridgeColor: ridgeCol,
     });
     plate(hide, {
-      center: [s * 0.150, 0.585, -0.315], axis: [0, 0.24, 1], normal: [s * 0.94, 0.34, 0],
+      center: [s * 0.150, Y(0.585), -0.315], axis: [0, 0.24, 1], normal: [s * 0.94, 0.34, 0],
       length: 0.205, width: 0.140, rise: 0.038, lip: 0.028,
       color: plateCol, ridgeColor: ridgeCol,
     });
     for (let t = 0; t < 3; t++) {
       spike(hide, {
-        origin: [s * 0.130, 0.352 + t * 0.026, 0.300 - t * 0.014],
+        origin: [s * 0.130, Y(0.312 + t * 0.026), 0.300 - t * 0.014],
         dir: [s * 0.55, -0.35 - t * 0.2, 0.75],
         length: 0.085 + rng.range(-0.012, 0.012), radius: 0.020, sides: 3,
         color: flankCol, tipColor: bellyCol,
@@ -950,16 +1020,21 @@ function buildGlassmane(hide, glow, lens, ctx) {
 
   // Tail, and the tuft that terminates it. A tail is cheap and it is half of
   // what tells the eye which end of a quadruped it is looking at.
+  //
+  // Shortened by 0.08 with the stance rebuild. The tail is pure length and
+  // contributes nothing to the height it is measured against, so it was the
+  // cheapest 5% of the length:height ratio available — and a courser's tail is
+  // a counterweight, not a train.
   sweep(hide, [
-    [0, 0.535, -0.560, 0.044],
-    [0, 0.566, -0.660, 0.032],
-    [0, 0.540, -0.742, 0.021],
-    [0, 0.482, -0.798, 0.012],
+    [0, Y(0.535), -0.560, 0.044],
+    [0, Y(0.572), -0.642, 0.032],
+    [0, Y(0.552), -0.700, 0.021],
+    [0, Y(0.500), -0.740, 0.012],
   ], { samples: 12, radial: 5, tint: tintLimb });
   for (let t = 0; t < 5; t++) {
     const a = (t / 5) * Math.PI * 2;
     spike(hide, {
-      origin: [Math.cos(a) * 0.012, 0.486, -0.792], dir: [Math.cos(a) * 0.55, -0.42, -1],
+      origin: [Math.cos(a) * 0.012, Y(0.504), -0.734], dir: [Math.cos(a) * 0.55, -0.42, -1],
       length: 0.095 + rng.range(-0.018, 0.018), radius: 0.019, sides: 3,
       color: hideCol, tipColor: flankCol,
     });
@@ -970,7 +1045,7 @@ function buildGlassmane(hide, glow, lens, ctx) {
   for (let t = 0; t < 5; t++) {
     const s = t % 2 === 0 ? 1 : -1;
     spike(hide, {
-      origin: [s * 0.045 * (t % 3), 0.505 - t * 0.018, 0.415 + t * 0.012],
+      origin: [s * 0.045 * (t % 3), Y(0.505 - t * 0.018), 0.415 + t * 0.012],
       dir: [s * 0.35, -0.55, 0.76],
       length: 0.115 + rng.range(-0.015, 0.015), radius: 0.026, sides: 3,
       color: flankCol, tipColor: bellyCol,
@@ -981,37 +1056,51 @@ function buildGlassmane(hide, glow, lens, ctx) {
   // nothing to set the eye into and the lens reads as painted on.
   for (const s of [1, -1]) {
     plate(hide, {
-      center: [s * 0.058, 0.492, 0.652], axis: [0.15 * s, -0.18, 1], normal: [s * 0.55, 0.82, 0.15],
+      center: [s * 0.058, Y(0.492), 0.652], axis: [0.15 * s, -0.18, 1], normal: [s * 0.55, 0.82, 0.15],
       length: 0.115, width: 0.078, rise: 0.020, lip: 0.014,
       color: hideCol, ridgeColor: plateCol,
     });
     // Swept-back horns. The pair is the tallest thing on the head and gives the
     // skull an outline the neck cannot be confused with.
     spike(hide, {
-      origin: [s * 0.052, 0.508, 0.596], dir: [s * 0.36, 0.78, -0.50],
+      origin: [s * 0.052, Y(0.508), 0.596], dir: [s * 0.36, 0.78, -0.50],
       length: 0.175, radius: 0.030, waist: 0.46, sides: 4,
       bend: [s * 0.02, 0.01, -0.045], color: plateCol, tipColor: boneCol,
     });
-    // Fangs, visible under the muzzle at any azimuth the stage camera reaches.
+    // Ears — low and wide on the cranium, where the horns are high and narrow,
+    // so the skull's outline is broken twice at two different angles. Three
+    // sides and a heavy base: a broad triangular blade rather than a spur, which
+    // is the shape that still reads as an ear at 40 px and edge-on.
     spike(hide, {
-      origin: [s * 0.030, 0.418, 0.752], dir: [s * 0.12, -1, 0.18],
+      origin: [s * 0.074, Y(0.482), 0.560], dir: [s * 0.86, 0.50, -0.22],
+      length: 0.130, radius: 0.052, waist: 0.52, sides: 3, roll: 0.4,
+      bend: [s * 0.010, 0.020, -0.028], color: hideCol, tipColor: flankCol,
+    });
+    // Fangs, visible under the muzzle at any azimuth the stage camera reaches.
+    // Dropped with the jaw so they sit inside the mouth line rather than over it.
+    spike(hide, {
+      origin: [s * 0.030, Y(0.400), 0.752], dir: [s * 0.12, -1, 0.18],
       length: 0.050, radius: 0.012, sides: 3, color: boneCol,
     });
     spike(hide, {
-      origin: [s * 0.036, 0.424, 0.694], dir: [s * 0.15, -1, 0.05],
+      origin: [s * 0.036, Y(0.406), 0.694], dir: [s * 0.15, -1, 0.05],
       length: 0.038, radius: 0.010, sides: 3, color: boneCol,
     });
     // Set wide on the skull and strongly squashed. A round eye on the midline
     // reads as a pet; a narrow one set out toward the cheek reads as a predator,
     // and the plate's own eyes are 2.6 times as wide as they are tall.
+    //
+    // 0.052 against 0.037, and turned further forward: staged three-quarter the
+    // far eye foreshortens to ~60% of its own width, and the old radius put it
+    // under the size at which a lens reads as an eye rather than as a highlight.
     eye(hide, lens, {
-      sphere, lensSphere, at: [s * 0.062, 0.470, 0.658], face: [s * 0.68, 0.12, 0.72],
-      radius: 0.037, squash: 0.62, socketColor: darkCol, lensColor: [1, 1, 1],
+      sphere, lensSphere, at: [s * 0.064, Y(0.470), 0.660], face: [s * 0.54, 0.12, 0.83],
+      radius: 0.052, squash: 0.60, socketColor: darkCol, lensColor: [1, 1, 1],
     });
     // Cheek plate. The skull sweep alone reads as a swelling in the neck; a hard
     // plate along the jaw line is what separates a head from a tube.
     plate(hide, {
-      center: [s * 0.082, 0.452, 0.646], axis: [0.22 * s, -0.30, 1], normal: [s * 0.94, 0.10, 0.32],
+      center: [s * 0.082, Y(0.452), 0.646], axis: [0.22 * s, -0.30, 1], normal: [s * 0.94, 0.10, 0.32],
       length: 0.150, width: 0.088, rise: 0.026, lip: 0.018,
       color: plateCol, ridgeColor: ridgeCol,
     });
@@ -1020,6 +1109,8 @@ function buildGlassmane(hide, glow, lens, ctx) {
   // The crest: fused glasspetal along the dorsal ridge from the skull to behind
   // the withers. Placed against the *resampled* spine rather than against the
   // control points, so no shard can float off a back it was authored before.
+  // Placed against `dorsal`/`atZ`, so both rows follow the trunk's own skin and
+  // the stance lift carries them without a single coordinate here changing.
   const CREST = 9;
   for (let i = 0; i < CREST; i++) {
     const f = i / (CREST - 1);
