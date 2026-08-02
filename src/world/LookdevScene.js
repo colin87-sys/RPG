@@ -196,10 +196,16 @@ const STAGE_PLATEAU = { x: 0, z: 2.6, inner: 6.5, outer: 22 };
  * exactly the eye-level camera this staging just committed to.
  *
  * Solved in z rather than in radius so the ground under the party stays dead
- * level while the ground behind them climbs: `rise` runs from the back of the
- * cast's depth band to the boulder wall.
+ * level while the ground behind them climbs, and its *rate* is set by how much
+ * frame the bed has to fill rather than by how a hillside ought to look. On the
+ * plate the flower bed occupies y ≈ 180–650 of 1080 — 44% of the image — and no
+ * bed standing on level ground can do that from an eye-level camera, because
+ * every plant of the same height then projects to the same screen row. At 3.1 m
+ * over 22 m the far bed's racemes reach y ≈ 113 and its near edge sits at
+ * y ≈ 430, which is 29% of frame and the closest a six-figure line leaves room
+ * for.
  */
-const BANK = { from: 1.2, to: -20, height: 2.35, inner: 4.5, outer: 9.0 };
+const BANK = { from: 1.2, to: -22, height: 3.1, inner: 4.5, outer: 9.0 };
 
 /**
  * Front edge of the flower bed, in world z.
@@ -226,13 +232,19 @@ const LAWN_NEAR_LIMIT = STAGE.camZ - 2.2;
 /**
  * The dirt path, as a half-plane in the ground with a feathered edge.
  *
- * `(z − z0)·dz − (x − x0)·dx > 0` is path. The coefficients tilt it so it
- * enters the bottom-left corner of the battle frame and leaves at the left
- * edge, which is the one region of floor no figure stands on and exactly where
- * the plate puts its own track. Feathered over 1.2 m because a hard boundary
- * between bare earth and mown grass is the one thing real ground never has.
+ * `0 < (z − z0)·dz − (x − x0)·dx < width` is path — a **band**, not a
+ * half-plane. The half-plane the first pass shipped is unbounded to the left,
+ * so the track did not enter the corner and leave, it covered the entire
+ * western half of the world: the capture shows a tan plain running to the
+ * horizon behind the cast. A track has two edges.
+ *
+ * The coefficients tilt the band so it enters the bottom-left corner of the
+ * battle frame and passes out at the left edge, which is the one region of
+ * floor no figure stands on and exactly where the plate puts its own. Both
+ * edges are feathered over 1.2 m, because a hard boundary between bare earth
+ * and mown grass is the one thing real ground never has.
  */
-const PATH = { x0: -1.0, z0: 4.8, dx: 0.75, dz: 1.0, feather: 1.2 };
+const PATH = { x0: -1.0, z0: 4.8, dx: 0.75, dz: 1.0, feather: 1.2, width: 4.5 };
 
 /**
  * Where the cherry stands, and how high its petals drift.
@@ -260,7 +272,13 @@ const CHERRY = { x: -6.0, z: -2.2, height: 3.6, drift: 4.2 };
  */
 function groundHeight(x, z) {
   const n = STAGE_NOISE;
-  const swell = n.fbm3(x * 0.0032, 0, z * 0.0032, { octaves: 4, gain: 0.55 }) * 9.0;
+  // 1.2 m of swell, not 9. At 9 the noise is the landform and the bank is a
+  // rounding error on it: sampled along the view axis the old field fell to
+  // −4.2 m by 40 m out, so the meadow's far half was a *depression*, the crest
+  // never appeared, and the frame's whole top third was sky. The bank is the
+  // landform this staging needs; the swell's job is only to keep the far field
+  // from reading as a machined plane.
+  const swell = n.fbm3(x * 0.0032, 0, z * 0.0032, { octaves: 4, gain: 0.55 }) * 1.2;
   const ripple = n.fbm3(x * 0.055, 11, z * 0.055, { octaves: 3, gain: 0.5 }) * 0.09;
   const r = Math.hypot(x - STAGE_PLATEAU.x, z - STAGE_PLATEAU.z);
   const flat = smootherstep(STAGE_PLATEAU.inner, STAGE_PLATEAU.outer, r);
@@ -1158,7 +1176,7 @@ export class LookdevScene extends Scene {
     // resolves as *streaks* with no discrete blade anywhere, and at 2.2 m a
     // 0.17 m blade is 15% of frame height.
     plant(buildGrassField, 0, 3.0, {
-      preset: 'lawn', radius: 15, count: 30000, falloff: 0.62, distanceGrowth: 0.9,
+      preset: 'lawn', radius: 15, count: 13000, falloff: 0.62, distanceGrowth: 0.9,
       height: [0.055, 0.105],
       mask: (x, z) => (z + 3.0 > LAWN_NEAR_LIMIT ? 0 : this._floraMask(x, z + 3.0)),
     });
@@ -1175,24 +1193,44 @@ export class LookdevScene extends Scene {
     const behindLine = (centreZ) => (x, z) => (z + centreZ > -1.6 ? 0 : 1);
 
     plant(buildGrassField, 0, -1.5, {
-      preset: 'meadow', radius: 8.5, count: 3600, height: [0.45, 0.95], falloff: 0.5,
+      preset: 'meadow', radius: 8.5, count: 2200, height: [0.38, 0.72], falloff: 0.5,
       mask: behindLine(-1.5),
     });
+    // The near band is where a raceme is actually resolvable — 3 cm at 9 m is
+    // 5 px, against 2 px at the mass's depth — so it carries the highest
+    // density in the meadow (20 plants/m²) and the least grass to hide it.
     plant(buildLavender, 0, -1.5, {
-      radius: 8.0, count: 420, height: [0.95, 1.25], falloff: 0.5, mask: behindLine(-1.5),
+      radius: 6.5, count: 2600, height: [1.05, 1.40], falloff: 0.35, mask: behindLine(-1.5),
     });
-    plant(buildTulips, 0, -1.2, { radius: 7.5, count: 150 });
-    plant(buildFlowerPatch, 0, -0.6, { radius: 8.0, count: 260 });
+    // Tulips and wildflowers take the same cut-off as everything else in the
+    // bed. Without it their scatter reaches the lens: a 0.085 m tulip head a
+    // metre from the glass is a 200 px white blob over the cast's boots, which
+    // is what the previous capture shipped across its whole bottom edge.
+    plant(buildTulips, 0, -1.2, { radius: 7.5, count: 260, mask: behindLine(-1.2) });
+    plant(buildFlowerPatch, 0, -0.6, { radius: 8.0, count: 320, mask: behindLine(-0.6) });
 
     // The mass. One field at 14 m fills the frame edge-to-edge at its own depth,
     // which is why the bed does not need a second cluster either side.
-    plant(buildGrassField, 0, -8.0, {
-      preset: 'meadow', radius: 13, count: 6200, falloff: 0.6, mask: behindLine(-8.0),
+    plant(buildGrassField, 0, -5.5, {
+      preset: 'meadow', radius: 10, count: 4200, height: [0.45, 0.85], falloff: 0.45,
+      mask: behindLine(-5.5),
     });
-    plant(buildLavender, 0, -8.0, {
-      radius: 13, count: 1500, falloff: 0.6, mask: behindLine(-8.0),
+    // Density *and* proximity, in that order of importance.
+    //
+    // A lavender raceme is 3 cm across — measured off the built geometry, not
+    // guessed — so at the 15 m the mass first sat at, one plant is under three
+    // pixels wide and 3 000 of them over a 380 m² disc simply average into the
+    // grass behind: the capture's purple pixel fraction over the bed's band came
+    // out 0.003 against the plate's 0.080. The plate's own bed is both *nearer*
+    // (its front edge is a metre behind the archer) and far denser, and it is
+    // the only thing behind the cast — grass is the exception in it, not the
+    // rule. So the mass moves 2.5 m forward, tightens to a 10 m radius, gains
+    // half again as many plants (16/m²), and the meadow grass sharing that
+    // ground drops by 40% and gets shorter so the racemes stand clear of it.
+    plant(buildLavender, 0, -5.5, {
+      radius: 10, count: 4600, falloff: 0.4, mask: behindLine(-5.5),
     });
-    plant(buildTulips, 0, -7.0, { radius: 11, count: 340 });
+    plant(buildTulips, 0, -5.0, { radius: 9, count: 560, mask: behindLine(-5.0) });
 
     // --- trees --------------------------------------------------------------
     // 1200 clusters, not 420. The plate's cherry is an opaque mass of blossom
@@ -1208,11 +1246,17 @@ export class LookdevScene extends Scene {
     // standing in the flower bed at four times the party's height. Pushed back
     // and tightened so the whole annulus lives behind the bank's crest, where a
     // treeline belongs: it reads as the far side of the valley.
-    plant(buildConiferTree, 0, -44, { count: 34, radius: 20, height: 5.4 });
+    plant(buildConiferTree, 0, -44, { count: 26, radius: 20, height: 5.4 });
 
     // --- rock ---------------------------------------------------------------
-    plant(buildBoulderCluster, -1.0, -13.5, { count: 11, radius: 9.5, size: 2.6, chips: 30 });
-    plant(buildBoulderCluster, 9.5, -10.5, { count: 5, radius: 4.5, size: 1.9, chips: 14 });
+    // On the crest, not in the bed. The wall has to read *above* the lavender —
+    // it is the only thing in the plate's upper third besides the treeline and
+    // the sky — and with the bank in place that means standing it at the top of
+    // the climb rather than halfway up it. From z = −26 it spans y 75→349 of
+    // which the bed hides everything below 130, leaving exactly the band of
+    // angular grey the reference shows.
+    plant(buildBoulderCluster, -1.0, -26, { count: 11, radius: 11, size: 2.8, chips: 30 });
+    plant(buildBoulderCluster, 10.5, -22, { count: 5, radius: 5, size: 2.1, chips: 14 });
     // The plate keeps a few loose stones on the mown grass in the near corners.
     // Small enough to be scale cues rather than props.
     plant(buildBoulderCluster, 4.2, 5.0, { count: 3, radius: 1.1, size: 0.42, chips: 10 });
@@ -1260,7 +1304,8 @@ export class LookdevScene extends Scene {
    */
   _pathness(x, z) {
     const t = (z - PATH.z0) * PATH.dz - (x - PATH.x0) * PATH.dx;
-    return smootherstep(0, PATH.feather, t);
+    return smootherstep(0, PATH.feather, t)
+      * (1 - smootherstep(PATH.width, PATH.width + PATH.feather, t));
   }
 
   /**
@@ -1554,14 +1599,16 @@ export class LookdevScene extends Scene {
        * clamped so no fBm extreme can drive the floor to black or to white. It
        * supplies tiling variation and nothing else.
        */
-      uLawnColor: { value: new THREE.Color(0x7ba849) },
-      uPathColor: { value: new THREE.Color(0xc4ac83) },
+      uLawnColor: { value: new THREE.Color(0x5f7233) },
+      uPathColor: { value: new THREE.Color(0xd8c096) },
       uGroundDetail: { value: new THREE.Vector2(0.35, 0.85) },
       /** `(x0, z0, dx, dz)` of {@link PATH}, plus its feather, evaluated per
        *  fragment so the boundary is exact instead of quantised to the 7 m
        *  terrain tessellation the 900 m plane can afford. */
       uPathLine: { value: new THREE.Vector4(PATH.x0, PATH.z0, PATH.dx, PATH.dz) },
       uPathFeather: { value: PATH.feather },
+      /** The band's far edge and its feathered end, so the track has two sides. */
+      uPathBand: { value: new THREE.Vector2(PATH.width, PATH.width + PATH.feather) },
     };
   }
 
@@ -1679,6 +1726,7 @@ uniform vec3 uPathColor;
 uniform vec2 uGroundDetail;
 uniform vec4 uPathLine;
 uniform float uPathFeather;
+uniform vec2 uPathBand;
 varying vec3 vAwGround;
 ${shader.fragmentShader}`
       .replace(
@@ -1690,8 +1738,9 @@ ${shader.fragmentShader}`
 	// tiling variation, not the albedo.
 	float lum = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
 	float detail = clamp( 1.0 + ( lum - uGroundDetail.x ) * uGroundDetail.y, 0.55, 1.45 );
-	float onPath = smoothstep( 0.0, uPathFeather,
-		( vAwGround.z - uPathLine.y ) * uPathLine.w - ( vAwGround.x - uPathLine.x ) * uPathLine.z );
+	float pathT = ( vAwGround.z - uPathLine.y ) * uPathLine.w - ( vAwGround.x - uPathLine.x ) * uPathLine.z;
+	float onPath = smoothstep( 0.0, uPathFeather, pathT )
+		* ( 1.0 - smoothstep( uPathBand.x, uPathBand.y, pathT ) );
 	diffuseColor.rgb = mix( uLawnColor, uPathColor, onPath ) * detail;
 }`,
       )

@@ -338,6 +338,50 @@ function floraMaterial(opts) {
     envMapIntensity: opts.envMapIntensity ?? 0.35,
     shadowDepth: opts.shadowDepth,
     shadowLift: opts.shadowLift,
+    /**
+     * How far a shadowed fragment's chroma rotates toward `LIGHT.SHADOW_TINT`.
+     *
+     * The `generic` preset ships **0.40**, and inheriting it turned the whole
+     * meadow teal. That number is calibrated for the dusk contre-jour the rest
+     * of the art bible is written around, where a blue-shifted shadow is the
+     * point; under the plate's high warm key it is a disaster, because a leaf
+     * seen at any distance presents mostly its *shadow* side and 40% of a
+     * rotation toward `#2E4A5F` on a dark green albedo lands on cyan. Measured
+     * on the first sunlit capture: conifer foliage rendered RGB(121,175,173) —
+     * hue 176°, i.e. not green at all — and the meadow band's mean saturation
+     * came out 0.186 against the plate's 0.491 over the same region.
+     *
+     * 0.14 keeps §2.1's ban on zero-saturation shadows (the shadow is still
+     * measurably cooler and bluer than the lit side) while leaving foliage its
+     * own hue, which is what the plate shows: its shaded leaves are *darker
+     * green*, not blue.
+     */
+    shadowMix: opts.shadowMix ?? 0.14,
+    /**
+     * **No rim light on a plant.** This is the single largest correction the
+     * meadow needed and it is worth stating why at length.
+     *
+     * `generic` is one of `Lighting.RIM_SOLVE_CLASSES`, so a material built
+     * from it gets the *character* rim: `rimFloor` 0.35 (a third of the rim is
+     * present even head-on), `rimPower` 3.4, and a strength the rig re-solves
+     * every frame so the rim's peak luminance lands at 0.55–0.92 — i.e. near
+     * white. On a chibi that is correct and invisible except at the contour,
+     * because a torso is thick and only its silhouette grazes.
+     *
+     * A blade of grass is *all* silhouette. A lavender raceme, a conifer spray
+     * and a tulip petal likewise: every fragment sits at a grazing angle, so
+     * the rim covers the entire surface rather than its edge and the plant is
+     * painted out in near-white. Measured on the sunlit capture, conifer
+     * foliage whose albedo is `#204527` rendered RGB(121,175,173) and a bed of
+     * 3 000 lavender plants produced a *purple pixel fraction of 0.003* over
+     * the band it fills — against 0.08 on the plate.
+     *
+     * The reference agrees with the physics: the shading review's own sweep of
+     * `bravely01.jpg` found **no rim anywhere** — every bright silhouette band
+     * in that image resolves to albedo, and the sun-facing edge of the red coat
+     * *darkens* outward, 188 → 41. So flora asks for none.
+     */
+    rimGain: opts.rimGain ?? 0,
     ambientGain: opts.ambientGain,
     normalMap: opts.normalMap,
     roughnessMap: opts.roughnessMap,
