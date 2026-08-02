@@ -381,7 +381,7 @@ const SPEC_SKIN_SHADE = 0xe0a98f;
  */
 const ISLAND = Object.freeze({
   halfW: 0.49, halfH: 0.46,
-  litTo: 0.74, shadowFrom: 0.79, holdTo: 0.86, fadeTo: 0.92,
+  litTo: 0.755, shadowFrom: 0.785, holdTo: 0.86, fadeTo: 0.92,
 });
 
 function clampShadowBand(hex, skin, lo = 0.75, hi = 0.82) {
