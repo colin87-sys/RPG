@@ -1861,10 +1861,12 @@ export function buildFlowerPatch(opts = {}) {
   const heights = new Float32Array(places.length);
   const yaws = new Float32Array(places.length);
   const leans = new Float32Array(places.length);
+  const gains = new Float32Array(places.length);
   for (let i = 0; i < places.length; i++) {
     heights[i] = rng.range(hMin, hMax);
     yaws[i] = rng.range(0, Math.PI * 2);
     leans[i] = rng.jitter(0.26);
+    gains[i] = rng.range(0.9, 1.4);
   }
 
   const stems = instanced(stemGeo, stemMat, places.length, (i, m) => {
@@ -1874,18 +1876,19 @@ export function buildFlowerPatch(opts = {}) {
     _v3.set(p.x, heightAt(p.x, p.z), p.z);
     _s3.set(1, heights[i], 1);
     m.compose(_v3, _q, _s3);
-    return rng.range(0.9, 1.4);
+    return gains[i];
   }, { castShadow: false, receiveShadow: true });
   stems.name = 'wildflower-stems';
   group.add(stems);
 
   const blooms = instanced(bloomGeo, bloomMat, places.length, (i, m, c) => {
     const p = places[i];
-    const h = heights[i];
-    _e.set(leans[i], yaws[i], leans[i] * 0.5);
-    _q.setFromEuler(_e);
-    _v3.set(0, h, 0.08 * h).applyQuaternion(_q);
-    _v3.add(_s3.set(p.x, heightAt(p.x, p.z), p.z));
+    // The stem's radial axes are unscaled, so its bend at the tip is a flat
+    // 0.08 m regardless of how tall this particular stem is.
+    _t3.set(0, heights[i], 0.08).applyQuaternion(_q.setFromEuler(
+      _e.set(leans[i], yaws[i], leans[i] * 0.5),
+    ));
+    _v3.set(p.x, heightAt(p.x, p.z), p.z).add(_t3);
     const s = rng.range(0.75, 1.3);
     _s3.set(s, s, s);
     m.compose(_v3, _q, _s3);
@@ -1893,7 +1896,7 @@ export function buildFlowerPatch(opts = {}) {
     let k = 0;
     while (k < cumulative.length - 1 && roll > cumulative[k]) k++;
     c.copy(colors[k]).multiplyScalar(rng.range(0.88, 1.12));
-    return rng.range(0.9, 1.4);
+    return gains[i];
   }, { castShadow: false, receiveShadow: true });
   blooms.name = 'wildflower-blooms';
   group.add(blooms);
