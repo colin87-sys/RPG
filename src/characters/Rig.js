@@ -157,12 +157,30 @@ const F = Object.freeze({
   shoulderT: 0.86,
   ankleY: 0.050,
 
-  // Joint separation, *not* silhouette width — the deltoid cap in
+  // Clavicle span: joint separation, *not* silhouette width — the deltoid cap in
   // `CharacterFactory` is what actually draws the shoulder line, and it carries
-  // its own radius outboard of this. Held at 0.072 deliberately: see the note
-  // above on why growing the head is what lands the shoulder-to-head ratio on
-  // the plate's 1.2 without touching the shoulder at all.
-  shoulderX: 0.072,
+  // its own radius outboard of this.
+  //
+  // **0.094, up from 0.072.** The note above works the ratio out for a 0.218 H
+  // skull and lands 1.26 head-widths, and it was measured against the wrong
+  // figures. Re-measured on `bravely01.jpg` at the *deltoid*, which is where a
+  // shoulder line reads, and against the **skull** rather than the hair mass —
+  // hair is what the old measurement was including, and on the hat-mage it is
+  // half again the width of her head:
+  //
+  // | figure       | skull width | deltoid span | ratio |
+  // |--------------|-------------|--------------|-------|
+  // | hat-mage     |  58 px      |  88 px       | 1.52  |
+  // | staff-mage   |  74 px      | 108 px       | 1.46  |
+  // | knight       |  66 px      | 108 px       | 1.64  |
+  // | archer       |  76 px      | 112 px       | 1.47  |
+  //
+  // So the plate's band is 1.45–1.65 and ours was 1.26 — a narrow-shouldered
+  // read the critic called out on the armoured characters specifically. With
+  // the deltoid cap widened to 1.44 r in step with this, the roster's 0.83–1.26
+  // `shoulder` multipliers now span 1.36 (the caster) to 1.68 (the smith),
+  // which brackets the plate on both sides.
+  shoulderX: 0.094,
   armSplay: 0.175,     // radians off vertical for the A-pose (~10°)
   upperArm: 0.128,
   foreArm: 0.118,
@@ -1044,7 +1062,16 @@ export function skinSegments(rig, sigmaScale = 1) {
     // 2–34% of its width at 90°; at 1.15 r it keeps 88–96%. The deltoid mass
     // that genuinely wants a wide blend is a separate surface bound across
     // `chest`, `shoulder` and `arm`, which is where that blend belongs.
-    shoulderL: [J.armL, g.arm * 1.15], shoulderR: [J.armR, g.arm * 1.15],
+    // 0.92 r rather than 1.15. `CharacterFactory` now sweeps limbs at 26 columns
+    // instead of 20, which is what finally sampled this joint's true worst case:
+    // the flank vertices sitting exactly on the shoulder pivot were splitting
+    // their weight evenly between a bone that turns with the arm and a stub that
+    // turns with the chest, i.e. sitting on linear blend skinning's cos(θ/2)
+    // floor. Tightening the stub's ball lets `armL` own the tube at the joint —
+    // which is anatomically what the humerus is — and the wide blend the deltoid
+    // genuinely wants still happens on the deltoid, a separate surface bound
+    // across `chest`, `shoulder` and `arm`.
+    shoulderL: [J.armL, g.arm * 0.92], shoulderR: [J.armR, g.arm * 0.92],
     armL: [J.forearmL, g.arm * 1.15], armR: [J.forearmR, g.arm * 1.15],
     forearmL: [J.handL, g.elbow * 1.15], forearmR: [J.handR, g.elbow * 1.15],
     // The hand's axis now runs to the knuckle line rather than to a synthetic

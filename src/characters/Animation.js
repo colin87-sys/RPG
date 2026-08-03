@@ -198,7 +198,25 @@ const CLIPS = {};
  * The hips take a share of it backwards and the chest the rest forwards, which
  * is the diagonal every plate figure stands on and — with the stage's 20–46° —
  * what puts the whole cast at a genuine three-quarter body angle instead of the
- * near-profile the review measured.
+ * near-profile the review measured. The chest carries 0.60 of it, so the table's
+ * 0.44–0.68 is a **18–23° torso twist** against the pelvis on every stance.
+ *
+ * ### `open` and `stagger`: the base the figure stands on
+ *
+ * Both roughly doubled in this pass, and the driver is a measurement rather
+ * than taste. `open` splays the whole leg from the hip, so the outer edge of a
+ * boot sits at `thighX + sin(open) · legLength` from the centreline. At the old
+ * 0.115–0.265 that put the party's feet 0.28–0.30 H apart against a shoulder
+ * line of 0.33 H: **feet narrower than shoulders**, which is a person standing
+ * to attention, not a person in a fight. Every figure in `bravely01.jpg` is the
+ * other way round — the knight's boots span 190 px against 108 px of shoulder
+ * (1.76×), the archer's 150 against 112 (1.34×), and even the hat-mage, the
+ * lightest of the four, stands 1.2×. At 0.32–0.44 ours land 1.15–1.30×, which
+ * is the plates' band without going bow-legged.
+ *
+ * `stagger` is the same read in the other axis: one foot forward and one back
+ * is what stops a wide base reading as a straddle. It carries the weight too —
+ * the loaded leg is always the staggered-back weapon-side one.
  *
  * ### The arm numbers are solved, not dialled
  *
@@ -262,7 +280,7 @@ const STANCES = {
    * has to read as *braced*.
    */
   guard: {
-    yaw: 0.50, lean: 0.10, crouch: 0.32, open: 0.245, stagger: 0.19, breath: 0.9,
+    yaw: 0.54, lean: 0.12, crouch: 0.38, open: 0.44, stagger: 0.25, breath: 0.9,
     // Blade up and back across the weapon shoulder, so it crosses the head from
     // the near side — `bravely01.jpg`'s knight, whose sword climbs out of frame
     // past his own ear.
@@ -278,7 +296,7 @@ const STANCES = {
    * weapon hand high at the near shoulder, free hand lower and across.
    */
   carry: {
-    yaw: 0.44, lean: 0.05, crouch: 0.13, open: 0.175, stagger: 0.13, breath: 1.0,
+    yaw: 0.52, lean: 0.06, crouch: 0.19, open: 0.36, stagger: 0.19, breath: 1.0,
     // The long forward diagonal: haft low behind the hip, head of the weapon up
     // past the far shoulder. This is the one stance whose weapon already read,
     // and the aim is that read stated explicitly so it survives a retune.
@@ -293,7 +311,7 @@ const STANCES = {
    * lineup read as a party.
    */
   present: {
-    yaw: 0.42, lean: 0.02, crouch: 0.06, open: 0.115, stagger: 0.09, breath: 1.15,
+    yaw: 0.48, lean: 0.03, crouch: 0.11, open: 0.32, stagger: 0.15, breath: 1.15,
     // Near vertical and trailing a few degrees, so the staff head stands clear
     // above the hat and the shaft runs down past the hip — the hat-mage's
     // silhouette, which is a vertical line broken by a head.
@@ -307,7 +325,7 @@ const STANCES = {
    * way off the pelvis and the whole figure reads as loaded.
    */
   ready: {
-    yaw: 0.62, lean: 0.07, crouch: 0.24, open: 0.205, stagger: 0.21, breath: 1.0,
+    yaw: 0.68, lean: 0.09, crouch: 0.30, open: 0.40, stagger: 0.27, breath: 1.0,
     // No `aim`: this stance belongs to a character whose weapon is slung across
     // the back, and a fitting on the chest has no wrist to aim it with. Its
     // silhouette read is bought in `Rig.buildChainMetrics`, which now carries a
@@ -322,7 +340,7 @@ const STANCES = {
    * leans *into* the threat rather than sitting back off it.
    */
   brawl: {
-    yaw: 0.40, lean: 0.15, crouch: 0.28, open: 0.265, stagger: 0.14, breath: 0.85,
+    yaw: 0.44, lean: 0.17, crouch: 0.34, open: 0.44, stagger: 0.20, breath: 0.85,
     // No `aim` — the weapon is bolted to a forearm. Its read is bought by the
     // guard height instead: the lead forearm comes up to the cheek so the
     // piston stands beside the head, which is a boxer's guard and the only way
@@ -336,13 +354,22 @@ const STANCES = {
    * the head. Reads at a hundred pixels, which is the test.
    */
   channel: {
-    yaw: 0.46, lean: -0.06, crouch: 0.09, open: 0.145, stagger: 0.09, breath: 1.2,
+    yaw: 0.52, lean: -0.05, crouch: 0.14, open: 0.32, stagger: 0.15, breath: 1.2,
     // A tome has a spine, and a spine held upright and canted toward the reader
     // is what "casting from a book" looks like. Raised to the jaw by the arm
     // pose below, it breaks the head silhouette on the near side.
     aim: [0.30, 0.90, 0.31],
-    lead: { pitch: -1.02, yaw: 0.52, roll: 0.28, elbow: -1.10, wrist: [0.34, -0.20, -0.30] },
-    off: { pitch: -1.28, yaw: -0.42, roll: 0.44, elbow: -1.62, wrist: [-0.30, 0, 0.20] },
+    // **Asymmetric, and that is the whole pose.** The previous pair raised both
+    // arms to the same height and folded both elbows past 1.1 rad, which from
+    // the battle camera is a shrug: two fists at the sternum, level with each
+    // other, elbows tucked. A cast is one arm *out* — the tome pushed forward
+    // and away from the body so the silhouette gains a limb — and one arm *up*,
+    // open beside the head where nothing else in the party carries mass.
+    // `bravely01.jpg`'s hat-mage is the mild version of this and `bravely04`'s
+    // caster is the full one; either way the two hands are never at the same
+    // height and never the same distance from the trunk.
+    lead: { pitch: -0.86, yaw: -0.16, roll: 0.34, elbow: -0.66, wrist: [0.34, -0.20, -0.30] },
+    off: { pitch: -1.74, yaw: -0.30, roll: 0.66, elbow: -1.02, wrist: [-0.30, 0, 0.20] },
   },
 };
 
@@ -435,13 +462,20 @@ CLIPS.idle = {
   fn(p, c) {
     const t = c.t;
     const st = c.stance;
-    const breath = Math.sin(t * TAU / 3.6) * st.breath;
+    // **0.5 Hz.** A fighter holding a guard breathes visibly and fast; the old
+    // 3.6 s period is a person at rest, and at battle framing it is slow enough
+    // that a two-second glance sees a statue. Two seconds is one breath per two
+    // seconds, which is what the plate's poses imply and what reads as alive.
+    const breath = Math.sin(t * TAU / 2.0) * st.breath;
     const shift = Math.sin(t * TAU / 11.0);
     const drift = noise1(t * 0.42, c.seed);
-    // The 2 s sway, and its lagged partner. A quarter-period of lag is what
-    // makes the shoulders trail the hips instead of moving as one board.
-    const sway = Math.sin(t * TAU / 2.0);
-    const swayLag = Math.sin(t * TAU / 2.0 - 0.55);
+    // The balance sway, and its lagged partner. A quarter-period of lag is what
+    // makes the shoulders trail the hips instead of moving as one board. Its
+    // period is 3.1 s rather than the breath's 2.0 so the two never phase-lock
+    // into one obvious bob — three mutually irrational periods is the whole
+    // reason this idle does not read as procedural.
+    const sway = Math.sin(t * TAU / 3.1);
+    const swayLag = Math.sin(t * TAU / 3.1 - 0.55);
     const w = c.bias.weight;
     const lead = c.leadSide;
 
@@ -449,9 +483,16 @@ CLIPS.idle = {
     // the shoulders — a third of it backwards at the hips, the rest forwards up
     // the spine — which is the diagonal the plate stands on. The roll and the
     // pelvis drop follow the loaded leg, which is what "standing" actually is.
+    //
+    // The pelvis is *biased* onto the loaded leg rather than merely oscillating
+    // over the centreline. `leadSide` is the weapon side, which `stagger` has
+    // already placed behind, and the plate's figures all sit their hips over
+    // that back foot — it is what makes a wide base read as weight rather than
+    // as a straddle. The oscillation then rides on top of the bias.
+    const weightBias = -lead * 0.055 * w;
     p.rot('hips', st.lean * 0.25 + 0.012 * breath, -st.yaw * 0.30 + shift * 0.045,
-      shift * 0.070 * w + sway * 0.018 * w);
-    p.pos('hips', shift * 0.007 * c.H + sway * 0.0032 * c.H, 0, 0);
+      weightBias + shift * 0.070 * w + sway * 0.018 * w);
+    p.pos('hips', lead * 0.012 * c.H * w + shift * 0.007 * c.H + sway * 0.0032 * c.H, 0, 0);
     p.rot('spine', st.lean * 0.40 + 0.014 * breath, st.yaw * 0.40 + shift * -0.025,
       shift * -0.042 - swayLag * 0.012);
     p.rot('chest', st.lean * 0.35 + 0.038 * breath, st.yaw * 0.60 + shift * -0.022,

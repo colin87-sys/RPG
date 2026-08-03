@@ -77,7 +77,7 @@ import {
 import { Animator } from './Animation.js';
 import { ClothSim } from './Cloth.js';
 import { characterDef, ROSTER } from './roster.js';
-import { buildFaceTexture } from './FaceTexture.js';
+import { buildFaceTexture, FACE_LAYOUT } from './FaceTexture.js';
 import { buildGarmentSet } from './Garments.js';
 import { createToonMaterial, updateToonUniforms } from '../render/ToonMaterial.js';
 import { buildOutline, disposeOutline, setOutlineSkip } from '../render/Outline.js';
@@ -352,15 +352,32 @@ const SECTIONS = {
     return out;
   },
   /**
-   * Hair clump: a broad wedge with a domed top, a flatter underside that beds
-   * down against the skull, and squared-off sides.
+   * Hair lock: a plain **oval**, and deliberately nothing cleverer.
    *
-   * The two exponents are what make a clump read as *carved* rather than as
-   * rope. A circular section sweeps into a tube, and a tube of hair is a
-   * strand — which ANIME_PIPELINE §3 rules out. Squaring the sides gives the
-   * clump two broad planes with a hard edge between them, which is the surface
-   * the one highlight band runs across.
+   * This replaces a squared superellipse that the previous build swept every
+   * lock along. The argument for squaring was that two broad planes meeting at
+   * an edge read as *carved* rather than as rope — and on a 14-column section
+   * that is exactly wrong. A superellipse of exponent 0.62 spends most of its
+   * columns in its four corners, so the flats between them are resolved by two
+   * or three columns each and the normal steps 25–35° from one to the next.
+   * Under any toon ramp that prints the tessellation itself: the triangulated,
+   * per-facet mottling the plates are being compared against.
+   *
+   * `bravely01.jpg` and `bravely05.jpg` both show the opposite construction —
+   * every lock is a smooth swept tube, wider than it is thick, with the carving
+   * coming from *how many* locks overlap and where their points land, never from
+   * faceting inside one. An ellipse at 16 columns steps 22° at its sharpest and
+   * the ramp resolves it as one gradient, which is what a sculpted lock is.
    */
+  oval(n) {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU;
+      out.push([Math.cos(a), Math.sin(a)]);
+    }
+    return out;
+  },
+  /** Squared wedge, kept for hard accessories (fins, plumes) that want a corner. */
   clump(n, eTop = 0.62, eBot = 0.40) {
     const out = [];
     for (let i = 0; i < n; i++) {
@@ -684,54 +701,28 @@ const ALBEDO_BAND = Object.freeze({
 });
 
 /**
- * The band the hair highlight is graded into.
+ * ### Why the hair carries no painted highlight any more
  *
- * Deliberately *not* `ALBEDO_BAND.hair`. The highlight has to sit above the
- * base value on every head in the party, and four of the six carry a hair
- * swatch that the base band already pins at or near its 0.50 ceiling — so a
- * highlight graded on the same band would be the same value as the hair it is
- * drawn on and would simply not exist. Its own window, floored above the base
- * band's ceiling, makes the separation a property of the construction.
+ * The previous build wrote a second, lighter hair colour into the vertex buffer
+ * over a window of each lock's own arc parameter, and over a matching window of
+ * the shell's hairline→crown run. On paper that is ANIME_PIPELINE §3's single
+ * anisotropic band. In the frame it is the loudest defect on the whole
+ * character, and the reason is structural rather than a matter of tuning: the
+ * band is placed in each *lock's* parameter, and the locks point in twenty
+ * different directions. Twenty independently-placed light patches on twenty
+ * overlapping wedges is not one band running round a crown — it is per-face
+ * colour noise, which is precisely the "camo-patterned papercraft" read.
+ *
+ * `bravely01.jpg` is unambiguous: every head carries **one** lighter strip, it
+ * runs horizontally across the crown, and it is continuous across every lock it
+ * crosses. A strip with that property cannot be authored per lock at all; it is
+ * a function of the view and the light, and it is already produced correctly by
+ * `ToonMaterial`'s `hair` preset, whose Kajiya-Kay lobe is evaluated in world
+ * space and therefore *is* continuous across clump boundaries and *does* move
+ * when the light does. So the hair albedo is now exactly one flat colour per
+ * character and the band is left entirely to the shader — which is the only
+ * place it can be right.
  */
-const HAIR_HIGHLIGHT_BAND = Object.freeze([0.16, 0.62]);
-
-/**
- * The single anisotropic crown band, ANIME_PIPELINE §3: "a bright, slightly
- * desaturated band with hard-ish edges".
- *
- * Both halves of that sentence are load-bearing and neither can be reached by
- * multiplying the albedo. *Bright* means it must clear the base band, which is
- * why it is graded separately — four of the six carry a hair swatch the base
- * band already pins at its ceiling, so a highlight graded on that band would be
- * the same value as the hair it is drawn on. *Slightly desaturated* is what
- * stops it reading as "the same hair, lit"; a highlight that keeps full chroma
- * is a lighting effect, and a lighting effect on a cel surface is already the
- * shadow band's job.
- *
- * ### How strong, measured off the plate rather than off the prose
- *
- * `docs/reference/bravely01.jpg` shows every head carrying a distinct lighter
- * strip across the crown — the defect this fixes is that ours carried none —
- * but the strip is roughly **1.5–1.8× the base value**, not the 2.5×+ that
- * ANIME_PIPELINE §3's "bright" reads as in isolation. At 2.6× the band came
- * out as a stripe of paint laid over the hair rather than as the hair catching
- * light. `docs/reference/README.md` is explicit that where the plates and the
- * prose disagree the plates win, and this is one of those places.
- *
- * @param {number|THREE.Color} hex the character's hair swatch
- * @returns {THREE.Color} linear colour, ready for `Surface.ink`
- */
-function hairHighlight(hex) {
-  const c = hex instanceof THREE.Color ? hex.clone() : new THREE.Color(hex);
-  const grey = luminance(c.r, c.g, c.b);
-  c.lerp(new THREE.Color(grey, grey, grey), 0.28);
-  const y = luminance(c.r, c.g, c.b);
-  const target = THREE.MathUtils.clamp(
-    Math.max(y * 1.7, HAIR_HIGHLIGHT_BAND[0]),
-    HAIR_HIGHLIGHT_BAND[0], HAIR_HIGHLIGHT_BAND[1],
-  );
-  return y > 1e-5 ? c.multiplyScalar(target / y) : c.setScalar(target);
-}
 
 /** Rescale a swatch's linear luminance into `[lo, hi]`, preserving chroma. */
 function gradeAlbedo(hex, cls, scale = 1) {
@@ -1001,7 +992,7 @@ function buildTorso(s, m, pal, sil) {
     // scale function for every column, and `gradeAlbedo` allocates.
     inks.push(gradeAlbedo(pal[name], 'cloth'));
   }
-  sweep(s, path, SECTIONS.square(28, 0.90), (i) => {
+  sweep(s, path, SECTIONS.square(32, 0.90), (i) => {
     s.ink(inks[i]);
     return scales[i];
   }, { capStart: true, capEnd: true });
@@ -1015,7 +1006,7 @@ function buildNeck(s, m) {
   sweep(
     s,
     [new THREE.Vector3(0, y0, 0), new THREE.Vector3(0, (y0 + y1) * 0.5, 0.002), new THREE.Vector3(0, y1, 0.004)],
-    SECTIONS.circle(20),
+    SECTIONS.circle(24),
     (i) => { const r = [g.neck * 1.05, g.neck, g.neck * 1.15][i]; return [r, r * 0.92]; },
     { capStart: false, capEnd: false },
   );
@@ -1034,7 +1025,7 @@ function buildHead(s, m) {
   blob(s, {
     cx: 0, cy: h.center.y, cz: 0,
     rx: h.rx, ry: h.ry, rz: h.rz,
-    eU: 1, eV: h.eV, segU: 32, segV: 22,
+    eU: 1, eV: h.eV, segU: 40, segV: 26,
     profile: h.profile,
   });
   // Ears: two flat nubs that stop the head silhouette from being a perfect
@@ -1114,25 +1105,27 @@ const LIMB_ANATOMY = Object.freeze({
  * real joint. This is the direct counter to the one unavoidable artefact of
  * linear blend skinning: where two bones share a cross-section evenly, a bend of
  * θ shrinks that section by about `cos(θ/2)`, so a 90° elbow loses 29% of its
- * radius. Putting 14% back *at the joint only* means the crease still creases —
+ * radius. Putting 17% back *at the joint only* means the crease still creases —
  * which is what makes a limb read as jointed — while the silhouette through the
  * fold stays convex instead of nipping in like a bent drinking straw.
  *
  * **The muscle mass comes from `LIMB_ANATOMY`,** which is where the outline
  * stops being monotonic and the limb stops being a cone.
  *
- * **Density.** 21 rings of 20 columns. The columns are what the brief is about:
+ * **Density.** 21 rings of 26 columns. The columns are what the brief is about:
  * at 12 a limb's silhouette is a 12-gon, whose facet-to-facet normal step is 30°
  * — far past any toon ramp's band width, so every arm printed a hard vertical
- * stripe down its lit side whatever the shader did. At 20 the step is 18° and
- * the ramp resolves it as one gradient. It costs about 370 extra triangles per
- * limb — 800 against the old 432 — so 1 500 per character and 9 000 across the
- * cast, against a meadow of 1.7 M. That is not a number worth protecting.
+ * stripe down its lit side whatever the shader did. 20 got that to 18°, which
+ * still prints on the shoulder of the ramp where the gradient is steepest; 26
+ * puts it at 13.8°, inside the band width everywhere, and the limb resolves as
+ * one continuous form. It costs about 250 triangles a limb over 20 columns, so
+ * 1 000 a character and 4 000 across the staged party — a fifth of what the
+ * deleted hair flare was costing the same frame.
  *
  * @param {'arm'|'leg'} kind which anatomy table to apply
  * @param {number} [jointSwell] fractional radius gain at the mid joint
  */
-function buildLimb(s, a, b, c, r0, r1, r2, kind = 'arm', seg = 20, jointSwell = 0.14) {
+function buildLimb(s, a, b, c, r0, r1, r2, kind = 'arm', seg = 26, jointSwell = 0.17) {
   const anat = LIMB_ANATOMY[kind] ?? LIMB_ANATOMY.arm;
   const path = smoothPath([a, b, c], 21);
   // Where the mid joint actually falls along an arc-length parameterisation.
@@ -1243,7 +1236,7 @@ function digit(s, f, { x, y0, z0, length, radius, close, segments = 3 }) {
   // past 2.7 rad — beyond that a fingertip re-enters the palm.
   const span = Math.min(length / wrap, 2.7) * close;
 
-  const n = segments * 3;
+  const n = segments * 4;
   const pts = [];
   const radii = [];
   for (let i = 0; i <= n; i++) {
@@ -1260,14 +1253,23 @@ function digit(s, f, { x, y0, z0, length, radius, close, segments = 3 }) {
       cy + r * Math.cos(a) + straight * t * Math.cos(start),
       cz + r * Math.sin(a) + straight * t * Math.sin(start),
     ));
-    // Knuckles are the widest part of a finger and the tip the narrowest; three
-    // pads make the taper read as jointed rather than as a cone.
-    const pad = 1 + 0.10 * Math.cos(t * segments * TAU);
-    radii.push(radius * THREE.MathUtils.lerp(1.0, 0.62, t) * pad);
+    // Knuckle bevels. A finger is widest at each joint and narrowest between
+    // them, and that scallop is the only interior detail a hand has at battle
+    // framing — the plate's gloved hands read as fingers rather than as a
+    // paddle precisely because the grooves between them deepen at the knuckles.
+    // 0.16 rather than 0.10: at a tenth the pulse was inside the toon ramp's
+    // own band width and printed nothing.
+    const pad = 1 + 0.16 * Math.cos(t * segments * TAU);
+    // The last sixth closes as a quarter ellipse, so the fingertip is a dome.
+    // A flat cap on a 3 mm cylinder is a visible sawn-off disc in any closeup,
+    // and it is the detail that made the old hand read as a bundle of dowels.
+    const c = (t - 0.84) / 0.16;
+    const tipRound = c <= 0 ? 1 : Math.sqrt(Math.max(0, 1 - c * c));
+    radii.push(Math.max(radius * THREE.MathUtils.lerp(1.0, 0.68, t) * pad * tipRound, 1e-6));
   }
   const path = [];
   for (const p of pts) path.push(p.clone().applyMatrix4(f.basis));
-  sweep(s, path, SECTIONS.circle(10), (i) => [radii[i], radii[i]], { capStart: true, capEnd: true });
+  sweep(s, path, SECTIONS.circle(12), (i) => [radii[i], radii[i]], { capStart: true, capEnd: true });
 }
 
 /**
@@ -1305,7 +1307,7 @@ function buildHand(s, m, side, wristR, close = 1) {
     [h.palm * 1.06, h.width * 0.40, h.thickness * 0.38],
   ];
   const path = stations.map(([d]) => new THREE.Vector3(0, d, 0).applyMatrix4(f.basis));
-  sweep(s, path, SECTIONS.square(20, 0.80),
+  sweep(s, path, SECTIONS.square(24, 0.80),
     (i) => [stations[i][1], stations[i][2]],
     { capStart: true, capEnd: true });
 
@@ -1333,8 +1335,8 @@ function buildHand(s, m, side, wristR, close = 1) {
   // the four fingers sprout from a flat edge and the hand reads as a rake.
   blob(s, {
     cx: 0, cy: h.palm * 0.98, cz: 0,
-    rx: h.width * 0.48, ry: h.thickness * 0.34, rz: h.thickness * 0.46,
-    eU: 0.7, eV: 0.8, segU: 16, segV: 12,
+    rx: h.width * 0.50, ry: h.thickness * 0.40, rz: h.thickness * 0.50,
+    eU: 0.7, eV: 0.8, segU: 20, segV: 14,
     matrix: f.basis,
   });
 
@@ -1366,9 +1368,11 @@ function buildHand(s, m, side, wristR, close = 1) {
       f.gripY + r * Math.cos(a),
       f.gripZ + r * Math.sin(a),
     ).applyMatrix4(f.basis));
-    tRad.push(h.thumbR * THREE.MathUtils.lerp(1.0, 0.66, t));
+    const c = (t - 0.80) / 0.20;
+    const tipRound = c <= 0 ? 1 : Math.sqrt(Math.max(0, 1 - c * c));
+    tRad.push(Math.max(h.thumbR * THREE.MathUtils.lerp(1.0, 0.70, t) * tipRound, 1e-6));
   }
-  sweep(s, tPath, SECTIONS.circle(10), (i) => [tRad[i], tRad[i]], { capStart: true, capEnd: true });
+  sweep(s, tPath, SECTIONS.circle(12), (i) => [tRad[i], tRad[i]], { capStart: true, capEnd: true });
 }
 
 /**
@@ -1401,7 +1405,7 @@ function buildCuff(s, m, side, armR) {
   // shell. Sealing the ring against the sleeve is the fix, and the first ring
   // is pulled *inside* the tapered forearm so the cap can never be seen either.
   const seal = Math.min(armR.mid, armR.tip * 1.35) * 0.90;
-  sweep(s, [p0, p0.clone().lerp(p1, 0.55), p1], SECTIONS.circle(20),
+  sweep(s, [p0, p0.clone().lerp(p1, 0.55), p1], SECTIONS.circle(24),
     (i) => { const r = [seal, g.wrist * 1.34, g.wrist * 1.46][i]; return [r, r * 0.95]; },
     { capStart: true, capEnd: true });
 }
@@ -1436,7 +1440,7 @@ function buildBoot(s, m, side, cuffHeight = 0.0, zones = null) {
   blob(s, {
     cx: ankle.x, cy: f.height * 0.50, cz,
     rx: halfW, ry: f.height * 0.55, rz: halfL,
-    eU: 0.45, eV: 0.55, segU: 22, segV: 14,
+    eU: 0.45, eV: 0.55, segU: 26, segV: 16,
     profile: (v) => 1 - Math.pow(THREE.MathUtils.clamp((v - 0.55) / 0.45, 0, 1), 1.4) * 0.26,
   });
   // Toe box: pushed forward and flattened, so the foot has direction. Without
@@ -1462,7 +1466,7 @@ function buildBoot(s, m, side, cuffHeight = 0.0, zones = null) {
     [new THREE.Vector3(ankle.x, f.height * 0.55, ankle.z),
       new THREE.Vector3(ankle.x, f.height + shaft * 0.55, ankle.z),
       new THREE.Vector3(ankle.x, f.height + shaft, ankle.z)],
-    SECTIONS.circle(22),
+    SECTIONS.circle(26),
     (i) => {
       const r = [halfW * 0.92, g.ankle * 1.24, g.ankle * (cuffHeight > 0 ? 1.34 : 1.10)][i];
       return [r, r * 1.06];
@@ -1535,6 +1539,86 @@ function faceRow(m, dy, out = { phi: 0, halfWidth: 0, depth: 0 }) {
  * point, so a ring scaled inward is unconditionally buried inside it — no
  * stand-off tuning, no visible plate edge under the rim light.
  */
+/**
+ * The modelled relief on the face shield: a nose wedge and a brow ridge.
+ *
+ * ### Why this is geometry and not more paint
+ *
+ * The critic's finding was that our faces are "flat decals on egg heads" while
+ * the plate's heads have "modelled nose/brow/jaw under painted detail", and
+ * that is a difference no repaint can close. Zoom `bravely01.jpg` on any of the
+ * four: the nose is a *silhouette event* — it catches the key on one side and
+ * drops a hard-edged shadow on the other, and on the archer, who is turned
+ * furthest, its tip breaks the line of the far cheek. A painted nose does none
+ * of those things, because all three are consequences of the surface normal
+ * turning, and a decal's normal is the skull's.
+ *
+ * ### Why it displaces the plate rather than the skull
+ *
+ * The plate stands a fraction of a millimetre in front of the skull and carries
+ * the painted face. A nose modelled on the skull underneath would be *behind*
+ * the paint — invisible, or worse, erupting through it as a skin-coloured wedge
+ * with a hard seam across the drawn nose. Displacing the plate itself puts the
+ * modelled form and the painted form on the same surface by construction: the
+ * shading break lands exactly where `FaceTexture` draws the nose shadow,
+ * because both are placed from `FACE_LAYOUT`.
+ *
+ * It also keeps the hair honest for free. `faceIntrusion` measures hair against
+ * `facePoint`, so a fringe cannot be pushed into the nose — the guard already
+ * knows the nose is there.
+ *
+ * @param {object} m metrics
+ * @param {number} ox @param {number} oy plate coordinates from the plate centre
+ * @param {number} r normalised plate radius, for the rim fade
+ * @returns {number} extra displacement along +Z, in world units
+ */
+function faceRelief(m, ox, oy, r) {
+  const f = m.face;
+  const h = m.head;
+  const S = f.size;
+
+  // Plate-space heights of the two features, read straight off the painter's
+  // own layout so geometry and paint cannot drift apart.
+  const noseOy = (0.5 - FACE_LAYOUT.noseY) * S;
+  const browOy = (0.5 - (FACE_LAYOUT.eyeY - FACE_LAYOUT.browGap * 0.62)) * S;
+
+  // ---- nose ---------------------------------------------------------------
+  //
+  // 4% of head height at the tip (0.08 of a head *radius*), which is what the
+  // hat-mage measures: 4 px of protrusion past the cheek line on an 84 px
+  // skull. Larger reads as a beak on a chibi and smaller does not survive the
+  // downscale to battle framing.
+  const span = Math.max(browOy - noseOy, S * 1e-3);
+  const t = (browOy - oy) / span;              // 0 at the brow, 1 at the tip
+  // A Gaussian along the bridge, peaked a little above the tip so the profile
+  // is a wedge that grows downward and then rolls under into the philtrum
+  // rather than a bump that stops dead.
+  const along = Math.exp(-Math.pow((t - 0.92) / 0.58, 2));
+  // The bridge is narrow between the brows and widens to the ala; a constant
+  // width is a ridge down the middle of a face, not a nose.
+  const halfW = S * 0.030 * (0.62 + 0.52 * THREE.MathUtils.clamp(t, 0, 1.25));
+  const across = Math.exp(-Math.pow(ox / halfW, 2));
+  let z = h.ry * 0.080 * along * across;
+
+  // ---- brow ridge ---------------------------------------------------------
+  //
+  // Deliberately a third of the nose. Its job is not to be seen as a feature
+  // but to put a value break above the painted brow so the eye socket sits in
+  // a shallow recess — which is what stops the upper face reading as a sphere.
+  const e = m.eye;
+  const bAlong = Math.exp(-Math.pow((oy - browOy) / (S * 0.052), 2));
+  // Flat across the eye pair, falling away outside it.
+  const reach = e.halfSpan + e.width * 0.46;
+  const bAcross = 1 - THREE.MathUtils.smoothstep(Math.abs(ox), reach * 0.55, reach * 1.25);
+  z += h.ry * 0.026 * bAlong * bAcross;
+
+  // The rim has to arrive at the skull unmodified or the plate's buried edge
+  // lifts back into the silhouette and prints the bright hard line the burial
+  // exists to remove. Every feature sits inside r = 0.7, so the fade costs
+  // nothing.
+  return z * (1 - THREE.MathUtils.smoothstep(r, 0.72, 0.94));
+}
+
 function facePoint(m, ox, oy, r, out = new THREE.Vector3()) {
   const f = m.face;
   const h = m.head;
@@ -1549,7 +1633,8 @@ function facePoint(m, ox, oy, r, out = new THREE.Vector3()) {
 
   let x = ox;
   let y = f.centerY + oy;
-  let z = zSkull + (row.depth - zSkull) * f.flatten * fade + f.lift * (1 - bury);
+  let z = zSkull + (row.depth - zSkull) * f.flatten * fade + f.lift * (1 - bury)
+    + faceRelief(m, ox, oy, r);
 
   if (bury > 0) {
     const k = 1 - f.buryDepth * bury;
@@ -1600,12 +1685,18 @@ function buildFacePlate(m, pal) {
   const s = new Surface();
   const f = m.face;
   const h = m.head;
-  // 10 × 40 rather than 7 × 32. Tessellation buys nothing in texture fidelity
-  // — the UV is exactly affine either way — but it does control how closely the
-  // shield hugs the skull between rings, and the coarse grid left a faceted
-  // ridge across the cheekbone that the rim light picked out.
-  const rings = 10;
-  const seg = 40;
+  // 20 × 72, and the driver is `faceRelief`. Tessellation still buys nothing in
+  // texture fidelity — the UV is exactly affine at any density — but the plate
+  // now carries a modelled nose and brow, and a form is only as good as the
+  // grid under it. The nose is 0.06 of the plate's width across; at the old 40
+  // columns that was two columns for the whole feature, which builds a faceted
+  // chevron rather than a nose. 72 columns puts five across it and 20 rings put
+  // ten down the bridge, which resolves the quarter-ellipse of the ala cleanly.
+  //
+  // 2 880 triangles a face against the old 800. Paid for several times over by
+  // the sixteen flare wedges per head this pass deleted (~4 500 each).
+  const rings = 20;
+  const seg = 72;
   const e = 2 / 2.6;
 
   // Painted, but the vertex colour still says "skin": the outline pass reads it
@@ -1716,29 +1807,17 @@ function faceIntrusion(m, x, y, z) {
  */
 function hairShell(s, {
   head, outer, inner, frontPhi, backPhi, peak,
-  segU = 30, segV = 14, swell = 0.06, base, highlight, band,
+  segU = 30, segV = 14, swell = 0.06, base,
 }) {
   const ringOuter = [];
   const ringInner = [];
   const p = new THREE.Vector3();
-  /**
-   * One wall, optionally over a sub-range of the hairline→crown parameter.
-   *
-   * The range exists so the outer wall can be emitted as three patches that
-   * share their boundary rows *exactly* — same `u`, same formula, same
-   * position — while carrying different vertex colours. A colour change
-   * between two adjacent rows of a single patch is a gradient across the quad
-   * between them, which is the soft airbrushed transition ANIME_PIPELINE is
-   * trying to eliminate; two patches meeting at a coincident row is a hard
-   * edge with no crack, and `mergeVertices` cannot weld the pair away because
-   * they differ in colour. It is the same technique `buildTorso` uses for the
-   * sash.
-   */
-  const build = (scale, ring, from = 0, to = 1, flip = false) => {
+  /** One wall over the hairline→crown parameter. */
+  const build = (scale, ring, flip = false) => {
     const grid = s.patch(segV, segU, true, (i, j) => {
       const theta = (j / segU) * TAU;
       const lo = hairlinePhi(theta, frontPhi, backPhi, peak);
-      const u = from + (to - from) * (i / segV);
+      const u = i / segV;
       const phi = lo + (Math.PI * 0.5 - lo) * u;
       // The crown swells: hair has bulk on top and is flat at the temples, and
       // that asymmetry is most of what separates a hairstyle from a helmet at
@@ -1749,21 +1828,8 @@ function hairShell(s, {
     if (ring) for (const id of grid[0]) ring.push(id);
     return grid;
   };
-  // The band is measured as a fraction of the hairline→crown run rather than
-  // as a latitude, so it stays parallel to the hairline at every azimuth — i.e.
-  // perpendicular to the direction the hair combs, which is exactly where §3
-  // puts it. A fixed latitude would cross the hairline at the temples.
-  if (band && base && highlight) {
-    s.ink(base);
-    build(outer, ringOuter, 0, band[0]);
-    s.ink(highlight);
-    build(outer, null, band[0], band[1]);
-    s.ink(base);
-    build(outer, null, band[1], 1);
-  } else {
-    build(outer, ringOuter);
-  }
   if (base) s.ink(base);
+  build(outer, ringOuter);
   // The inner wall is the *underside* of the hair, so it has to face the skull,
   // which is the opposite handedness to the outer wall built from the identical
   // parameterisation. Wound the same way round — as it was — both walls face
@@ -1772,7 +1838,7 @@ function hairShell(s, {
   // viewer looks straight through the hair volume onto the scalp. That hole,
   // seen through the outer wall's own culled back faces, is what made every
   // head in the previous captures read as cracked glass rather than as hair.
-  build(inner, ringInner, 0, 1, true);
+  build(inner, ringInner, true);
   // Rim: the exposed edge at the hairline, so its normal runs *down and out*,
   // away from the crown. `quad(a,b,c,d)` normals are `(b−a)×(c−b)`; walking
   // outer→outer→inner→inner gives −φ̂ there, walking outer→inner→inner→outer
@@ -1805,70 +1871,27 @@ function hairSeed(id) {
 }
 
 /**
- * The silhouette flare: how far past the skull a style throws its outer clumps,
- * and which way its flow field combs them.
+ * ### Why there is no longer a "silhouette flare" layer
  *
- * ### Why every style gets one
+ * The previous build threw sixteen extra pointed wedges over every style —
+ * `tipRatio: 0.05, pointed: true`, jittered in reach and azimuth — on the
+ * argument that the styles' own clumps all bedded onto the shell and left the
+ * outermost surface a revolved dome. The argument was sound; the remedy was
+ * not. Sixteen randomised needles rooted around a head do not read as hair at
+ * a hundred pixels, they read as fins, and jittering their length and pitch is
+ * what turns an outline into visual noise rather than into a ragged edge.
+ * The critic's word for what shipped was "stray spike fins", and they were
+ * these.
  *
- * The style branches in `buildHair` put a character's *mass* in six different
- * places, and the pair check proves they do not collide. What none of them
- * produced was an **edge**: every clump was bedded onto the shell within a few
- * per cent of a head radius, so the outermost surface on every head was the
- * revolved scalp cover, and the outline of six different hairdos was the same
- * smooth dome. The plates are unambiguous that this is the wrong construction —
- * `bravely05.jpg`'s ninja is nothing but overlapping tapered wedges whose points
- * stand a third to two thirds of a head radius clear of the skull, with daylight
- * between them, and `bravely01.jpg`'s four heads all break their own dome the
- * same way at the temples and the nape. A cap with a highlight on it is a
- * swimming cap however the highlight is shaded.
- *
- * So the flare is a layer over the style rather than a property of one: ten to
- * fourteen wedges rooted just above the hairline, combed along the style's own
- * flow direction, and ending in a genuine point outside the skull. `reach` is in
- * head radii and is what breaks the outline; `drop` hangs the tips so they read
- * as hair falling rather than as a starburst; `rake` is the azimuthal comb, the
- * flow field's one parameter, and it is what makes a flare *directional* — the
- * difference between a hairstyle and a sea urchin.
- *
- * The numbers keep each style's existing read. `swept` rakes hard backwards and
- * reaches furthest at the nape; `bob` flicks its ends out at the jaw; `spike`
- * lifts rather than drops; `beard` stays a crop; `twintail` and `topknot` are
- * short, because their silhouette is already carried by a tail and a column and
- * a long flare would bury both.
- *
- * Vertical reach is deliberately the smallest term everywhere. `auditCharacter`
- * measures the party against the plates' 3.2–3.7 heads-tall band on the
- * *silhouette* head, and our styles already spend most of the crown budget, so
- * the flare buys its edge sideways and backwards — which is where the plates put
- * it anyway.
+ * `bravely01.jpg` settles it by counting: the knight's head carries about ten
+ * distinguishable locks, the hat-mage's a dozen including her two gathered
+ * falls, the archer's nine under her hat. Not one of them is a needle — every
+ * lock is a broad swept form that ends in a rounded point, and the styles below
+ * now spend their whole budget on eight to fourteen of exactly those. The
+ * outline is broken by making the *style's own* locks leave the skull, which is
+ * how a hairstyle is actually built, instead of by a second population of
+ * geometry that belongs to no style at all.
  */
-const HAIR_FLARE = Object.freeze({
-  swept: { count: 9, reach: 0.86, drop: 0.46, rake: -0.46, rise: 0.26, span: 2.45 },
-  twintail: { count: 10, reach: 0.80, drop: 0.62, rake: -0.12, rise: 0.20, span: 2.10 },
-  beard: { count: 10, reach: 0.74, drop: 0.42, rake: -0.26, rise: 0.22, span: 2.30 },
-  bob: { count: 9, reach: 0.70, drop: 0.72, rake: 0.18, rise: 0.14, span: 2.55 },
-  spike: { count: 10, reach: 0.98, drop: -0.16, rake: 0.32, rise: 0.42, span: 2.55 },
-  topknot: { count: 8, reach: 0.56, drop: 0.34, rake: -0.36, rise: 0.30, span: 2.20 },
-  braid: { count: 8, reach: 0.56, drop: 0.34, rake: -0.36, rise: 0.30, span: 2.20 },
-});
-
-/**
- * The two flare layers, as multipliers on the style's own numbers.
- *
- * One ring of wedges is a crown, not a hairdo: rooted at one latitude and
- * combed one way they come out as an even palisade, which at battle distance
- * reads as a braid running round the head — a *different* wrong answer from the
- * cap, but still one shape rather than a mass. Two rings, offset half a step in
- * azimuth and rooted a third of a radian apart, put every outer wedge over the
- * gap between two inner ones. That overlap is the whole point: it is what makes
- * the negative space between tips read as depth instead of as a notch, and it
- * is what `bravely05.jpg`'s ninja is made of — a short bedded layer against the
- * skull with a longer, sparser layer thrown over it.
- */
-const FLARE_LAYERS = Object.freeze([
-  { root: 0.10, spread: 0.22, reach: 0.62, width: 1.00, phase: 0.0, share: 1.0 },
-  { root: 0.36, spread: 0.30, reach: 1.10, width: 0.86, phase: 0.5, share: 0.7 },
-]);
 
 /**
  * Sweep one hair clump along its spine, framed by the **skull** rather than by
@@ -1894,12 +1917,8 @@ const FLARE_LAYERS = Object.freeze([
  * @param {(i:number)=>number} widthAt half-width per spine sample
  * @param {(i:number)=>number} thickAt half-thickness per spine sample
  * @param {number[][]} section unit cross-section
- * @param {(i:number)=>void} [rowInk] called once per spine sample, before that
- *        sample's ring is emitted, so a caller can change the vertex colour
- *        between rows. Paired with a duplicated spine sample (see `bandSpine`)
- *        this produces a hard colour edge rather than a gradient.
  */
-function clumpSweep(surface, head, path, combAxis, widthAt, thickAt, section, rowInk = null) {
+function clumpSweep(surface, head, path, combAxis, widthAt, thickAt, section) {
   const n = path.length;
   const rows = n - 1;
   const cols = section.length;
@@ -1954,7 +1973,6 @@ function clumpSweep(surface, head, path, combAxis, widthAt, thickAt, section, ro
   }
 
   const grid = surface.patch(rows, cols, true, (i, j) => {
-    if (j === 0 && rowInk) rowInk(i);
     const [u, v] = frames[i];
     const sx = section[j][0] * widthAt(i);
     const sy = section[j][1] * thickAt(i);
@@ -1965,56 +1983,9 @@ function clumpSweep(surface, head, path, combAxis, widthAt, thickAt, section, ro
       z: p.z + u.z * sx + v.z * sy,
     };
   }, true);
-  // The caps take the colour of the ring they close, not whatever the last row
-  // happened to leave set — otherwise the root disc carries the tip's ink and
-  // any style whose root is not fully buried shows a wrong-coloured lid.
-  if (rowInk) rowInk(rows);
   surface.cap(grid[rows], false);
-  if (rowInk) rowInk(0);
   surface.cap(grid[0], true);
   return grid;
-}
-
-/**
- * Split a clump spine into base / highlight / base runs by **duplicating** the
- * sample at each band edge.
- *
- * The duplicate is what makes the edge hard. Two coincident rows bound a quad
- * of zero area that never rasterises, so the colour steps between them instead
- * of interpolating across a strand's whole width — the same construction
- * `buildTorso` uses for the belt line, and the reason a cel highlight reads as
- * a painted strip rather than as a specular smear.
- *
- * The band is placed in the spine's own arc parameter rather than at a world
- * height. Every clump grows out of the scalp, so a fixed fraction along the
- * strand is a fixed distance from the roots — which puts the band on a ring
- * around the crown, perpendicular to the strand direction, on every style from
- * a starburst to a twin-tail without any per-style placement.
- *
- * @param {THREE.Vector3[]} path
- * @param {number} from @param {number} to band window in [0, 1]
- * @returns {{path: THREE.Vector3[], t: number[], lit: boolean[]}}
- */
-function bandSpine(path, from, to) {
-  const last = path.length - 1;
-  const out = { path: [], t: [], lit: [] };
-  const push = (p, t, lit) => { out.path.push(p); out.t.push(t); out.lit.push(lit); };
-  for (let i = 0; i <= last; i++) {
-    const ti = i / last;
-    const prev = i === 0 ? -1 : (i - 1) / last;
-    // `after` is the band state on the far side of the edge; the row that
-    // closes the outgoing run therefore carries its negation.
-    for (const [edge, after] of [[from, true], [to, false]]) {
-      if (prev < edge && ti > edge) {
-        const k = (edge - prev) / (ti - prev);
-        const p = path[i - 1].clone().lerp(path[i], k);
-        push(p.clone(), edge, !after);
-        push(p, edge, after);
-      }
-    }
-    push(path[i], ti, ti >= from && ti <= to);
-  }
-  return out;
 }
 
 /**
@@ -2147,18 +2118,20 @@ function buildHair(parts, m, def, pal) {
   const mass = new Surface();
   const cord = new Surface();
   /**
-   * The hairdo carries exactly **two** values and no others: one flat base and
-   * one crown highlight.
+   * The hairdo carries exactly **one** value.
    *
-   * Held in locals and applied everywhere rather than re-derived per surface,
-   * because the review's finding on the lead was "three unrelated colours (dark
-   * brown, maroon, blue) appear on one hairdo" — a hairstyle stops reading as
-   * one object the moment its parts disagree about what colour hair is. There
-   * is one `base` and one `lit` in this function and every clump, shell wall,
-   * beard fork and bound column is painted from them.
+   * It used to carry two — a base and a painted crown highlight — and the
+   * second one is the single loudest defect the plates were compared against.
+   * A highlight window authored along each *lock's own* arc parameter puts a
+   * light patch on every lock independently, and the locks point in twenty
+   * directions; twenty independent patches is not a band, it is noise, and it
+   * is what read as camouflage. `bravely01.jpg`'s heads carry one continuous
+   * strip across the crown, which is a view-and-light quantity and therefore
+   * the shader's to produce (`ToonMaterial`'s `hair` preset already does).
+   * Every lock, shell wall, beard fork and bound column below is this one
+   * colour, and nothing on a head varies per face.
    */
   const hairBase = gradeAlbedo(pal.hair, 'hair');
-  const hairLit = hairHighlight(pal.hair);
   cap.ink(hairBase);
   clumps.ink(hairBase);
   facial.ink(hairBase);
@@ -2192,23 +2165,11 @@ function buildHair(parts, m, def, pal) {
   // shading can hide.
   const { frontPhi, backPhi, peak } = m.hairline;
 
-  /**
-   * Where the crown highlight sits, as a fraction of the run from the hairline
-   * to the crown (shell) and along a clump's own spine (locks).
-   *
-   * The same window is used for both so the band is *continuous* across the
-   * boundary between a clump and the shell showing between clumps. Placed just
-   * past a third of the way up because that is where the skull's curvature is
-   * turning fastest and therefore where a real strip of light lands; a band on
-   * the pole would be hidden by every style that piles mass on the crown.
-   */
-  const HIGHLIGHT_BAND = Object.freeze([0.34, 0.52]);
-
   hairShell(cap, {
     head: h,
     outer: shellOuter, inner: shellInner,
-    frontPhi, backPhi, peak, segU: 34, segV: 15, swell: 0.05,
-    base: hairBase, highlight: hairLit, band: HIGHLIGHT_BAND,
+    frontPhi, backPhi, peak, segU: 36, segV: 16, swell: 0.05,
+    base: hairBase,
   });
 
   /**
@@ -2223,9 +2184,19 @@ function buildHair(parts, m, def, pal) {
    * is what makes a gap between hair and head impossible rather than merely
    * unlikely.
    */
+  //
+  // **0.60 of the lock's half-thickness clear of the wall, not 0.42.** At 0.42
+  // a lock stands barely a tenth of its own depth proud of the shell, so from
+  // the front the whole hairdo is a lacquered dome with faint ripples in it —
+  // which is the "swim cap" read in its final form. `bravely01.jpg`'s heads all
+  // show the opposite: every lock casts a hard little shadow onto the one
+  // beside it, and that shadow is the *only* thing separating them, because the
+  // hair is a single flat colour. 0.60 still buries 40% of the section inside
+  // the wall, so the root and the underside remain invisible and no gap can
+  // open between a lock and the head.
   const seat = (theta, phi, t) => {
     const onShell = phi > hairlinePhi(theta, frontPhi, backPhi, peak);
-    return (onShell ? shellOuter : 1.05) + (t / h.ry) * 0.42;
+    return (onShell ? shellOuter : 1.05) + (t / h.ry) * 0.60;
   };
 
   /**
@@ -2292,12 +2263,15 @@ function buildHair(parts, m, def, pal) {
    * second is the free control points in `via`, which is where a tail leaves the
    * skull and the silhouette is authored.
    *
-   * The width holds near full until `hold` and then converges; the last ring is
-   * driven to zero by the `1 - t⁹` term, because a lock that ends at finite
-   * width is capped by a disc of geometry facing sideways and at closeup range
-   * that disc is a raw rectangular boundary on the strand. Collapsing the final
-   * ring makes the end cap degenerate, the welder strips it, and what is left is
-   * an actual point.
+   * The width holds near full until `hold`, converges to `tipRatio`, and then
+   * the last eighth closes as a **quarter ellipse** so the lock ends in a
+   * rounded point. Both failure modes either side of that are visible in past
+   * captures: a lock that ends at finite width is capped by a flat disc, which
+   * at closeup is a raw sawn-off rectangle on the strand, and a lock driven to
+   * zero linearly (the old `1 − t⁹`) is a needle whose last third is sub-pixel.
+   * `bravely05.jpg` shows the correct shape plainly on every one of the ninja's
+   * locks — full width for most of the run, then a short curved taper to a
+   * blunt point, like a brush stroke lifting off.
    */
   const clump = (o, target = clumps) => {
     const shim = (clumpOrdinal++ % 4) * SHIM;
@@ -2308,13 +2282,12 @@ function buildHair(parts, m, def, pal) {
       });
     }
     const w = o.w;
-    // Depth is 0.74 of width, not 0.60. A clump's wide axis is combed azimuthally
-    // and its thin axis is the skull radial, so a shallow section presents an
-    // almost edge-free plane to any camera standing off the character's flank —
-    // which is every camera in the game. At 0.60 the party's locks silhouetted as
-    // ribbons with no thickness at their ends; 0.74 is enough that the section's
-    // squared side is visible along the whole length and the clump reads as the
-    // carved wedge ANIME_PIPELINE §3 asks for, without fattening into a tube.
+    // Depth is 0.74 of width. A lock's wide axis is combed azimuthally and its
+    // thin axis is the skull radial, so a shallow section presents an almost
+    // edge-free plane to any camera standing off the character's flank — which
+    // is every camera in the game. At 0.60 the party's locks silhouetted as
+    // ribbons with no thickness at their ends; 0.74 keeps the oval's short axis
+    // visible along the whole length so the lock reads as a solid form.
     const th = o.thick ?? w * 0.74;
     const runs = 3;
     const pts = [];
@@ -2344,22 +2317,35 @@ function buildHair(parts, m, def, pal) {
      * opt below it, and they are short enough that the point is a point rather
      * than a dangle.
      */
-    const tipR = Math.max(o.tipRatio ?? 0.12, o.pointed ? 0.06 : 0.22);
+    const tipR = Math.max(o.tipRatio ?? 0.12, o.pointed ? 0.10 : 0.26);
     const hold = o.hold ?? 0.30;
+    // Where the rounded cap starts. An eighth of the lock, so the curvature is
+    // tight enough to read as a point at battle distance and slack enough that
+    // the 16-column section still resolves it without banding.
+    const CAP_FROM = 0.87;
     const prof = (t) => {
       const k = THREE.MathUtils.smoothstep(t, hold, 1);
-      // The floor is below `mergeVertices`'s weld tolerance, so the collapsed
-      // ring genuinely welds to a point instead of leaving a needle of geometry.
-      return Math.max((1 - k * (1 - tipR)) * (1 - Math.pow(t, 9)), 1e-6);
+      const taper = 1 - k * (1 - tipR);
+      const c = (t - CAP_FROM) / (1 - CAP_FROM);
+      // sqrt(1 − c²) is the quarter ellipse: tangent to the taper where it
+      // starts, vertical where it lands, so the tip is a dome rather than a
+      // cone. It reaches exactly zero at t = 1, which is below the welder's
+      // tolerance, so the final ring collapses to a single welded vertex and no
+      // end cap survives.
+      const round = c <= 0 ? 1 : Math.sqrt(Math.max(0, 1 - c * c));
+      return Math.max(taper * round, 1e-6);
     };
-    // The band edges are duplicated into the spine, so the highlight steps
-    // rather than ramps. `band` is in the *pre-split* parameter, which is what
-    // makes it the same distance from the roots on every clump in the style.
-    const spine = bandSpine(smoothPath(pts, o.seg ?? 13), o.band?.[0] ?? 2, o.band?.[1] ?? 2);
+    const spine = smoothPath(pts, o.seg ?? 15);
+    const last = spine.length - 1;
     clumpSweep(
-      target, h, spine.path, comb(o.theta + (o.runTheta ?? 0) * 0.5),
-      (i) => w * prof(spine.t[i]), (i) => th * prof(spine.t[i]), SECTIONS.clump(o.cols ?? 14),
-      (i) => target.ink(spine.lit[i] ? hairLit : hairBase),
+      target, h, spine, comb(o.theta + (o.runTheta ?? 0) * 0.5),
+      (i) => w * prof(i / last), (i) => th * prof(i / last),
+      // Sixteen columns, not ten or fourteen. The section is the only place a
+      // lock can print its own tessellation, and at 14 columns of a squared
+      // superellipse the flats between the corners were two columns wide — a
+      // 30°+ normal step that every toon ramp resolves as a facet. A 16-column
+      // ellipse steps 22.5° at most and shades as one gradient.
+      SECTIONS.oval(o.cols ?? 16),
     );
   };
 
@@ -2394,8 +2380,12 @@ function buildHair(parts, m, def, pal) {
     const theta = Math.PI * 0.5 - THREE.MathUtils.clamp(
       off * Math.PI * 0.92 * spread, -1.0, 1.0,
     );
-    const w = h.rx * (0.30 - Math.abs(off) * 0.07);
-    const th = w * 0.62;
+    // Bangs are *fingers*, not blades: fat in section and blunt at the end.
+    // `bravely01.jpg`'s hat-mage has four of them and each one is as deep as it
+    // is wide where it leaves the parting, which is why they cast a readable
+    // shadow onto the forehead instead of reading as painted-on strands.
+    const w = h.rx * (0.32 - Math.abs(off) * 0.07);
+    const th = w * 0.78;
     const runTheta = fringeSweep * 0.45 * Math.sign(off || 1);
     const root = frontPhi + 0.34;
     // 0.40 rad at the parting to 1.15 at the temples, before the length dial.
@@ -2417,7 +2407,7 @@ function buildHair(parts, m, def, pal) {
     // brow. Letting the ends leave the surface — outward and down, and further
     // the closer the clump is to the temple — is what separates them into
     // individual points and gives the fringe a silhouette of its own.
-    const flickK = Math.min(1, Math.abs(off) * 2.4);
+    const flickK = 0.35 + 0.65 * Math.min(1, Math.abs(off) * 2.4);
     const endP = P(theta + runTheta, end, seat(theta, end, th) + 0.06);
     const away = new THREE.Vector3(endP.x, 0, endP.z);
     if (away.lengthSq() > 1e-9) away.normalize(); else away.set(0, 0, 1);
@@ -2426,8 +2416,8 @@ function buildHair(parts, m, def, pal) {
       .add(new THREE.Vector3(0, -h.ry * 0.24 * flickK, 0));
     clump({
       theta, phi: root, runTheta, runPhi: end - root,
-      lift: 0.06, via: [flick], w, thick: th, tipRatio: 0.26, hold: 0.34,
-      band: HIGHLIGHT_BAND,
+      lift: 0.11, via: [flick], w, thick: th, tipRatio: 0.34, hold: 0.38,
+     
     }, facial);
   }
 
@@ -2507,9 +2497,9 @@ function buildHair(parts, m, def, pal) {
       const mid = base.clone().lerp(tip, 0.46);
       mid.z -= h.rz * 0.22;
       clump({
-        theta, phi: 1.05, runTheta: 0.10, runPhi: end - 1.05, lift: 0.03,
+        theta, phi: 1.05, runTheta: 0.10, runPhi: end - 1.05, lift: 0.07,
         via: [mid, tip],
-        w: h.rx * 0.26, tipRatio: 0.24, hold: 0.44, band: HIGHLIGHT_BAND,
+        w: h.rx * 0.31, tipRatio: 0.30, hold: 0.46,
       });
     }
     /**
@@ -2527,9 +2517,8 @@ function buildHair(parts, m, def, pal) {
     for (const sgn of [1, -1]) {
       const theta = 0.32 + sgn * 0.55;
       clump({
-        theta, phi: 1.28, runTheta: -sgn * 0.30, runPhi: -0.80, lift: 0.02,
-        w: h.rx * 0.26, thick: h.rx * 0.20, tipRatio: 0.34, hold: 0.50,
-        band: HIGHLIGHT_BAND,
+        theta, phi: 1.28, runTheta: -sgn * 0.30, runPhi: -0.80, lift: 0.06,
+        w: h.rx * 0.31, thick: h.rx * 0.24, tipRatio: 0.40, hold: 0.52,
       });
     }
     /**
@@ -2554,7 +2543,7 @@ function buildHair(parts, m, def, pal) {
       clump({
         theta, phi: frontPhi + 0.20, runPhi: end - frontPhi - 0.20, lift: 0.04,
         via: [new THREE.Vector3(root.x * 1.04, h.center.y - h.ry * (0.62 + lean * 0.4), root.z + h.rz * 0.06)],
-        w: h.rx * 0.23, tipRatio: 0.38, hold: 0.48, band: HIGHLIGHT_BAND,
+        w: h.rx * 0.26, tipRatio: 0.42, hold: 0.50,
       }, facial);
     }
   } else if (style === 'twintail') {
@@ -2583,9 +2572,9 @@ function buildHair(parts, m, def, pal) {
       const end = -0.86;
       const root = P(theta, end, seat(theta, end, 0));
       clump({
-        theta, phi: 0.92, runPhi: end - 0.92, lift: 0.02,
+        theta, phi: 0.92, runPhi: end - 0.92, lift: 0.06,
         via: [new THREE.Vector3(root.x * 0.96, root.y - D * 0.30, root.z * 0.94)],
-        w: h.rx * 0.30, tipRatio: 0.62, hold: 0.58, band: HIGHLIGHT_BAND,
+        w: h.rx * 0.35, tipRatio: 0.62, hold: 0.58,
       });
     }
     // The tails themselves: bound just behind and above each ear, thrown out
@@ -2614,7 +2603,7 @@ function buildHair(parts, m, def, pal) {
         clump({
           theta, phi: 0.34, runTheta: sgn * 0.10, runPhi: -0.28, lift: 0.05,
           via: [mid, tip],
-          w: h.rx * 0.24, tipRatio: 0.44, hold: 0.52, band: HIGHLIGHT_BAND,
+          w: h.rx * 0.29, tipRatio: 0.46, hold: 0.54,
         });
       }
       // The binding ring, in the accent: §5's small high-value zone, and the
@@ -2652,7 +2641,11 @@ function buildHair(parts, m, def, pal) {
     // at all: the clumps bed down for their whole length and terminate on the
     // shell. The contrast against Emrys's raked spikes two slots away is then a
     // full head-radius of crown height.
-    const nCrop = 8;
+    // Six, not eight. Each one is correspondingly wider, so the crown is still
+    // covered while the count sits inside the plates' eight-to-fourteen locks a
+    // head — and six broad forms read as *sculpted* where eight narrow ones read
+    // as a comb.
+    const nCrop = 6;
     for (let i = 0; i < nCrop; i++) {
       const t = (i + 0.5) / nCrop;
       const theta = 0.40 - (Math.PI + 0.80) * t;
@@ -2662,9 +2655,8 @@ function buildHair(parts, m, def, pal) {
       // failure the topknot gather was rebuilt to remove.
       const end = hairlinePhi(theta, frontPhi, backPhi, peak) + 0.10;
       clump({
-        theta, phi: 1.34, runTheta: 0.10, runPhi: end - 1.34, lift: 0.0,
-        w: h.rx * 0.28, thick: h.rx * 0.15, tipRatio: 0.40, hold: 0.60,
-        band: HIGHLIGHT_BAND,
+        theta, phi: 1.34, runTheta: 0.10, runPhi: end - 1.34, lift: 0.05,
+        w: h.rx * 0.34, thick: h.rx * 0.18, tipRatio: 0.44, hold: 0.60,
       });
     }
     const blen = (hp.beardLength ?? 1.0) * D;
@@ -2685,7 +2677,7 @@ function buildHair(parts, m, def, pal) {
       clump({
         theta, phi: -0.55, runPhi: end + 0.55, lift: 0.02,
         via: [root.clone().lerp(tip, 0.42).setZ(h.rz * 0.74), tip],
-        w: h.rx * 0.24 * bwd, tipRatio: 0.30, hold: 0.40,
+        w: h.rx * 0.26 * bwd, tipRatio: 0.34, hold: 0.42,
       }, facial);
     }
     // Moustache: two short bars over the lip, angled down and out. The latitude
@@ -2732,9 +2724,9 @@ function buildHair(parts, m, def, pal) {
         root.z * 0.88,
       );
       clump({
-        theta, phi: 1.02, runPhi: end - 1.02, lift: 0.02,
+        theta, phi: 1.02, runPhi: end - 1.02, lift: 0.06,
         via: [root.clone().lerp(tip, 0.48), tip],
-        w: h.rx * 0.28, tipRatio: 0.46, hold: 0.50, band: HIGHLIGHT_BAND,
+        w: h.rx * 0.32, tipRatio: 0.48, hold: 0.52,
       });
     }
   } else if (style === 'spike') {
@@ -2769,8 +2761,8 @@ function buildHair(parts, m, def, pal) {
     // light. A near-round section that holds its width to nearly half its
     // length is a tapered horn from any angle; the carved read comes from eight
     // separate forms overlapping at the crown, not from faceting inside one.
-    const spikeW = h.rx * 0.30;
-    const spikeT = h.rx * 0.26;
+    const spikeW = h.rx * 0.34;
+    const spikeT = h.rx * 0.29;
     // Hard ceiling on the mass, not a tuned one. REFERENCE §1 measures the
     // silhouette head — hair included — against the 3.0–3.5 heads band, and a
     // starburst is the one style whose randomised roots can spend the whole
@@ -2826,7 +2818,6 @@ function buildHair(parts, m, def, pal) {
         // and fat, so 7% of its width is a genuine apex rather than the
         // dangling splinter the taper floor exists to prevent.
         w: spikeW, thick: spikeT, tipRatio: 0.07, pointed: true, hold: 0.42,
-        band: HIGHLIGHT_BAND,
       });
     }
   } else if (style === 'topknot' || style === 'braid') {
@@ -2872,9 +2863,9 @@ function buildHair(parts, m, def, pal) {
         bindZ * 0.8 + Math.sin(theta) * h.rz * 0.16,
       );
       clump({
-        theta, phi: root, runPhi: Math.max(0.26, 1.20 - root), lift: 0.02,
+        theta, phi: root, runPhi: Math.max(0.26, 1.20 - root), lift: 0.06,
         via: [gatherA],
-        w: h.rx * 0.24, tipRatio: 0.34, hold: 0.58, band: HIGHLIGHT_BAND,
+        w: h.rx * 0.29, tipRatio: 0.38, hold: 0.58,
       });
     }
     /**
@@ -2905,125 +2896,6 @@ function buildHair(parts, m, def, pal) {
       SECTIONS.circle(14),
       () => [h.rx * tw * 1.06, h.rx * tw * 1.06],
       { capStart: false, capEnd: false });
-  }
-
-  // ---- the silhouette flare, over every style -----------------------------
-  //
-  // See {@link HAIR_FLARE}. The construction is one loop because the failure it
-  // fixes is one failure: whatever a style does with its mass, the outermost
-  // surface on the head was the revolved shell, and a revolved shell is a cap.
-  //
-  // Each wedge roots a fifth of a radian above its own local hairline — above,
-  // so a flare can never be the thing that puts hair on a cheek — combs up and
-  // along the flow field for a third of a radian while bedded on the skull, and
-  // then leaves: the free tip is pushed out along the skull's own radial by
-  // `reach` head-radii and dropped by `drop`, with a mid control biased a little
-  // further out so the wedge bows rather than spiking straight. That bow is what
-  // makes the overlap read as layered hair instead of as a crown of thorns.
-  {
-    const fl = HAIR_FLARE[style] ?? HAIR_FLARE.swept;
-    const outward = new THREE.Vector3();
-    /**
-     * The flare may not raise the head, and the ceiling is measured rather than
-     * tuned.
-     *
-     * `auditCharacter` holds the party inside the plates' 3.2–3.7 heads-tall
-     * band on the **silhouette** head, and our styles already spend most of the
-     * crown budget — the starburst alone puts 0.33 of a skull height above the
-     * scalp. An unconstrained flare took the lead to 3.01 heads and the caster
-     * to 2.66: not "slightly tall", a different proportion, and the sort of
-     * regression that is invisible in a close-up and obvious in a lineup.
-     *
-     * So the ceiling is whatever the style itself already reached, scanned off
-     * the geometry that has been emitted so far. The flare buys its outline
-     * sideways and backwards — which is where the plates put it — and can no
-     * longer buy any of it upward, at any style, proportion or roster tuning.
-     */
-    let crownCap = h.crownY + h.ry * 0.06;
-    // A floor as well, on the same principle rather than on the same rule: the
-    // audit measures crown to chin, so the bottom is not policed, but a flare
-    // hanging below the style's own lowest hair is a spike dangling off a jaw
-    // and there is no style here that wants one.
-    let hairFloor = h.chinY - h.ry * 0.06;
-    // The shell is scanned too: it is the surface the styles with a low mass —
-    // the crop, the bob — actually silhouette against, so leaving it out held
-    // their flare below their own hairdo for no reason.
-    for (const src of [cap.pos, clumps.pos, mass.pos, facial.pos]) {
-      for (let i = 1; i < src.length; i += 3) {
-        if (src[i] > crownCap) crownCap = src[i];
-        if (src[i] < hairFloor) hairFloor = src[i];
-      }
-    }
-    for (const layer of FLARE_LAYERS) {
-      const n = Math.max(3, Math.round(fl.count * layer.share));
-      for (let i = 0; i < n; i++) {
-        const t = (i + 0.5 + layer.phase) / n;
-        // Centred on the nape and stopping short of the face on both sides: the
-        // front belongs to the fringe, which has its own eye guard.
-        const theta = -Math.PI * 0.5 + (t - 0.5) * 2 * fl.span;
-        // Two decorrelated draws per wedge. Hair is not a comb: identical
-        // wedges at even spacing alias into a scallop at battle distance, and
-        // the reach jitter is what turns the outline into a ragged edge instead
-        // of a crenellation.
-        const jr = rand.next();
-        const jl = rand.next();
-        // 1.05 rad is the ceiling on where a flare may root and where its
-        // bedded run may end: past it the wedge is climbing the crown, and a
-        // wedge on the crown carries half its own thickness above the shell —
-        // which is a raised head silhouette bought by geometry that is not even
-        // visible from the battle camera. The fringe and the style mass own the
-        // pole; the flare owns the sides.
-        const RUN_TOP = 1.05;
-        const root = Math.min(
-          hairlinePhi(theta, frontPhi, backPhi, peak) + layer.root + jr * layer.spread,
-          RUN_TOP,
-        );
-        const runTheta = fl.rake * (0.6 + 0.8 * jl);
-        const runPhi = fl.rise * (0.7 + 0.6 * jr);
-        const w = h.rx * (0.15 + 0.08 * jl) * layer.width;
-        const th = w * 0.68;
-        const endTheta = theta + runTheta;
-        const endPhi = Math.min(root + runPhi, RUN_TOP);
-        const onHead = P(endTheta, endPhi, seat(endTheta, endPhi, th));
-        // The radial the tip travels along. The `y` term is damped so the flare
-        // opens outward rather than straight up — vertical extent is the one
-        // budget a chibi head does not have (see {@link HAIR_FLARE}).
-        outward.set(onHead.x / h.rx, (onHead.y - h.center.y) / h.ry * 0.42, onHead.z / h.rz);
-        if (outward.lengthSq() < 1e-8) outward.set(0, 0, -1);
-        outward.normalize();
-        const reach = h.rx * fl.reach * layer.reach * (0.70 + 0.60 * jr);
-        const tip = onHead.clone()
-          .addScaledVector(outward, reach)
-          .add(new THREE.Vector3(0, -h.ry * fl.drop * (0.7 + 0.6 * jl), 0));
-        // The mid control is pushed further out than the straight line, which
-        // bows the wedge away from the skull. A straight one is a spine on a
-        // hedgehog; a bowed one is a lock of hair lifting and falling.
-        const mid = onHead.clone().lerp(tip, 0.46).addScaledVector(outward, h.rx * 0.14);
-        // The bound is on the wedge's *surface*, not on its spine: the sweep
-        // carries half a thickness above whatever the spine does, and the
-        // spline bows a little past its own controls besides. Holding the
-        // controls a thickness and a sixth clear of the ceiling is what makes
-        // the measured crown actually land under it — clamping the spine alone
-        // still took the forgemaster to 3.17 heads.
-        const yCeil = crownCap - th * 1.15;
-        const yFloor = hairFloor + th * 1.15;
-        tip.y = THREE.MathUtils.clamp(tip.y, yFloor, yCeil);
-        mid.y = THREE.MathUtils.clamp(mid.y, yFloor, yCeil);
-        clump({
-          theta, phi: root, runTheta, runPhi: endPhi - root, lift: 0.05,
-          via: [mid, tip],
-          w, thick: th, tipRatio: 0.05, pointed: true, hold: 0.30,
-          // Ten columns and eleven spine samples: a flare wedge is at most a
-          // third of a head radius across, so its section is under ten pixels
-          // wide at battle framing and the extra four columns the mass clumps
-          // carry buy nothing. Sixteen wedges cost about 2 700 triangles a head,
-          // which is what the density has to stay inside to keep the cast
-          // capturable on the software rasteriser the harness uses.
-          cols: 10, seg: 11,
-          band: HIGHLIGHT_BAND,
-        });
-      }
-    }
   }
 
   // ---- the two invariants -------------------------------------------------
@@ -3944,12 +3816,14 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     const capR = radii.arm.root;
     blob(shoulderCap, {
       cx: 0, cy: 0, cz: 0,
-      // 1.30 rx puts the deltoid's outer edge at 0.137 H, i.e. a shoulder line
-      // 0.274 H across against a 0.218 H skull — 1.26 head-widths, between the
-      // plate's measured 1.01 (hat-mage) and 1.35 (staff-mage in a coat). The
-      // roster's `shoulder` and `limb` multipliers spread the cast across that
-      // whole band from here; see `Rig.F`'s header.
-      rx: capR * 1.30, ry: capR * 1.62, rz: capR * 1.26,
+      // 1.44 rx, against a clavicle span `Rig.F.shoulderX` has widened to
+      // 0.094 H, puts the deltoid's outer edge at 0.166 H — a shoulder line
+      // 0.332 H across against a 0.218 H skull, i.e. **1.52 head-widths**. That
+      // is the middle of the plate's measured 1.45–1.65 band (see `Rig.F`'s
+      // table); the previous pair landed 1.26, which is the narrow-shouldered
+      // read the armoured characters were called out for. The roster's
+      // `shoulder` and `limb` multipliers spread the cast either side of it.
+      rx: capR * 1.44, ry: capR * 1.62, rz: capR * 1.30,
       eU: 0.88, eV: 0.90, segU: 20, segV: 16,
       // v = 0 is the insertion point down the arm, v = 1 the crest over the
       // joint; the shoulder itself is the top half, so the taper is spent

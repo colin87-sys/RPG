@@ -211,11 +211,32 @@ const PANEL_RIM = Object.freeze({
  * on purpose: five responses is enough to make a stack read as layers, and each
  * extra one is a draw call on every character that wears it.
  */
+/**
+ * **The crease threshold armour is welded at, and the only place in this file
+ * that hardens a normal.**
+ *
+ * 0.61 rad is 35°, down from the 45.8° both metal classes used. `toCreasedNormals`
+ * splits every edge *above* its threshold, so lowering it hardens more edges —
+ * which is the opposite of what the review's faceting finding asks for
+ * everywhere except here. The distinction it draws is the right one: the plate's
+ * armour is smooth across a pauldron's sweep and knife-hard at the bevel where
+ * the raised face steps out of its recess, and the two reads are separated by
+ * exactly this number.
+ *
+ * It is only safe because {@link platePiece}'s raised face is sampled at 72% of
+ * its host's column count: a pauldron at `segU 18` wrapping 331° steps 23.7° per
+ * column and its face shell 25.5°, both comfortably under 35°, so the curve
+ * stays welded and only the bevel loop and the rolled rim break. Dropping any
+ * hard piece below about 14 columns would put its own curvature over the
+ * threshold and facet the thing this is meant to sharpen.
+ */
+const PLATE_CREASE = 0.61;
+
 const RECIPES = Object.freeze({
   /** Armour plate: the only class that takes a highlight. */
-  plate: { preset: 'metal', band: 'metal', crease: 0.8, opts: { ...HARD_RIM } },
+  plate: { preset: 'metal', band: 'metal', crease: PLATE_CREASE, opts: { ...HARD_RIM } },
   /** Buckles, studs, eyelets, rolled lips — brighter and glossier than plate. */
-  trim: { preset: 'metal', band: 'metal', crease: 0.7, opts: { ...HARD_RIM, envSpecular: 0.9 } },
+  trim: { preset: 'metal', band: 'metal', crease: PLATE_CREASE, opts: { ...HARD_RIM, envSpecular: 0.9 } },
   /** Belts, straps, boot bodies, pouches. */
   leather: { preset: 'leather', band: 'cloth', crease: 0.9, opts: { ...HARD_RIM } },
   /** Fitted fabric: collars, cuffs, bodices, sleeves. */
@@ -268,6 +289,20 @@ const TRUNK_PROFILE = Object.freeze([
  */
 const CLEARANCE = 1.075;
 const LAYER = 0.055;
+
+/**
+ * How far a **trim-sized** accessory — ribbon, scarf tail, cord — stands off the
+ * body surface, as a fraction of body height.
+ *
+ * The review's finding is a hard number: a ribbon has to hang within 2 cm of the
+ * body or it stops reading as costume. At this roster's scale a 1.16-unit figure
+ * reads as roughly 1.5 m, so one world unit is 1.29 m and 2 cm is 0.0155 units —
+ * 1.3–1.5% of body height across the roster. 0.010 H is 1.3 cm, comfortably
+ * inside it, and it is applied *on top of* `f.trunk`'s own `CLEARANCE`, which
+ * already covers the error between this module's model of the torso and the one
+ * `CharacterFactory` actually sweeps.
+ */
+const RIDE = 0.010;
 
 /**
  * The turned edge every free garment boundary carries, as a fraction of body
@@ -364,6 +399,39 @@ const HEM = Object.freeze({
 const DRAPE = Object.freeze({
   folds: 10, depth: 0.090, onset: 0.10, power: 1.35, lobe: 0.28,
   /**
+   * **How far the hem line rises and falls around the garment**, as a fraction
+   * of the garment's own length. This is the number that stops a skirt being a
+   * cone, and it was missing entirely.
+   *
+   * `shots/gar-base/cast-stage.png` against `bravely01.jpg` is unambiguous. Our
+   * skirts and coats already carry a radial fold field, a turned hem band and a
+   * piped bead — and all four figures still read as cones, because *the bottom
+   * edge is a perfect horizontal circle*. Silhouette is the only channel that
+   * survives to a 200 px thumbnail, and a straight hem is a straight hem however
+   * much shading runs above it.
+   *
+   * Every hanging garment in the plate has a hem that moves in y. The hat-mage's
+   * skirt dips about 9 px on a 363 px figure between the point of one gore and
+   * the next (2.5% of H, ≈ 6% of that skirt's own length); the staff-mage's coat
+   * tails hang a full 20 px lower at their points than at the side seams. The
+   * cause is the same in both cases: cloth cut with flare has more material at
+   * the swing of a fold than at its root, and the surplus hangs.
+   *
+   * So the drop is keyed to the *crest* of the radial fold — the widest points
+   * are also the lowest ones. That is deliberate and it is the whole reason the
+   * number works at thumbnail size: the extreme-radius samples are exactly the
+   * ones that land on the silhouette, so tying them to the deepest y makes the
+   * outline itself a sawtooth rather than putting the variation on a face the
+   * outline never shows.
+   *
+   * 0.12 of the garment's length, solved rather than eyeballed: on Seren's
+   * 0.40 H skirt the crest-to-trough swing works out at **3.9% of body height**,
+   * which at the battle camera's ~300 px figure is 12 px of visible sawtooth —
+   * the same order as the 9 px the hat-mage's skirt shows on a 363 px figure,
+   * and enough to survive the 200 px thumbnail the silhouette test uses.
+   */
+  hemWave: 0.12,
+  /**
    * How far the two flanks of a fold are driven apart *in albedo*.
    *
    * ±0.17 either side of the panel colour is a 0.34 swing, which on the cel
@@ -386,6 +454,50 @@ function drapeAt(u, v, o) {
   // machined gear: real drape has two or three deep creases and the rest shallow.
   const vary = 1 + (o.lobe ?? DRAPE.lobe) * Math.cos(th + 0.9);
   return 1 + depth * grow * pw(Math.cos(th * folds), 0.65) * vary;
+}
+
+/**
+ * Downward hem displacement at `(u, v)`, as a fraction of the garment's length.
+ *
+ * See {@link DRAPE}.`hemWave`. Two shaping terms on top of the raw crest wave,
+ * both of which exist to stop the result reading as machine pleating:
+ *
+ *  - `grow` at power 1.9 keeps the top two thirds of the panel almost flat, so
+ *    the waist stays fitted and the whole of the variation is spent in the last
+ *    third where the eye actually reads a hemline;
+ *  - a single slow lobe around the body, phased 0.6 rad off the fold field's own
+ *    lobe, so opposite sides of the garment hang at different lengths. Cloth
+ *    gathered on a body is never symmetric about its own axis, and a hem that is
+ *    reads as a lampshade even when it undulates.
+ */
+function hemFall(u, v, o) {
+  const wave = o.hemWave ?? DRAPE.hemWave;
+  if (wave <= 0) return 0;
+  const folds = Math.max(1, Math.round(o.folds ?? DRAPE.folds));
+  const onset = o.onset ?? DRAPE.onset;
+  const grow = Math.pow(clamp((v - onset) / (1 - onset), 0, 1), 1.9);
+  const th = u * TAU;
+  // 1 on a fold crest (the widest, and therefore the silhouette-forming radius),
+  // 0 in a trough. Same `pw` shaping as `drapeAt` so crest and drop stay locked
+  // in phase — a hem wave that beats against its own fold field reads as noise.
+  const crest = 0.5 + 0.5 * pw(Math.cos(th * folds), 0.65);
+  const lobe = 0.5 + 0.5 * Math.cos(th + 1.5);
+  return wave * grow * (0.26 + 0.74 * crest) * (0.66 + 0.34 * lobe);
+}
+
+/**
+ * The largest `hemWave` a garment may use before its lowest hem sample would
+ * reach the stage.
+ *
+ * Cloth through the floor is the one costume failure that cannot be shaded away,
+ * and the hem wave is authored against the garment's length while the clearance
+ * available is a property of the wearer's height — so the two have to be
+ * reconciled per character rather than per garment. Solved rather than dialled
+ * for the same reason the length clamps in `skirt` and `longcoat` are.
+ */
+function hemWaveFor(sp, length, clearance) {
+  const want = sp.hemWave ?? DRAPE.hemWave;
+  return clamp(Math.min(want, clearance / Math.max(length, 1e-6)), 0, want);
 }
 
 /**
@@ -1906,7 +2018,11 @@ const BUILDERS = {
       };
       platePiece(s, {
         point,
-        segU: 14, segV: 5,
+        // 18, not 14. A lame wraps 331° and its raised face is sampled at 72% of
+        // this, so at 14 the face stepped 33° per column — inside a rounding
+        // error of `PLATE_CREASE` — and the tighter crease threshold would have
+        // faceted the one surface on the character that most needs to be smooth.
+        segU: 18, segV: 5,
         thickness: H * (sp.thickness ?? 0.011),
         roll: H * 0.012,
         relief: H * (sp.relief ?? 0.006),
@@ -2070,7 +2186,10 @@ const BUILDERS = {
             .addScaledVector(fr.side, Math.cos(a) * r)
             .addScaledVector(fr.front, Math.sin(a) * r);
         },
-        segU: 12, segV: 4,
+        // 16 columns across a 288° wrap: `platePiece` samples the raised face
+        // at 72% of this, and at 12 that face stepped 36° per column — past
+        // `PLATE_CREASE`, which would have split every column of a smooth cuff.
+        segU: 16, segV: 4,
         thickness: H * (sp.thickness ?? 0.009),
         relief: H * (sp.relief ?? 0.005),
         border: sp.border ?? 0.20,
@@ -2110,7 +2229,7 @@ const BUILDERS = {
             .addScaledVector(fr.front, Math.cos(a) * r)
             .addScaledVector(fr.side, Math.sin(a) * r);
         },
-        segU: 10, segV: 5,
+        segU: 12, segV: 5,
         thickness: H * (sp.thickness ?? 0.011),
         relief: H * (sp.relief ?? 0.006),
         border: sp.border ?? 0.18,
@@ -2142,7 +2261,7 @@ const BUILDERS = {
             .addScaledVector(fr.front, Math.cos(a) * r)
             .addScaledVector(fr.side, Math.sin(a) * r);
         },
-        segU: 10, segV: 5,
+        segU: 12, segV: 5,
         thickness: H * (sp.thickness ?? 0.010),
         relief: H * (sp.relief ?? 0.006),
         border: sp.border ?? 0.18,
@@ -2213,6 +2332,13 @@ const BUILDERS = {
       lobe: sp.foldLobe,
       contrast: sp.foldContrast,
     };
+    fold.folds = Math.max(4, fold.folds);
+    // A coat's tails are the longest free hem in the wardrobe and the plate's
+    // staff-mage hangs his a full 5% of figure height lower at their points than
+    // at the side seams. The clearance budget is what is left between the
+    // authored hem and the stage.
+    const coatLen = Math.max(top - hemY, 1e-6);
+    fold.hemWave = hemWaveFor(sp, coatLen, Math.max(0, hemY - H * 0.012));
     const point = (u, v) => {
       const y = lerp(top, hemY, Math.pow(v, sp.hang ?? 1.0));
       const t = f.trunk(y, H * 0.010 + H * LAYER * 0.10);
@@ -2221,7 +2347,7 @@ const BUILDERS = {
       const below = clamp((f.hipY - y) / (f.hipY - hemY || 1), 0, 1);
       const k = (1 + below * (flare - 1)) * drapeAt(u, v, fold);
       const a = Math.PI * 0.5 + gap * 0.5 + u * (TAU - gap);
-      return V(Math.cos(a) * t.rx * k, y, t.z + Math.sin(a) * t.rz * k);
+      return V(Math.cos(a) * t.rx * k, y - coatLen * hemFall(u, v, fold), t.z + Math.sin(a) * t.rz * k);
     };
     const outward = (u) => {
       const a = Math.PI * 0.5 + gap * 0.5 + u * (TAU - gap);
@@ -2460,11 +2586,17 @@ const BUILDERS = {
       lobe: sp.foldLobe,
       contrast: sp.foldContrast,
     };
+    fold.folds = Math.max(4, fold.folds);
+    // Heavy canvas holds a hem far better than tailored cloth does, so the
+    // apron takes a third of the wave a skirt gets — enough to break the cut
+    // line, not enough to make a smith's apron look gathered.
+    fold.hemWave = hemWaveFor({ hemWave: sp.hemWave ?? DRAPE.hemWave * 0.34 },
+      Math.max(top - bot, 1e-6), Math.max(0, bot - H * 0.012));
     // The apron spans only the front arc, so its parameter has to be remapped
     // onto a whole fold cycle or the wave shows a fraction of a period and
     // reads as a single lean rather than as gathers.
     const point = (u, v) => {
-      const y = lerp(top, bot, v);
+      const y = lerp(top, bot, v) - (top - bot) * hemFall(u, v, fold);
       const t = f.trunk(y, H * (0.012 + LAYER * 0.10));
       // Narrow bib over the chest, widening into a full apron below the belt.
       const wide = lerp(sp.bib ?? 0.30, sp.skirt ?? 0.62, Math.pow(v, 0.7)) * Math.PI;
@@ -2514,37 +2646,163 @@ const BUILDERS = {
     }
   },
 
-  /** Short shoulder cape or mantle, optionally fur-trimmed along its hem. */
+  /**
+   * **A cloak worn on the shoulders**, rebuilt from a hanging arc into a
+   * shoulder-conforming catenary surface.
+   *
+   * This replaces both the previous chest-anchored arc *and* the simulated cloth
+   * panels the roster used to hand to `Cloth.addPanel`, and the reason is in
+   * `shots/gar-base/cast-stage.png`: three of the four staged figures carry a
+   * flat dark rectangle standing visibly clear of their backs, one of them wider
+   * than the character. A simulated panel is laid out as a curved sheet at a
+   * fixed `offsetZ` behind the spine and anchored to a single bone, so it has no
+   * knowledge of where the shoulders are and nothing holds its top edge down
+   * onto them; what the frame shows is a plank on a string.
+   *
+   * The plate has no cape in `bravely01`, but `bravely05`'s ninja does and it is
+   * unambiguous about the construction. Four reads, and this builder is those
+   * four reads:
+   *
+   *  1. **The top edge lies on the shoulder line and wraps forward past the
+   *     deltoids.** It is not a rectangle hung off the neck. The top ring here is
+   *     solved as the wider of the trunk's own half-width at shoulder height and
+   *     the actual deltoid span, and the arc runs from the front of one shoulder
+   *     round the back to the front of the other.
+   *  2. **The hem is a catenary, not a horizontal line.** Cloth pinned at two
+   *     shoulders and free between them hangs longest on the centre line and
+   *     climbs toward each fastening. `cat(u)` is that curve, and `lift` is how
+   *     much shorter the two front corners are than the middle of the back.
+   *  3. **It bows away from the body as it falls, and only where it is free
+   *     to.** The bow is scaled by `1 - cat(u)`, so the fabric still lies against
+   *     the ribs at the shoulder edges and only stands clear down the spine —
+   *     which is what makes the same piece read as *worn* from the side and as
+   *     *draped* from behind.
+   *  4. **The edge is bound, not cut.** A rolled rim, a doubled-back hem band, a
+   *     piped cord along the free edge and a second cord along the neckline. The
+   *     ninja's cape shows every one of them.
+   *
+   * A clasp cord across the throat is on by default. It costs eight triangles
+   * and it is the single cheapest thing in this file: without it a cloak is a
+   * shape near a character, and with it the shape is attached to them.
+   */
   cape(ctx, sp) {
     const { f, H } = ctx;
     const s = ctx.pull(sp.material ?? 'panel', 'chest', sp.pattern);
-    const top = lerp(f.J.chest.y, f.J.neck.y, sp.top ?? 0.80);
-    const bot = top - H * (sp.length ?? 0.20);
-    const wrap = (sp.wrap ?? 0.86) * Math.PI;
-    const phase = sp.front ? Math.PI * 0.5 : -Math.PI * 0.5;
     const fold = {
-      folds: sp.folds ?? 6, depth: sp.foldDepth ?? 0.082,
-      onset: sp.foldOnset ?? 0.20, power: sp.foldPower ?? 1.2, lobe: sp.foldLobe,
+      folds: Math.max(4, sp.folds ?? 8), depth: sp.foldDepth ?? 0.082,
+      onset: sp.foldOnset ?? 0.18, power: sp.foldPower ?? 1.2, lobe: sp.foldLobe,
       contrast: sp.foldContrast,
     };
+
+    // --- the shoulder profile the top edge is fitted to ----------------------
+    const shY = f.J.shoulderL.y;
+    const topY = shY + H * (sp.sit ?? 0.012);
+    const tTop = f.trunk(topY, H * 0.014);
+    // Outside of the deltoid, not the trunk: a cape whose top ring is the chest
+    // radius passes *through* the upper arms, and the review's floating slabs
+    // were the alternative failure of clearing them by standing back instead.
+    const rx0 = Math.max(tTop.rx, Math.abs(f.J.shoulderL.x) + f.arm.root * 0.60);
+    const rz0 = tTop.rz;
+
+    const wrap = (sp.wrap ?? 0.70) * Math.PI;
+    const spread = (sp.spread ?? 0.10) * Math.PI;
+    const lift = clamp(sp.lift ?? 0.34, 0, 0.8);
+    const bow = sp.bow ?? 0.55;
+    const flare = sp.flare ?? 1.30;
+
+    // Catenary shape factor: 0 on the centre line, 1 at the two fastenings.
+    // `c` sets how sharply the curve turns up near the shoulders; 1.5 is the
+    // profile a wool cloak takes and is close to what `bravely05` shows.
+    const coshC = Math.cosh(1.5) - 1;
+    const cat = (u) => (Math.cosh(1.5 * (2 * u - 1)) - 1) / coshC;
+    const len = H * (sp.length ?? 0.34);
+    const drop = (u) => len * (1 - lift * cat(u));
+    // The longest column decides the floor guard, and that is the centre line.
+    fold.hemWave = hemWaveFor(sp, len, Math.max(0, topY - len - H * 0.030));
+
+    const angleAt = (u, v) => -Math.PI * 0.5 + (2 * u - 1) * (wrap + spread * v);
     const point = (u, v) => {
-      const y = lerp(top, bot, v);
-      const t = f.trunk(Math.max(y, f.hipY), H * (0.016 + LAYER * 0.16));
-      const a = phase + lerp(-wrap, wrap, u);
-      const k = (1 + v * (sp.flare ?? 0.34)) * drapeAt(u, v, fold);
-      return V(Math.cos(a) * t.rx * k, y, t.z + Math.sin(a) * t.rz * k);
+      const d = drop(u);
+      const y = topY - d * v - d * hemFall(u, v, fold);
+      const t = f.trunk(Math.max(y, f.hipY - H * 0.02), H * 0.014);
+      // Near the top the surface is the shoulder ring; below it it is the body's
+      // own section, so the cape narrows into the waist exactly as the wearer
+      // does before the flare takes it back out.
+      const grip = Math.pow(1 - clamp(v, 0, 1), 2.2);
+      // Convex profile, same reasoning as `skirt` — a cape whose radius is
+      // linear in v is a cone with a curved hem on it.
+      const k = (1 + Math.pow(v, sp.bell ?? 0.82) * (flare - 1)) * drapeAt(u, v, fold);
+      const a = angleAt(u, v);
+      // Stands off the spine as it falls, and only where it is free to: at the
+      // two fastenings `cat` is 1 and the fabric stays against the ribs.
+      const off = bow * rz0 * Math.pow(v, 1.3) * (1 - 0.78 * cat(u));
+      return V(Math.cos(a) * lerp(t.rx, rx0, grip) * k,
+        y,
+        t.z + Math.sin(a) * lerp(t.rz, rz0, grip) * k - off);
     };
+    const outward = (u, v) => { const a = angleAt(u, v); return V(Math.cos(a), 0, Math.sin(a)); };
+    const uList = foldSamples(fold.folds);
+    const tint = (u, v) => foldTint(u, v, fold);
+    const faceC = ctx.col(sp.color, 'cape', sp.material ?? 'panel');
+    const backC = ctx.col(sp.lining ?? 'capeLining', 'capeLining', sp.material ?? 'panel');
+    const rimC = ctx.col(sp.piping ?? sp.lining ?? 'trim', 'trim', sp.material ?? 'panel');
     shell(s, {
-      point, uList: foldSamples(fold.folds), segV: 5,
+      point, uList, segV: 7,
       thickness: H * (sp.thickness ?? HEM.thickness),
       roll: H * HEM.roll,
-      face: ctx.col(sp.color, 'cape', sp.material ?? 'panel'),
-      back: ctx.col(sp.lining ?? 'capeLining', 'capeLining', sp.material ?? 'panel'),
-      rim: ctx.col(sp.piping ?? sp.lining ?? 'trim', 'trim', sp.material ?? 'panel'),
-      tint: (u, v) => foldTint(u, v, fold),
+      face: faceC, back: backC, rim: rimC, tint,
       // No UV scale — `pattern.repeat` is the cape's only tiling control.
-      outward: (u) => { const a = phase + lerp(-wrap, wrap, u); return V(Math.cos(a), 0, Math.sin(a)); },
+      outward,
     });
+    // The doubled-back hem and its piped cord, exactly as a coat gets them: a
+    // cape's free edge is the largest single boundary on the character and a
+    // knife edge there undoes the whole piece.
+    hemTurn(ctx.pull(sp.material ?? 'panel', 'chest'), {
+      point, outward, uList, tint, closedU: false,
+      height: sp.turnHeight ?? HEM.turn * 0.7,
+      stand: H * (sp.turnStand ?? HEM.turnStand),
+      thickness: H * (sp.thickness ?? HEM.thickness),
+      roll: H * HEM.roll,
+      face: ctx.col(sp.turnColor ?? sp.lining ?? 'capeLining', 'capeLining', sp.material ?? 'panel'),
+      back: faceC, rim: rimC,
+    });
+    const cordS = ctx.pull(sp.material ?? 'panel', 'chest');
+    hemBead(cordS, {
+      point, outward, at: 1 + HEM.turn * 0.11,
+      stand: H * (sp.turnStand ?? HEM.turnStand),
+      radius: H * (sp.beadRadius ?? 0.009),
+      folds: fold.folds, closedU: false, color: rimC,
+    });
+    // Bound neckline. Without it the top edge is a cut line running across the
+    // shoulders, which at battle distance is indistinguishable from a seam in
+    // the body underneath.
+    hemBead(cordS, {
+      point, outward, at: 0.012, stand: H * 0.004,
+      radius: H * (sp.neckBead ?? 0.008),
+      folds: fold.folds, closedU: false, color: rimC,
+    });
+    if (sp.clasp !== false) {
+      // Cord and stud across the throat: the piece of hardware that says the
+      // cloak is fastened to the wearer rather than resting against them.
+      const cs = ctx.pull('trim', null);
+      cs.ink(ctx.col(sp.claspColor ?? 'accent', 'accent', 'trim'));
+      const l = point(0.015, 0.045);
+      const r = point(0.985, 0.045);
+      const throatT = f.trunk(f.J.neck.y - f.g.neck * 0.20, H * 0.010);
+      sweep(cs, [
+        l,
+        V(l.x * 0.42, lerp(l.y, r.y, 0.5) - H * 0.010, throatT.z + throatT.rz * 0.86),
+        V(r.x * 0.42, lerp(l.y, r.y, 0.5) - H * 0.010, throatT.z + throatT.rz * 0.86),
+        r,
+      ], section(6, 0.7), () => [H * 0.0055, H * 0.0055], { capStart: true, capEnd: true });
+      for (const p of [l, r]) {
+        blob(cs, {
+          cx: p.x, cy: p.y, cz: p.z,
+          rx: H * 0.014, ry: H * 0.014, rz: H * 0.008,
+          eU: 0.65, eV: 0.6, segU: 8, segV: 5,
+        });
+      }
+    }
     if (sp.furTrim) {
       // The ninja's cape carries fur along its whole leading edge, and the
       // irregularity of that edge is most of what it contributes to the
@@ -2629,6 +2887,12 @@ const BUILDERS = {
       onset: sp.foldOnset, power: sp.foldPower, lobe: sp.foldLobe,
       contrast: sp.foldContrast,
     };
+    // Twenty-four columns is the floor for a pleated hem: below about four
+    // samples a fold the wave beats against the tessellation and the undulation
+    // aliases back into the straight edge it exists to break. `foldSamples`
+    // emits six a fold, so a four-fold garment is already at the limit and the
+    // roster's skirts run nine to twelve.
+    fold.folds = Math.max(4, fold.folds);
     const sag = sp.sag ?? 0.05;
     // A hem is never allowed through the floor, whatever the roster asks for.
     // Skirt length is authored against body height and the waist sits at a
@@ -2639,6 +2903,9 @@ const BUILDERS = {
     // a skirt with a hem band is exactly as long as one without and the floor
     // guard below still holds.
     const len = Math.min(H * (sp.length ?? 0.41), (top - H * 0.015) / (1 + sag + HEM.turn * 0.2));
+    // Whatever the length clamp left between the flat hem and the stage is the
+    // budget the undulation gets to spend, less a centimetre of insurance.
+    fold.hemWave = hemWaveFor(sp, len, Math.max(0, top - len * (1 + sag) - H * 0.010));
     const faceC = ctx.col(sp.color, 'identity', sp.material ?? 'panel');
     const backC = ctx.col(sp.lining ?? 'secondary', 'secondary', sp.material ?? 'panel');
     const rimC = ctx.col(sp.pipingColor ?? 'trim', 'trim', sp.material ?? 'panel');
@@ -2646,8 +2913,19 @@ const BUILDERS = {
       const a = u * TAU;
       const y = top - len * v;
       const t = f.trunk(Math.max(y, f.hipY - H * 0.01), H * 0.006);
-      const k = (1 + v * (flare - 1)) * drapeAt(u, v, fold);
-      return V(Math.cos(a) * t.rx * k, y - v * v * len * sag, t.z + Math.sin(a) * t.rz * k);
+      // **The flare profile is a curve, not a line.** A skirt whose radius is
+      // linear in `v` is a cone by definition, and a cone is what the review
+      // named — the fold field and the hem band sit on the surface, but the
+      // *side profile* between waist and hem was two straight edges. Cloth
+      // gathered at a waistband does most of its widening in the first third
+      // and then hangs, so the profile is convex; `pow(v, 0.80)` is that curve
+      // and it is the cheapest half of getting rid of the cone read.
+      const k = (1 + Math.pow(v, sp.bell ?? 0.80) * (flare - 1)) * drapeAt(u, v, fold);
+      // The hem drops where the fold swings widest, so the garment's lowest
+      // samples and its outermost samples are the same ones and the silhouette
+      // itself scallops — see `hemFall`.
+      return V(Math.cos(a) * t.rx * k, y - v * v * len * sag - len * hemFall(u, v, fold),
+        t.z + Math.sin(a) * t.rz * k);
     };
     const outward = (u) => V(Math.cos(u * TAU), 0, Math.sin(u * TAU));
     // Doubled columns at every ridge and trough line, and a flat two-value
@@ -2688,9 +2966,14 @@ const BUILDERS = {
      * through it, and each one carries its own rolled edge — which is what
      * makes three flat strips read as three layers rather than as stripes.
      */
-    if (sp.bands) {
+    // One band is the floor, not an option. The plate never terminates a skirt
+    // in the panel's own colour: there is always at least one strip of a
+    // different value between the last of the drape and the piped edge, and it
+    // is what gives the bottom of the silhouette a second horizontal line to
+    // read at thumbnail size. Roster entries raise the count; none may zero it.
+    if (sp.bands !== 0) {
       const bs = ctx.pull(sp.material ?? 'panel', 'hips');
-      const nb = clamp(sp.bands, 1, 3);
+      const nb = clamp(sp.bands ?? 1, 1, 3);
       const bandH = sp.bandHeight ?? 0.05;
       for (let k = 0; k < nb; k++) {
         const v1 = 1 - HEM.turn * 0.18 - k * (bandH + (sp.bandGap ?? 0.055));
@@ -3023,13 +3306,23 @@ const BUILDERS = {
     }
   },
 
-  /** Scarf: a wound band at the throat with one long hanging tail. */
+  /**
+   * Scarf: a wound band at the throat with one hanging tail.
+   *
+   * **The tail follows the wearer's own chest section.** It used to be swept at
+   * a constant `z ≈ 1.3 × neck radius` while dropping a fifth of body height,
+   * and a chibi's chest is roughly twice as deep as its neck — so the last third
+   * of the tail was buried inside the ribcage while the first third stood clear
+   * of the collarbone, which is what the review saw as a squiggle detached from
+   * the figure. Solved against `f.trunk` at every control point instead, so the
+   * band is exactly {@link RIDE} off the surface wherever the surface goes.
+   */
   scarf(ctx, sp) {
     const { f, H } = ctx;
     const s = ctx.pull(sp.material ?? 'cloth', 'chest', sp.pattern);
     s.ink(ctx.col(sp.color, 'trim', sp.material ?? 'cloth'));
     const y = f.J.neck.y + f.g.neck * 0.15;
-    const r = f.g.neck * 1.34;
+    const r = f.g.neck * 1.30;
     // Two turns, offset in height, so the wrap reads as wound cloth.
     for (let turn = 0; turn < 2; turn++) {
       const path = ringPath(y - turn * H * 0.020, r, r * 0.94, 18, -f.g.neck * 0.06);
@@ -3037,39 +3330,75 @@ const BUILDERS = {
     }
     const side = sp.side === 'R' ? -1 : 1;
     const drop = H * (sp.tail ?? 0.22);
-    sweep(s, [
-      V(side * r * 0.55, y - H * 0.020, r * 0.62),
-      V(side * r * 0.80, y - drop * 0.42, r * 0.86),
-      V(side * r * 0.62, y - drop * 0.82, r * 0.72),
-      V(side * r * 0.90, y - drop, r * 0.94),
-    ], section(6, 0.6), (i) => { const w = H * [0.020, 0.022, 0.020, 0.014][i]; return [w, w * 0.32]; },
-    { capStart: true, capEnd: true });
+    // Four stations down the front of the chest, each pinned to the body
+    // section at its own height and swinging a little to the side as it falls.
+    const at = (t, lateral) => {
+      const yy = y - drop * t;
+      const c = f.trunk(yy, H * RIDE);
+      const a = Math.PI * 0.5 - side * lateral;
+      return V(Math.cos(a) * c.rx, yy, c.z + Math.sin(a) * c.rz);
+    };
+    sweep(s, [at(0.08, 0.30), at(0.42, 0.46), at(0.74, 0.38), at(1.0, 0.52)],
+      section(6, 0.6), (i) => { const w = H * [0.020, 0.022, 0.020, 0.014][i]; return [w, w * 0.32]; },
+      { capStart: true, capEnd: true });
   },
 
-  /** Throat ribbon: a small knot with two tails. Trim-sized, face-adjacent. */
+  /**
+   * Throat ribbon: a small knot with two tails, lying **on** the collarbone.
+   *
+   * `bravely01`'s hat-mage wears one and it is the clearest instance in the set
+   * of the rule this builder now follows: a trim-sized accessory is read as
+   * *part of the costume* only while it is in contact with the body, and the
+   * moment it is a centimetre clear it reads as a stray primitive. Ours drew its
+   * loops on a sphere of the neck radius while the tails hung on a fixed z, so
+   * on the two characters carrying one the knot cleared the chest by most of its
+   * own width and the frame showed a coloured squiggle floating at the sternum.
+   *
+   * Everything here is now placed against `f.trunk` — the same solved body
+   * section the collar and the sash use — at `RIDE` clearance, which is 1.5 cm
+   * at this roster's scale and inside the 2 cm the finding allows. It also takes
+   * the chest skin bias rather than none, so it deforms with the torso it is
+   * sitting on instead of with whatever segment the fallback solve picked.
+   */
   ribbon(ctx, sp) {
     const { f, H } = ctx;
-    const s = ctx.pull(sp.material ?? 'cloth', null, sp.pattern);
+    const s = ctx.pull(sp.material ?? 'cloth', 'chest', sp.pattern);
     s.ink(ctx.col(sp.color, 'accent', sp.material ?? 'cloth'));
-    const y = f.J.neck.y + f.g.neck * (sp.at ?? 0.30);
-    const z = f.g.neck * 1.12;
-    // Band round the throat.
-    sweep(s, ringPath(y, f.g.neck * 1.14, f.g.neck * 1.08, 16), section(6, 0.6),
+    const y = f.J.neck.y + f.g.neck * (sp.at ?? 0.20);
+    // Band round the throat, on the neck itself.
+    sweep(s, ringPath(y, f.g.neck * 1.10, f.g.neck * 1.05, 16), section(6, 0.6),
       () => [H * 0.006, H * 0.004], { capStart: false, capEnd: false });
-    // Two loops and two tails at the front.
+    // The knot sits at the hollow of the throat, where the neck meets the chest.
+    const knotY = y - f.g.neck * 0.55;
+    const kt = f.trunk(knotY, H * RIDE);
+    const surf = (yy, lateral) => {
+      const c = f.trunk(yy, H * RIDE);
+      const a = Math.PI * 0.5 - lateral;
+      return V(Math.cos(a) * c.rx, yy, c.z + Math.sin(a) * c.rz);
+    };
+    const tail = H * (sp.tail ?? 0.055);
     for (const side of [1, -1]) {
+      // Loops flattened against the chest: a third as deep as they are wide, so
+      // the pair reads as pressed cloth rather than as two beads.
+      const lp = surf(knotY, side * 0.34);
       blob(s, {
-        cx: side * f.g.neck * 0.34, cy: y, cz: z * 0.95,
-        rx: f.g.neck * 0.34, ry: f.g.neck * 0.24, rz: f.g.neck * 0.14,
+        cx: lp.x, cy: lp.y, cz: lp.z,
+        rx: f.g.neck * 0.34, ry: f.g.neck * 0.22, rz: f.g.neck * 0.11,
         eU: 0.7, eV: 0.7, segU: 10, segV: 6,
       });
       sweep(s, [
-        V(side * f.g.neck * 0.10, y - H * 0.004, z),
-        V(side * f.g.neck * 0.30, y - H * (sp.tail ?? 0.055) * 0.6, z * 1.02),
-        V(side * f.g.neck * 0.18, y - H * (sp.tail ?? 0.055), z * 0.98),
+        surf(knotY - H * 0.004, side * 0.10),
+        surf(knotY - tail * 0.6, side * 0.22),
+        surf(knotY - tail, side * 0.16),
       ], section(5, 0.5), (i) => { const w = H * [0.008, 0.009, 0.007][i]; return [w, w * 0.30]; },
       { capStart: true, capEnd: true });
     }
+    // The knot itself, over the two loop roots.
+    blob(s, {
+      cx: 0, cy: knotY, cz: kt.z + kt.rz,
+      rx: f.g.neck * 0.17, ry: f.g.neck * 0.17, rz: f.g.neck * 0.12,
+      eU: 0.8, eV: 0.8, segU: 8, segV: 6,
+    });
   },
 
   /**
