@@ -724,7 +724,7 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
     // Ink along a plate border, a belt edge, a boot top or a fold ridge — every
     // place two faces of the costume meet at more than 55°, which
     // 'awToonCurvature' finds as a value an order of magnitude above anything a
-    // chibi's own roundness produces. `render/Outline.js` draws the *silhouette*
+    // chibi's own roundness produces. 'render/Outline.js' draws the *silhouette*
     // as an inverted hull and owns this line's constants; it does not own its
     // geometry, because the ribbon-per-edge version of the same pass costs about
     // twenty thousand triangles per character and the capture harness renders on

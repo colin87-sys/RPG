@@ -922,6 +922,19 @@ const DEFAULT_SPEC_SUM = 1.00;
  *    rig's back light is teal; a teal contour on a costume reads as a coating,
  *    and the plates carry no coloured contour on any character. See
  *    `DEFAULT_RIM_TINT`.
+ *  - `detail` / `detailScale` / `detailStrength` — the **hand-painted albedo
+ *    multiply**: a style key into `DETAIL_PAINTERS`, the projection's cycles per
+ *    metre, and how far the print is faded toward neutral. `'auto'` on `cloth`
+ *    hashes the material's name into one of the painted cloth styles. This is a
+ *    channel of its own and is *not* affected by `flat`: the ban that drops the
+ *    other maps is a ban on procedural noise, and nothing here is noise. See the
+ *    detail-map section header for the plate evidence.
+ *  - `clothFresnel` — the fold turn, spent as a multiply on the surface's own
+ *    radiance. Non-zero on `cloth` alone; see `awToonClothTurn`.
+ *  - `cavityDepth` / `cavityWidth` / `edgeWear` / `wearColor` — metal's two
+ *    non-highlight terms: the darkened recess where the surface grazes the key
+ *    and the light rubbed rim along a rolled edge. See `awToonCavity` and
+ *    `awToonEdgeWear`.
  *  - `flat` — this class is a character surface, so procedural detail maps are
  *    dropped and `ambientFlatness` applies. `generic`, `leather` and `crystal`
  *    are the prop classes and keep their fBm detail: `world/Flora.js` shades
@@ -1099,10 +1112,38 @@ export const TOON_PRESETS = Object.freeze({
     // spends whatever headroom the mass has left and no more, and the plate's
     // hair peaks (225 on Elvis, 245 on white-haired Adelle) are reachable while
     // 255 is not.
-    specColor: SURFACE_TINT.SILK_SPEC, specGain: 0.60, specExponent: 420,
-    specThreshold: 0.62, specSoftness: 0.08, specAlbedoMix: 0.82,
-    specCeiling: 0.70, specRelMax: 0.40, specSum: 0.66,
-    aniso: true, anisoShift: 0.18,
+    //
+    // **This revision widens the arc back out, and the reason is that it was
+    // not in the frame at all.** At exponent 420 the lobe clears its threshold
+    // within three degrees of the half-vector being perpendicular to the strand
+    // axis; on a sculpted clump whose normal swings through far more than that
+    // across each lump, the surviving fragments are a scatter too sparse to
+    // read as anything, and `shots/now/cast-stage.png` has no bright pass on any
+    // head on the cast. The correction the 420 was made *for* — 26% of the mass
+    // at the clip point — was a **brightness** failure, and it is bounded by
+    // `specSum` now, which is the control that actually states it. Narrowing the
+    // arc to fix a clipping problem cost the band its existence.
+    //
+    // 96 puts the band's edge 5.7° off perpendicular, which on a chibi hair mass
+    // is a ribbon roughly a fifth of the mass's height — the proportion every
+    // head on `bravely01.jpg` and `bravely05.jpg` carries. `specSoftness: 0.06`
+    // over `specThreshold: 0.50` gives it a drawn inner and outer edge with a
+    // flat interior: **one bright ribbon**, not a gradient.
+    //
+    // `specAlbedoMix: 0.62` keeps the band the hair's own colour lightened
+    // rather than a white streak, and `specRelMax: 0.75` lets it reach 1.75× the
+    // mass it sits on — measured on Elvis's swept-back mass, whose band runs
+    // about 1.7× the median of the mass around it. `specSum: 0.88` is the bound
+    // that keeps it off the clip point: mark plus surface lands near 222 sRGB
+    // after ACES, against the plate's brightest hair fragment at 225.
+    specColor: SURFACE_TINT.SILK_SPEC, specGain: 0.95, specExponent: 96,
+    specThreshold: 0.50, specSoftness: 0.06, specAlbedoMix: 0.62,
+    specCeiling: 0.95, specRelMax: 0.75, specSum: 0.88,
+    // 0.28 rather than 0.18: the shift slides the band off the geometric centre
+    // of the mass and up toward the crown, which is where every plate puts it.
+    // At 0.18 it sat on the equator of each clump, which is where a *shiny
+    // sphere* puts a highlight.
+    aniso: true, anisoShift: 0.28,
     rimPower: 3.6, rimGain: CHARACTER_RIM_GAIN.hair, rimFloor: 0.32,
     rimWidth: 0.40, rimCeiling: 1.50, rimMax: 0.07, rimTint: 0.25,
     // No environment reflection. Hair carries exactly one mark and the arc above
@@ -1138,8 +1179,24 @@ export const TOON_PRESETS = Object.freeze({
   // printed damask arrives on screen exactly as the garment system drew it and
   // is then shaded as one surface. Its shadow is the most saturated in the set,
   // because a garment shadow is where a painter puts the frame's richest colour.
+  //
+  // **Two things are added here.** `clothFresnel` is a 0.05 lift spent as a
+  // *multiply* on the garment's own radiance, so a fold's flank comes up a
+  // twentieth of a stop over its face and the fold turns — see
+  // `awToonClothTurn` for why a multiply and not the additive white term this
+  // class exists to forbid. And `detail` puts a hand-painted print on the piece:
+  // `'auto'` hashes the material's name into one of the four painted styles, in
+  // the ratio the plate's own party carries them. See the detail-map section
+  // header for why an authored canvas is permitted where fBm is not.
   cloth: {
-    terminator: 0.20, softness: 0.05, rampGamma: 1.00, edgePixels: DEFAULT_EDGE_PIXELS,
+    // 0.08 rather than 0.05. Five degrees was chosen when the terminator was the
+    // only thing describing a garment's form; with the fold turn and the crease
+    // ink now carrying the secondary shapes, the primary boundary can afford to
+    // be a soft edge rather than a drawn one — which is what the plate's cloth
+    // shows, a boundary you can point at but not trace.
+    terminator: 0.20, softness: 0.08, rampGamma: 1.00, edgePixels: DEFAULT_EDGE_PIXELS,
+    clothFresnel: 0.05,
+    detail: 'auto', detailScale: 9.0, detailStrength: 0.60,
     shadowMix: 0.42, shadowSat: 1.30, shadowValue: 0.88,
     shadowLevel: 0.24, shadowGain: 1.0, shadowLift: 0.14, shadowFloor: 0.0,
     // The dark side of a garment is a mass and has to be dark enough to anchor
@@ -1305,17 +1362,53 @@ export const TOON_PRESETS = Object.freeze({
     // The plate's armour carries a scatter of *small* marks along rolled edges
     // and is otherwise valued entirely by the form ramp.
     //
-    // 0.58 over a 0.22 grade halves the mark's angular radius and gives it a
-    // defined edge instead of a gradient that fades across the whole piece.
-    specColor: 0xffffff, specGain: 1.00, specThreshold: 0.58, specSoftness: 0.22,
-    // Still the highest allowance in the character set — a glint on steel is
+    // **And then the mark disappeared entirely.** Successive narrowings took it
+    // from a 7° plateau to a 3.7° cone to a 1.8° one, and in
+    // `shots/now/cast-stage.png` there is no specular mark anywhere on any piece
+    // of armour on the cast — every plate is one flat panel of colour, which is
+    // the "coloured felt panels" the review names. Chasing a plastic bubble out
+    // of the frame ended in deleting the highlight.
+    //
+    // The plate does not carry dots. Seth's breastplate and cuisses each carry
+    // one long bright **streak** running with the curvature of the piece — 120
+    // sRGB against a 56 median, a defined edge on both sides and a flat interior
+    // — and the same read is on every buckle, greave and blade in
+    // `bravely02.jpg`. That shape is a *wide* lobe with a *hard* threshold on
+    // it, which is the opposite arrangement to a narrow lobe left to grade.
+    //
+    // So `awToonMetalLobe` states exponent 120 (half-peak 6.1° off the mirror)
+    // and `specThreshold: 0.70` over a 0.05 half-width cuts the streak's edge at
+    // 4.4°, with `awToonStreakShape` making that edge drawn rather than faded.
+    // Across a cylindrical greave, whose normal sweeps slowly along the piece
+    // and quickly across it, the result is the anisotropic-looking band the
+    // plate shows — and the anisotropy comes from the geometry rather than from
+    // a tangent frame, which is why a plain Blinn lobe is right here.
+    specColor: 0xffffff, specGain: 1.15, specThreshold: 0.70, specSoftness: 0.05,
+    // Still the highest allowance in the character set — a streak on steel is
     // *meant* to outrun the surface, which is why this class alone declines the
-    // relative bound. What it may not do is clip: ours peaked at 255 against the
-    // plate's brightest pauldron fragment at 238, and a blob whose whole area
-    // sits at white is a hole in the frame rather than a highlight. `specSum`
-    // is the bound that states that, and it is stated on mark plus surface
-    // because that is the quantity the plate was measured on.
-    specCeiling: 1.00, specRelMax: 0.0, specSum: 0.92,
+    // relative bound. What it may not do is clip: `specSum: 1.05` puts mark plus
+    // surface at roughly 232 sRGB after ACES, against the plate's brightest
+    // pauldron fragment at 238, so the streak is the brightest thing on the cast
+    // and still has its gradation left after the tone curve.
+    specCeiling: 1.25, specRelMax: 0.0, specSum: 1.05,
+    // The two terms that make a shape read as *layered plate* rather than as one
+    // moulded shell, and neither is a highlight. `cavity` takes a surface that
+    // grazes the key down toward black, which is what the recess between two
+    // lames is; `edgeWear` puts a light rubbed rim on a rolled edge, found by
+    // fresnel × curvature. See `awToonCavity` and `awToonEdgeWear` — the
+    // measurement they answer is the plate's p2 of 2.6 sRGB against ours at 9.6
+    // with nothing between it and a p50 of 116.
+    cavityDepth: 0.45, cavityWidth: 0.30,
+    // A cool light steel rather than white. Exposed metal under this world's sky
+    // returns the sky, and a pure white rim on a chibi pauldron reads as chrome
+    // trim rather than as paint rubbed off an edge.
+    edgeWear: 0.55, wearColor: 0xc6d0d8,
+    // Worn albedo, in the paint rather than in the light — which is the point.
+    // Seth's lit plate faces on `bravely01.jpg` are a rubbed blotchy grey, and
+    // that variation survives into his shadow side, where a lighting term could
+    // not put it. Tighter scale than cloth: weathering on armour is a smaller
+    // feature than a print on a skirt.
+    detail: 'wear', detailScale: 14.0, detailStrength: 0.45,
     rimPower: 3.6, rimGain: CHARACTER_RIM_GAIN.metal, rimFloor: 0.30,
     rimWidth: 0.38, rimCeiling: 1.90, rimMax: 0.10, rimTint: 0.30,
     // The one character class that keeps its environment reflection, because on
@@ -1672,6 +1765,17 @@ export function createToonMaterial(opts = {}) {
   const detail = {};
   for (const key of DETAIL_MAP_KEYS) detail[key] = flat ? null : (opts[key] ?? null);
 
+  // The **hand-painted** channel, which is a different thing from the loop
+  // above and deliberately not gated by `flat`. That gate drops `normalMap` /
+  // `roughnessMap` / `aoMap` because in this project they are fBm and read as
+  // dirt on a costume; what is resolved here is a canvas this module drew out of
+  // stripes, lattices and strokes, which is what the plates put on every printed
+  // garment and every worn pauldron they contain. `detail: false` opts a piece
+  // out; `'auto'` picks a cloth print from the material's own name.
+  const materialName = opts.name ?? `toon:${presetName}`;
+  const detailStyle = resolveDetailStyle(opts.detail ?? p.detail ?? null, materialName);
+  const detailMap = detailStyle ? toonDetailTexture(detailStyle) : null;
+
   // `faceFlatten` is the readable spelling of the face clamp, and it acts on the
   // dark *level* rather than on the band; see `FACE_SHADOW_DEPTH`. An explicit
   // `shadowDepth` still wins, so a caller can flatten a face and then state
@@ -1688,8 +1792,22 @@ export function createToonMaterial(opts = {}) {
   // or the caller names another (skin's warm rose-tan is the one that matters).
   const shadowTint = opts.shadowTint ?? p.shadowTint ?? LIGHT.SHADOW_TINT;
 
+  // Metal's cavity, edge wear and worn albedo are properties of the *class*
+  // rather than of the highlight, so they are compiled on the preset's identity
+  // and survive a caller who turns the streak off.
+  const metalSurface = presetName === 'metal';
+  const clothFresnel = opts.clothFresnel ?? p.clothFresnel ?? 0;
+
+  // The interior ink line. `render/Outline.js` owns every ink mark in the frame
+  // and states this one's angle, curvature window and level; only its geometry
+  // lives in the surface shader, because the ribbon-per-edge alternative does
+  // not fit the capture budget. Character classes only — the meadow is shaded
+  // through `generic`, and inking every blade of grass is both wrong and the
+  // most expensive thing this material could do.
+  const crease = flat ? creaseInk(opts.crease) : { enabled: false };
+
   const material = new THREE.MeshStandardMaterial({
-    name: opts.name ?? `toon:${presetName}`,
+    name: materialName,
     color: opts.color ?? 0xffffff,
     map: opts.map ?? null,
     normalMap: detail.normalMap,
@@ -1795,6 +1913,30 @@ export function createToonMaterial(opts = {}) {
 
   if (hasEnvSpec) uniforms.uToonEnvSpecular = { value: envSpecular };
 
+  if (detailMap) {
+    uniforms.uToonDetailMap = { value: detailMap };
+    // Cycles of the print per metre of object space. A chibi is 1.1 m tall, so
+    // 9 puts a cloth motif at roughly 11 cm — around 45 px at battle-camera
+    // distance, which is the size Gloria's plaid measures on the plate.
+    uniforms.uToonDetailScale = { value: opts.detailScale ?? p.detailScale ?? 9.0 };
+    uniforms.uToonDetailStrength = { value: opts.detailStrength ?? p.detailStrength ?? 0.55 };
+  }
+
+  if (crease.enabled) {
+    uniforms.uToonCreaseRange = { value: new THREE.Vector2(crease.range[0], crease.range[1]) };
+    uniforms.uToonCreaseCurve = { value: new THREE.Vector2(crease.curve[0], crease.curve[1]) };
+    uniforms.uToonCreaseInk = { value: crease.ink };
+  }
+
+  if (clothFresnel > 0) uniforms.uToonClothFresnel = { value: clothFresnel };
+
+  if (metalSurface) {
+    uniforms.uToonCavityDepth = { value: opts.cavityDepth ?? p.cavityDepth ?? 0.45 };
+    uniforms.uToonCavityWidth = { value: opts.cavityWidth ?? p.cavityWidth ?? 0.30 };
+    uniforms.uToonEdgeWear = { value: opts.edgeWear ?? p.edgeWear ?? 0.55 };
+    uniforms.uToonWearColor = { value: toColor(opts.wearColor ?? p.wearColor ?? 0xc6d0d8) };
+  }
+
   if (hasSpec) {
     uniforms.uToonSpecColor = { value: toColor(opts.specColor ?? p.specColor ?? 0xffffff) };
     uniforms.uToonSpecGain = { value: specGain };
@@ -1865,6 +2007,10 @@ export function createToonMaterial(opts = {}) {
   if (hasSheen) material.defines.TOON_SHEEN = '';
   if (hasHighBand) material.defines.TOON_HIGH_BAND = '';
   if (narrowBand) material.defines.TOON_NARROW_BAND = '';
+  if (detailMap) material.defines.TOON_DETAIL_MAP = '';
+  if (crease.enabled) material.defines.TOON_CREASE_INK = '';
+  if (clothFresnel > 0) material.defines.TOON_CLOTH_TURN = '';
+  if (metalSurface) material.defines.TOON_METAL_SURFACE = '';
   // A character surface trades part of its indirect *direction* for the same
   // light's average — the same `flat` classification that drops the fBm detail
   // maps. How much is `uToonAmbientFlatness`; the define only decides whether
@@ -1876,8 +2022,30 @@ export function createToonMaterial(opts = {}) {
 
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, material.userData.toon.uniforms);
+
+    // The vertex stage is touched **only** for a material that carries a painted
+    // map. Two of the three largest draws in any frame — the instanced meadow
+    // and the shadow cascades — go through materials that do not, and adding two
+    // varyings and two assignments to their vertex programs would cost real time
+    // on the CPU rasteriser for values nothing reads.
+    if (detailMap) {
+      shader.vertexShader = TOON_SURFACE_VERTEX_PARS + injectAfter(shader.vertexShader, [
+        // `beginnormal_vertex` and `begin_vertex` are both *before* skinning, so
+        // what is captured is the bind pose — see `TOON_SURFACE_VERTEX_POSITION`
+        // for why a print taken from the posed vertex swims across the cloth.
+        ['#include <beginnormal_vertex>', TOON_SURFACE_VERTEX_NORMAL],
+        ['#include <begin_vertex>', TOON_SURFACE_VERTEX_POSITION],
+      ], material.name);
+    }
+
     shader.fragmentShader = injectAfter(shader.fragmentShader, [
       ['#include <lights_physical_pars_fragment>', TOON_SURFACE_PARS],
+      // Ahead of `<lights_physical_fragment>`, which is what builds
+      // `material.diffuseColor`, `material.diffuseContribution` and
+      // `material.specularColorBlended` out of `diffuseColor`. A print applied
+      // after that point would reach the diffuse and be missing from a metal's
+      // reflection tint, so a worn pauldron would reflect the sky as if clean.
+      ['#include <color_fragment>', TOON_SURFACE_ALBEDO],
       ['#include <lights_physical_fragment>', TOON_SURFACE_INIT],
       ['#include <lights_fragment_end>', TOON_SURFACE_COMPOSITE],
     ], material.name);
@@ -1892,10 +2060,36 @@ export function createToonMaterial(opts = {}) {
   const cacheKey = `aw-toon-surface|${presetName}`
     + `|${specClass}|${hasEnvSpec ? 'env' : 'noenv'}|${hasSheen ? 'sheen' : 'nosheen'}`
     + `|${hasHighBand ? 'hiband' : 'noband'}|${flat ? 'flatamb' : 'amb'}`
-    + `|${narrowBand ? 'narrow' : 'wide'}`;
+    + `|${narrowBand ? 'narrow' : 'wide'}`
+    // The style is not in the key and must not be: every style compiles the
+    // identical program and differs only in which texture the sampler is bound
+    // to, so keying on it would build one program per print for no reason.
+    + `|${detailMap ? 'detail' : 'nodetail'}|${crease.enabled ? 'crease' : 'nocrease'}`
+    + `|${clothFresnel > 0 ? 'turn' : 'noturn'}|${metalSurface ? 'plate' : 'noplate'}`;
   material.customProgramCacheKey = () => cacheKey;
 
   return material;
+}
+
+/**
+ * Resolve a preset's or a caller's `detail` field into a style name.
+ *
+ * `'auto'` is the interesting case and it is what `cloth` ships. Which print a
+ * garment carries has to be a property of *that garment* — stable across runs,
+ * and independent of how many other materials happened to be built before it —
+ * so it is hashed from the material's own name rather than drawn from
+ * `GameState`'s shared stream. A shared draw would repaint the entire cast the
+ * day someone reordered character construction, and captures would stop
+ * reproducing; the hash cannot.
+ *
+ * @param {string|false|null} spec a style key, `'auto'`, or a falsy value.
+ * @param {string} name the material's name, the hash's only input.
+ * @returns {string|null}
+ */
+function resolveDetailStyle(spec, name) {
+  if (!spec) return null;
+  if (spec !== 'auto') return DETAIL_PAINTERS[spec] ? spec : null;
+  return CLOTH_DETAIL_STYLES[hashName(name) % CLOTH_DETAIL_STYLES.length];
 }
 
 /**
@@ -1983,6 +2177,16 @@ const SCALAR_KEYS = Object.freeze({
   envLevels: 'uToonEnvLevels',
   metalAlbedo: 'uToonMetalAlbedo',
   envSpecular: 'uToonEnvSpecular',
+  // The painted print's loudness and its projection scale. Which *style* is
+  // bound is a build-time decision — swapping the sampler at runtime would
+  // repaint a garment mid-battle, which is a costume change and not a uniform.
+  detailStrength: 'uToonDetailStrength',
+  detailScale: 'uToonDetailScale',
+  clothFresnel: 'uToonClothFresnel',
+  cavityDepth: 'uToonCavityDepth',
+  cavityWidth: 'uToonCavityWidth',
+  edgeWear: 'uToonEdgeWear',
+  creaseInk: 'uToonCreaseInk',
   specExponent: 'uToonSpecExponent',
   specThreshold: 'uToonSpecThreshold',
   specSoftness: 'uToonSpecSoftness',
@@ -2008,6 +2212,7 @@ const COLOR_KEYS = Object.freeze({
   keyColor: 'uKeyColor',
   specColor: 'uToonSpecColor',
   sheenColor: 'uToonSheenColor',
+  wearColor: 'uToonWearColor',
   pulse: 'uToonPulse',
 });
 
