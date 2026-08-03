@@ -178,9 +178,46 @@ const BLOOM_SCENE_THRESHOLD_AT_UNIT_EXPOSURE =
  * is the correct space for a saturation grade), and a diagnostic frame — which
  * sets `uGradeAmount` to 0 — skips it along with the rest of the grade, exactly
  * as it should.
+ *
+ * **Re-measured after the exposure and key work in `Lighting`.** Hue-bucketing
+ * both frames at 480x270 now puts our overall mean saturation at 0.495 against
+ * the plate's 0.517, so the flat global gain has very nearly done its job and
+ * the remaining error is not global at all — it is *distributional*, and in
+ * three specific places:
+ *
+ * | wedge            | ours (area / sat / value) | plate               |
+ * |------------------|---------------------------|---------------------|
+ * | yellow 45-70     | 10.2% / 0.46 / 0.52       | 3.7% / 0.37 / 0.46  |
+ * | red 0-20         |  1.1% / 0.45 (p95 0.77)   | 1.8% / 0.47 (0.96)  |
+ * | skin, lit cheek  | S 0.51                    | S 0.16              |
+ *
+ * The mustard is the first row and it is not a chroma error: our midground grass
+ * eyedrops to hue **81** where the plate's eyedrops to **116**, and a
+ * yellow-green at V 0.50 is khaki however saturated it is. That is what
+ * `GRASS_HUE_ROTATION_DEG` addresses, and it is the operator the brief asked for
+ * in as many words. The second row is the success criterion — the tulips must be
+ * the most saturated thing in frame and at p95 0.77 against the plate's 0.96
+ * they are not, so red gets its own wedge above the base. The third is the one
+ * place a *cut* is unambiguously right: the plate's skin is the least chromatic
+ * surface it has, ours is among the most, and a chroma gain is at its most
+ * visible exactly there.
  */
-const BASE_CHROMA = 1.25;
-const SKIN_CHROMA = 1.08;
+const BASE_CHROMA = 1.18;
+const SKIN_CHROMA = 0.90;
+/**
+ * The accent wedge: crimson through scarlet, and the only band allowed above the
+ * frame's base gain.
+ *
+ * "Saturation reserved for accents" is a statement about *ordering*, not about a
+ * level, and the ordering is measurable: in `bravely01.jpg` red leads at p95
+ * 0.956, then blue at 0.911, then green at 0.861. Ours came back with all three
+ * inside two points of each other, which is what "nothing is the accent" looks
+ * like as a number. Lifting red rather than cutting blue and green is the right
+ * direction because our blues and greens already measure *under* the plate's;
+ * cutting them would have bought the ordering by making the whole frame duller,
+ * which is the opposite of the reference.
+ */
+const ACCENT_CHROMA = 1.32;
 /**
  * The meadow's own gain, held under the frame's.
  *
@@ -195,13 +232,66 @@ const SKIN_CHROMA = 1.08;
  * the largest area in frame, and "the party fights the flowers" is the review
  * note this band exists to answer.
  */
-const FOLIAGE_CHROMA = 1.12;
-/** The two hue wedges, in degrees: [ramp-in start, full, full, ramp-out end].
- *  Skin is wide enough to cover every rendered skin tone from a shadowed cheek
- *  through a lit one, and to take the warm hair and leather beside them with it;
- *  foliage covers yellow-green through green and stops short of the teals. */
-const SKIN_HUES = [4, 16, 48, 62];
-const FOLIAGE_HUES = [66, 82, 156, 172];
+const FOLIAGE_CHROMA = 1.06;
+/**
+ * The hue wedges, in degrees: [ramp-in start, full, full, ramp-out end].
+ *
+ * Four wedges now, and they no longer overlap. Skin narrows off the yellows
+ * (it used to run to 62, which put the whole mustard band under the skin trim
+ * and left it out of reach of the foliage rules entirely) and off the reds,
+ * which are now the accent's. Foliage starts where the grass rotation lands
+ * rather than where it starts, so the wedge is a statement about the *graded*
+ * green. The accent wedge is expressed on the signed hue axis — hue is a circle
+ * and red sits on its seam, so a four-point window in 0..360 cannot express it
+ * without a special case; mapping h to (-180, 180] makes it an ordinary window.
+ */
+const SKIN_HUES = [14, 24, 42, 54];
+const FOLIAGE_HUES = [78, 96, 156, 172];
+const ACCENT_HUES = [-24, -11, 7, 14];
+
+/**
+ * The rotation that takes our meadow off mustard, and the band it applies over.
+ *
+ * Measured, not chosen: our midground grass sits at hue 81 and the plate's at
+ * 116, our near ground at 71 against the plate's open path at 65. The gap is
+ * therefore ~22 degrees on the sward and ~6 on bare ground, which is exactly the
+ * shape of a smoothstepped window that is full across the grass hues and tapers
+ * out below them — so one rotation with a shaped band lands both.
+ *
+ * It is a hue rotation and not a channel mix on purpose. The alternative (pull
+ * the red channel down over the ground) darkens as it corrects and would have
+ * fought `EXPOSURE_CALIBRATION`, which is already solving the ground's value.
+ * Rotating in HSV holds value and saturation exactly and moves only the thing
+ * that is wrong.
+ *
+ * The window stops short of 50 so it cannot reach the gold in the HUD frames
+ * (measured at hue 45) or any skin tone, and tapers out by 124 so ground that is
+ * already the plate's green is left alone rather than pushed through it into
+ * teal. Both edges are smoothstepped because the cube is trilinearly
+ * interpolated at sample time and a discontinuity here would show as a seam
+ * wherever a gradient crosses it.
+ */
+const GRASS_HUE_ROTATION_DEG = 22;
+const GRASS_HUES = [50, 66, 96, 124];
+
+/**
+ * Filmic contrast, as a luminance S-curve about mid-grey.
+ *
+ * `EXPOSURE_CALIBRATION` scales the whole histogram and `SHADOW_FLOOR` lifts the
+ * toe; neither can put *shape* in the middle of the range, and the shape is what
+ * the "flat and washed" note is about. Our capture and the plate agree closely
+ * at the two ends — p05 0.106 against 0.097, p95 0.644 against 0.628 — and
+ * disagree in the middle, median 0.349 against 0.295. A histogram that matches
+ * at both tails and sits high in the centre is precisely a missing S-curve.
+ *
+ * Applied to *luminance* with the triplet rescaled around it, rather than per
+ * channel. A per-channel S-curve is the film-accurate operator and it also
+ * rotates hue on anything saturated, which would silently fight the four hue
+ * wedges this same walk is about to apply. 0.22 of the way to `smoothstep` pins
+ * mid-grey exactly, takes the median down 4% and the quartertone down 10%, and
+ * is far too gentle to close up the shadow detail the plate keeps open.
+ */
+const CONTRAST_S = 0.18;
 
 /**
  * The graded black point, as a tinted display-referred lift.
@@ -231,46 +321,122 @@ function hueBand(h, win) {
     * (1 - THREE.MathUtils.smoothstep(h, win[2], win[3]));
 }
 
-/**
- * Apply the chroma discipline to a baked LUT strip, in place.
- *
- * Operates on the cube's *output* values, so it composes after whatever the
- * named grade did — which is the order an art department works in: grade first,
- * then set the black point and hold the result inside the palette's chroma
- * budget. Both trims live in this one walk because both are display-referred
- * functions of colour alone, which is precisely what a colour cube is for.
- */
-function applyChromaDiscipline(data) {
-  for (let i = 0; i < data.length; i += 4) {
-    // Lift first, trim second. `lift + e(1 - lift)` pins white and maps black
-    // onto the floor colour, so it raises the toe without touching the top of
-    // the range; running it after the chroma trim would re-introduce chroma into
-    // the shadows the trim had just taken it out of.
-    const r = SHADOW_FLOOR[0] + (data[i] / 255) * (1 - SHADOW_FLOOR[0]);
-    const g = SHADOW_FLOOR[1] + (data[i + 1] / 255) * (1 - SHADOW_FLOOR[1]);
-    const b = SHADOW_FLOOR[2] + (data[i + 2] / 255) * (1 - SHADOW_FLOOR[2]);
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const c = max - min;
-    // A neutral has no hue to classify and no chroma to trim; skipping it also
-    // keeps the cube's grey axis bit-exact, which is what stops a grade drifting
-    // its own white balance every time this runs.
-    if (c < 1e-4) {
-      writeLut(data, i, r, g, b);
-      continue;
-    }
-    let h;
+/** HSV value/saturation/hue of a display-referred triplet, into `out`. Hue is
+ *  in degrees; a neutral reports hue 0 and saturation 0, which every consumer
+ *  here short-circuits on rather than trusting. */
+function toHsv(r, g, b, out) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const c = max - min;
+  let h = 0;
+  if (c > 1e-6) {
     if (max === r) h = ((g - b) / c) % 6;
     else if (max === g) h = (b - r) / c + 2;
     else h = (r - g) / c + 4;
     h = (h * 60 + 360) % 360;
+  }
+  out.h = h;
+  out.s = max > 1e-6 ? c / max : 0;
+  out.v = max;
+  return out;
+}
 
-    // The wedges do not overlap, so the two mixes compose without a partition.
-    const scale = THREE.MathUtils.lerp(
-      THREE.MathUtils.lerp(BASE_CHROMA, FOLIAGE_CHROMA, hueBand(h, FOLIAGE_HUES)),
-      SKIN_CHROMA,
-      hueBand(h, SKIN_HUES),
+/** Inverse of `toHsv`, written straight into the cube. */
+function fromHsv(h, s, v, out) {
+  const hh = (((h % 360) + 360) % 360) / 60;
+  const c = v * s;
+  const x = c * (1 - Math.abs((hh % 2) - 1));
+  const m = v - c;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hh < 1) { r = c; g = x; } else if (hh < 2) { r = x; g = c; } else if (hh < 3) { g = c; b = x; } else if (hh < 4) { g = x; b = c; } else if (hh < 5) { r = x; b = c; } else { r = c; b = x; }
+  out.r = r + m;
+  out.g = g + m;
+  out.b = b + m;
+  return out;
+}
+
+const _hsv = { h: 0, s: 0, v: 0 };
+const _rgb = { r: 0, g: 0, b: 0 };
+
+/**
+ * Apply the display grade to a baked LUT strip, in place.
+ *
+ * Operates on the cube's *output* values, so it composes after whatever the
+ * named grade did — which is the order an art department works in: grade, then
+ * set the tonal shape and the black point, then hold the result inside the
+ * palette's chroma budget. All four operations live in this one walk because all
+ * four are display-referred functions of colour alone, which is precisely what a
+ * colour cube is for; and because they are baked rather than run as a pass, they
+ * cost nothing per frame and a diagnostic frame (`uGradeAmount = 0`) skips the
+ * lot, exactly as it should.
+ *
+ * The order is load-bearing:
+ *
+ *  1. **Contrast**, on luminance, before anything sets a floor — an S-curve run
+ *     after the lift would pull the toe straight back down and the lift would
+ *     have been for nothing.
+ *  2. **The tinted black point**, which pins white and maps black onto the
+ *     floor colour.
+ *  3. **The grass hue rotation**, which is the only operation here that changes
+ *     which wedge a colour belongs to — so it has to precede the wedges.
+ *  4. **The chroma wedges**, last, so the frame's final chroma ordering is the
+ *     one this file states and not one the contrast curve left behind.
+ */
+function applyDisplayGrade(data) {
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i] / 255;
+    let g = data[i + 1] / 255;
+    let b = data[i + 2] / 255;
+
+    // 1. Filmic contrast. Scaling the triplet by the luminance ratio keeps
+    //    chromaticity exactly, so this is a pure tonal move; a black stays black
+    //    because the guard leaves it alone rather than because of a division.
+    const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    if (y > 1e-4) {
+      const shaped = y + (y * y * (3 - 2 * y) - y) * CONTRAST_S;
+      const k = shaped / y;
+      r *= k;
+      g *= k;
+      b *= k;
+    }
+
+    // 2. The tinted floor.
+    r = SHADOW_FLOOR[0] + r * (1 - SHADOW_FLOOR[0]);
+    g = SHADOW_FLOOR[1] + g * (1 - SHADOW_FLOOR[1]);
+    b = SHADOW_FLOOR[2] + b * (1 - SHADOW_FLOOR[2]);
+
+    toHsv(r, g, b, _hsv);
+    // A neutral has no hue to rotate and no chroma to trim; skipping it also
+    // keeps the cube's grey axis bit-exact, which is what stops a grade drifting
+    // its own white balance every time this runs.
+    if (_hsv.s < 1e-4) {
+      writeLut(data, i, r, g, b);
+      continue;
+    }
+
+    // 3. Grass off mustard. Value and saturation are carried through untouched.
+    const rotation = GRASS_HUE_ROTATION_DEG * hueBand(_hsv.h, GRASS_HUES);
+    if (rotation > 1e-4) {
+      fromHsv(_hsv.h + rotation, _hsv.s, _hsv.v, _rgb);
+      r = _rgb.r;
+      g = _rgb.g;
+      b = _rgb.b;
+      _hsv.h += rotation;
+    }
+
+    // 4. The chroma wedges, evaluated on the rotated hue. They are disjoint, so
+    //    the three mixes compose without a partition; the accent is applied last
+    //    so that if a future edit does overlap them, the accent — the one the
+    //    success criterion names — wins rather than losing silently.
+    const signed = _hsv.h > 180 ? _hsv.h - 360 : _hsv.h;
+    let scale = THREE.MathUtils.lerp(
+      BASE_CHROMA, FOLIAGE_CHROMA, hueBand(_hsv.h, FOLIAGE_HUES),
     );
+    scale = THREE.MathUtils.lerp(scale, SKIN_CHROMA, hueBand(_hsv.h, SKIN_HUES));
+    scale = THREE.MathUtils.lerp(scale, ACCENT_CHROMA, hueBand(signed, ACCENT_HUES));
+
     const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     writeLut(data, i, l + (r - l) * scale, l + (g - l) * scale, l + (b - l) * scale);
   }
@@ -343,14 +509,15 @@ const ABERRATION_IMPACT_SPIKE = 0.004 - ABERRATION_STEADY;
  *    three channels to within three levels. That is a *distance-graded* operator
  *    and a depth-zone constant cannot be one, so it now lives where it belongs —
  *    in the scene's own `FogExp2`, which `Lighting.AERIAL_EXTINCTION_AT_RANGE`
- *    drives to the plate's fraction at the plate's depth. Both far-tier trims
- *    are retired to identity rather than reduced: with the fog carrying the
- *    distance cue our background measures 0.309 saturation against the plate's
- *    0.405 and 0.426 luminance against 0.341, i.e. still paler and flatter than
- *    the target, so an operator whose only two moves are *lift* and *desaturate*
- *    has nothing left to contribute here. The zonal machinery stays — it is a
- *    shared shader and `setValueStructure` is the hook a stylised scene reaches
- *    for — it simply has no work to do on a meadow with real air in it.
+ *    drives to the plate's fraction at the plate's depth. A *positive* far lift
+ *    is gone for good, and so is the far desaturation as a way of faking air.
+ *    What the tier carries now is the same lift operator with its sign reversed,
+ *    which is not the same move: a negative lift *deepens* a background instead
+ *    of washing it, and separating the cast from the meadow is the note still
+ *    outstanding. See `farLift` below for the measurement that asks for it.
+ *    `foreLift` stays at identity, because an operator that was wrong in sign
+ *    has no good setting and the near field's brightness belongs to the key
+ *    raking a sunlit meadow, which `Lighting` now delivers.
  *
  *  - **The subject was over-gained.** 2.1 was solved to lift a party measured at
  *    display 0.314; the party now measures 0.428 against the plate's 0.319.
@@ -359,6 +526,18 @@ const ABERRATION_IMPACT_SPIKE = 0.004 - ABERRATION_STEADY;
  *    difference, which is the right place for it: a shadow side lifted by an
  *    actual sky reads as light, the same shadow side lifted by a depth-keyed
  *    exposure multiplier reads as a matte.
+ *
+ *    It is over-gained again, from the other side. Re-measured on the current
+ *    build the party band comes back at mean display 0.351 against the plate's
+ *    0.307 and the whole frame at median 0.349 against 0.295 — the cast is no
+ *    longer short of the reference, it is past it, and a lift solved against a
+ *    deficit that has since been paid twice over (by `EXPOSURE_CALIBRATION`,
+ *    and by the fill this rig's `Lighting` half delivers) is now just a bright
+ *    band in the middle of the frame. 1.18 keeps a visible step over the meadow
+ *    while landing the band on the plate; the *separation* the gain used to be
+ *    carrying alone is now shared with `farLift`, which pushes the background
+ *    down rather than pushing the cast up, and with a key that finally writes a
+ *    terminator on the cast and a shadow beside it.
  *
  * `dehaze` rises with the fog density: the un-mix is what keeps the party out of
  * the thicker air, and at 9 m the fog it is inverting is only 1.7% to begin with.
@@ -369,14 +548,37 @@ const VALUE_STRUCTURE = {
   minHalfWidth: 1.2,
   featherRatio: 0.35,
   minFeather: 1.6,
-  subjectGain: 1.31,
+  subjectGain: 1.18,
   subjectContrast: 1.08,
   subjectSaturation: 1.18,
   subjectGrain: 0.15,
   dehaze: 0.85,
   foreLift: [0, 0, 0],
-  farLift: [0, 0, 0],
-  farSaturation: 1,
+  // A *negative* lift on the far tier, which is the same operator run backwards
+  // and is the only depth-keyed move left that this frame still needs.
+  //
+  // `lift + e(1 - lift)` pins white at any sign, so a negative value drops the
+  // background's blacks and midtones while leaving its highlights and the sky
+  // where they are — a depth-keyed contrast increase rather than a wash. That is
+  // what the review's "characters do not separate from the meadow" asks for and
+  // it is what the plate does: `bravely01.jpg` runs its party band at 0.319 mean
+  // display against a midground meadow at 0.289, i.e. the cast reads *lighter*
+  // than the field behind it, where ours ran 0.428 against 0.346 with the field
+  // carrying the brighter, more contrasty texture.
+  //
+  // Graded warm-first — red pulled down hardest, blue least — so the operation
+  // also cools as it deepens, which is the direction aerial perspective moves
+  // and the direction the flower bank should be going. It is deliberately small:
+  // the fog already carries the distance cue (see `AERIAL_EXTINCTION_AT_RANGE`)
+  // and this is a separation trim on top of it, not a second atmosphere.
+  farLift: [-0.024, -0.017, -0.007],
+  // The flower bank is the largest saturated area in frame and the second half
+  // of "saturation reserved for accents" is that the *stage* gives some up. Six
+  // percent off the background is under the threshold at which a viewer can name
+  // it and enough that the tulips at subject depth — which take
+  // `subjectSaturation` 1.18 in the same shader — clear it by better than a
+  // quarter.
+  farSaturation: 0.94,
 };
 
 /**
@@ -392,12 +594,23 @@ const VALUE_STRUCTURE = {
  * than fixed because it is the single most expensive line item here — 4x MSAA
  * on a 1080p RGBA16F target is 33 MB of renderbuffer and a full-frame resolve —
  * and because 'low' exists for machines that cannot pay it.
+ *
+ * `dofTaps` comes down at `medium` and `high`. Until the far-field floor was
+ * split from the artistic bokeh scale the gather's `radius < 0.75` early-out
+ * rejected essentially the whole frame on the shipped poses, so the tap count
+ * was free and nobody had to defend it. It is not free now: better than half the
+ * frame is background and every background pixel walks the spiral. Eighteen taps
+ * over the ~5 px half-res radius the floor asks for is a sample every 0.9 px of
+ * arc at the rim of the disc, which is under the point where a golden-angle
+ * spiral starts showing structure on the smooth, low-contrast content the floor
+ * is applied to. `maxCoc` only has to clear the floor itself; the surplus was
+ * headroom for a fast stop that the shipped poses do not use.
  */
 const QUALITY = {
   low: { ao: false, aoSamples: 6, bloomMips: 4, dof: false, dofTaps: 16, motionBlur: false, mbTaps: 4, radialTaps: 8, maxCoc: 8, msaa: 0 },
-  medium: { ao: true, aoSamples: 8, bloomMips: 5, dof: true, dofTaps: 20, motionBlur: true, mbTaps: 5, radialTaps: 10, maxCoc: 11, msaa: 4 },
-  high: { ao: true, aoSamples: 14, bloomMips: 6, dof: true, dofTaps: 28, motionBlur: true, mbTaps: 8, radialTaps: 14, maxCoc: 16, msaa: 4 },
-  ultra: { ao: true, aoSamples: 24, bloomMips: 7, dof: true, dofTaps: 40, motionBlur: true, mbTaps: 12, radialTaps: 18, maxCoc: 22, msaa: 8 },
+  medium: { ao: true, aoSamples: 8, bloomMips: 5, dof: true, dofTaps: 14, motionBlur: true, mbTaps: 5, radialTaps: 10, maxCoc: 12, msaa: 4 },
+  high: { ao: true, aoSamples: 14, bloomMips: 6, dof: true, dofTaps: 18, motionBlur: true, mbTaps: 8, radialTaps: 14, maxCoc: 14, msaa: 4 },
+  ultra: { ao: true, aoSamples: 24, bloomMips: 7, dof: true, dofTaps: 32, motionBlur: true, mbTaps: 12, radialTaps: 18, maxCoc: 22, msaa: 8 },
 };
 
 /**
@@ -405,25 +618,47 @@ const QUALITY = {
  * of depth doublings past the focal plane over which it ramps in. Consumed by
  * `dofShader.js`'s far-field floor — the operator is documented there.
  *
- * 0.0085 is 9.2 px at 1080p. Expressed against frame height rather than in
- * pixels so the softness of the background is the same *picture* at 720p as at
- * 4K, which is the same reason `uMmToPixels` is derived from the sensor height
- * rather than hard-coded.
+ * **This is atmosphere, not a lens, and it no longer rides `bokehScale`.** That
+ * coupling is the single reason our shipped frame has no depth in it. The far
+ * floor was multiplied by the artistic bokeh scale, `CAMERA_POSES.battle` sets
+ * `bokeh: 0` on the argument that the plate is sharp front to back, and the two
+ * together produced a frame that is provably sharper in the background than in
+ * the subject. Measured: Laplacian variance over `bravely01.jpg`'s far rock and
+ * tree band is 0.0046 against 0.0122 on its party — the background carries 37%
+ * of the subject's detail. Ours came back 0.0130 against 0.0118, i.e. **110%**.
+ * Zooming both to pixels settles it: the plate's lavender spikes directly behind
+ * Adelle are diffuse, its tulips have no hard edge and its tree trunk is a soft
+ * mass, while ours resolves individual aliased blades at the same depth. The
+ * plate is sharp *at the cast*; it is not sharp behind them.
  *
- * 3 octaves means the floor is fully in once the background is 8x further away
- * than the subject, and — the number that actually matters — still under one
- * pixel out to 1.42x the focal distance. The battle staging puts the party
- * across 3.3-8.4 m on a 6.2 m plane and the enemy at 8.6 m, so every actor in
- * the frame sits inside that sharp core while the treeline at 30 m+ does not.
+ * So the physical CoC keeps riding the aperture and the artistic scale — a scene
+ * closing down to f/22 with `bokeh: 0` still gets no near-field bokeh, no
+ * highlight discs and no softening of anything at subject depth — and the
+ * far-field floor becomes a property of the *air*, owned here and adjustable
+ * through `setBackgroundDefocus` for the one case that genuinely wants a sharp
+ * horizon (a flat menu backdrop, the world-map diorama).
+ *
+ * 0.0095 is 10.3 px at 1080p, and it is a gather radius rather than a Gaussian
+ * sigma — at that reach the plate's own background detail ratio comes out inside
+ * a few percent. Expressed against frame height rather than in pixels so the
+ * softness of the background is the same *picture* at 720p as at 4K, which is
+ * the same reason `uMmToPixels` is derived from the sensor height.
+ *
+ * 3.3 octaves is where the ramp is solved rather than chosen. The battle staging
+ * puts the party across 3.3-8.4 m on a ~5 m focal plane with the enemy at 8.6 m,
+ * and the requirement is that the far blur has not begun until roughly 8 m
+ * behind the cast. At 3.3 octaves the floor contributes 1.4 px at the enemy's
+ * depth — under the composite's 0.75-3 px blend ramp, so the enemy stays
+ * effectively sharp — reaches the full-blur threshold by 13 m, and saturates on
+ * the boulder wall and treeline past 25 m. Two octaves would have softened the
+ * rear rank; four would have left the flower bank crisp.
  */
-const DOF_FAR_FLOOR_FRACTION = 0.0085;
-const DOF_FAR_OCTAVES = 3.0;
+const DOF_FAR_FLOOR_FRACTION = 0.0095;
+const DOF_FAR_OCTAVES = 3.3;
 
 /**
- * The artistic CoC multiplier the floor is authored against. The floor scales
- * with whatever `setDof` is handed, so `setDof(d, f, 0)` still means "deep
- * focus, nothing softened" — a scene that genuinely wants a sharp stage (a menu
- * backdrop, the world-map diorama) keeps that option without editing PostFX.
+ * The artistic CoC multiplier the *physical* term is authored against. Only the
+ * thin-lens half of the CoC scales with it now; see `DOF_FAR_FLOOR_FRACTION`.
  */
 const DEFAULT_BOKEH_SCALE = 4.0;
 
@@ -799,7 +1034,7 @@ class DofPass extends Pass {
       // genuinely soft horizon. These two break that ceiling without touching
       // the depth of field around the subject; the operator and the reason a
       // plain scalar multiplier cannot do it live in dofShader.js.
-      uFarFloor: { value: 9.2 },
+      uFarFloor: { value: 10.3 },
       uFarOctaves: { value: DOF_FAR_OCTAVES },
     };
 
@@ -852,8 +1087,11 @@ class DofPass extends Pass {
     this._farFloorPx = Math.max(1, height) * DOF_FAR_FLOOR_FRACTION;
   }
 
-  /** Called once a frame by PostFX with the live camera. */
-  syncCamera(camera, focusDistance, fNumber, bokehScale) {
+  /** Called once a frame by PostFX with the live camera.
+   *  @param {number} backgroundDefocus fraction of frame height the far-field
+   *    floor may reach. Independent of `bokehScale` — see
+   *    `DOF_FAR_FLOOR_FRACTION` for why the two were split. */
+  syncCamera(camera, focusDistance, fNumber, bokehScale, backgroundDefocus) {
     const fovRad = THREE.MathUtils.degToRad(camera.fov);
     const focal = (SENSOR_HEIGHT_MM * 0.5) / Math.tan(fovRad * 0.5);
     this.coc.uFocalLength.value = focal;
@@ -862,13 +1100,13 @@ class DofPass extends Pass {
     this.coc.uMmToPixels.value = (this._pixelsPerMm ?? 45) * bokehScale;
     this.coc.uNear.value = camera.near;
     this.coc.uFar.value = camera.far;
-    // The floor rides the same artistic multiplier as the physical CoC — see
-    // DEFAULT_BOKEH_SCALE — and is capped at the radius the gather is actually
-    // budgeted to walk, because a floor the composite can see but the gather
-    // cannot produce would show up as a hard blur ceiling rather than as depth.
+    // Capped at the radius the gather is actually budgeted to walk, because a
+    // floor the composite can see but the gather cannot produce would show up as
+    // a hard blur ceiling rather than as depth. Deliberately *not* scaled by
+    // `bokehScale` — see DOF_FAR_FLOOR_FRACTION.
     this.coc.uFarFloor.value = Math.min(
       this.coc.uMaxCoc.value,
-      (this._farFloorPx ?? 9.2) * (bokehScale / DEFAULT_BOKEH_SCALE),
+      Math.max(0, this._farFloorPx ?? 10.3) * backgroundDefocus,
     );
   }
 
@@ -1133,6 +1371,11 @@ export class PostFX {
     this._focusGoal = 9;
     this._fNumber = 4.0;
     this._bokehScale = DEFAULT_BOKEH_SCALE;
+    /** Scale on the far-field defocus floor, 0..1. Separate from `_bokehScale`
+     *  because the two answer different questions; see `DOF_FAR_FLOOR_FRACTION`.
+     *  Defaults to full because a fully-sharp frame is wrong for every shot this
+     *  build composes, and a scene that wants one has to say so. */
+    this._backgroundDefocus = 1;
 
     /** Live copy of the value-structure defaults; `setValueStructure` mutates
      *  this and re-syncs, so a scene can widen the band for a group shot
@@ -1205,7 +1448,7 @@ export class PostFX {
   _bakeLut(texture, params) {
     bakeGradeStrip(params, LUT_SIZE, texture.image.data);
     // After the named grade, never before it: see `BASE_CHROMA`.
-    applyChromaDiscipline(texture.image.data);
+    applyDisplayGrade(texture.image.data);
     texture.needsUpdate = true;
   }
 
@@ -1324,6 +1567,22 @@ export class PostFX {
     this._focusGoal = Math.max(0.2, focusDistance);
     this._fNumber = Math.max(0.7, aperture);
     this._bokehScale = Math.max(0, bokehScale);
+  }
+
+  /**
+   * Scale the guaranteed background defocus, independently of the lens.
+   *
+   * `setDof(d, f, 0)` used to be the off switch for both the physical CoC and
+   * the far-field floor, which conflated "this shot wants no bokeh" with "this
+   * shot wants a sharp horizon" — and every framing in the build wants the
+   * first and none of them wants the second. They are separate now, and this is
+   * the second one: 1 is the authored atmosphere, 0 a genuinely sharp
+   * background for a flat backdrop or a diorama.
+   *
+   * @param {number} amount 0..1 scale on `DOF_FAR_FLOOR_FRACTION`.
+   */
+  setBackgroundDefocus(amount = 1) {
+    this._backgroundDefocus = Math.min(1, Math.max(0, amount));
   }
 
   /**
@@ -1778,7 +2037,14 @@ export class PostFX {
     this.aoPass.aoUniforms.uFar.value = camera.far;
 
     if (perspective) {
-      this.dofPass.syncCamera(camera, this._focusDistance, this._fNumber, this._bokehScale);
+      this.dofPass.syncCamera(
+        camera, this._focusDistance, this._fNumber, this._bokehScale,
+        // A diagnostic frame is judged on a silhouette against a flat matte, and
+        // a flat field blurs to itself — but the matte swap is not guaranteed
+        // (see the enable comment below), so the floor is stood down rather than
+        // relied on to be an identity.
+        diag ? 0 : this._backgroundDefocus,
+      );
     }
 
     this._viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);

@@ -83,15 +83,26 @@
  * same finding ("no hard terminator and no outline … there is no terminator
  * anywhere on this face"). The face and the body now agree.
  *
- * **No noise touches a character.** The presets that describe character surfaces
- * carry `flat: true`, and a flat preset drops incoming `normalMap` /
- * `roughnessMap` / `aoMap` — in this project those come from `AssetForge`'s fBm
- * generators, and on a character they read as dirt. Props and monsters
- * (`generic`, `leather`, `crystal`) keep theirs, and any caller that genuinely
- * wants detail on a flat class can pass `{ detailMaps: true }`. A base colour
- * `map` is **never** dropped — the painted face texture and the garment system's
- * woven patterns both arrive that way, and nothing in this material multiplies
- * anything into it.
+ * **No noise touches a character — and that is a narrower claim than "no maps".**
+ * The presets that describe character surfaces carry `flat: true`, and a flat
+ * preset drops incoming `normalMap` / `roughnessMap` / `aoMap`: in this project
+ * those come from `AssetForge`'s fBm generators, and on a character they read as
+ * dirt. Props and monsters (`generic`, `leather`, `crystal`) keep theirs, and a
+ * caller with a genuine reason passes `{ detailMaps: true }`.
+ *
+ * What the rule does *not* forbid, and what the plates put on nearly every
+ * figure they contain, is **hand-painted** detail: Gloria's printed plaid,
+ * Elvis's rose damask, the mottled worn albedo on Seth's plate. Ours carried one
+ * flat vertex colour per zone, which is what the review calls "felt-doll
+ * costumes". So this module now paints its own — canvases built out of stripes,
+ * lattices, rosettes and strokes, with no noise function anywhere in them —
+ * and multiplies them into the albedo through a channel of their own
+ * (`opts.detail`, `awToonDetail`). See the detail-map section for the evidence
+ * and the encoding.
+ *
+ * A base colour `map` is **never** dropped — the painted face texture and the
+ * garment system's woven patterns both arrive that way — and a piece that
+ * carries one is given the quiet woven ground rather than a second motif.
  *
  * ## Mechanically
  *
@@ -109,8 +120,10 @@
  *   updateToonUniforms(material, { time, rimColor, ... }) -> material
  *   createToonOutlineMaterial({ width, ... })             -> THREE.MeshBasicMaterial
  *   createToonOutline(sourceMesh, { material })           -> THREE.Mesh | THREE.SkinnedMesh
+ *   toonDetailTexture(style)                              -> THREE.CanvasTexture
+ *   disposeToonDetailMaps()
  *
- * The last two are **adapters over `render/Outline.js`**, which owns the one
+ * The middle two are **adapters over `render/Outline.js`**, which owns the one
  * inverted-hull implementation in the project. They exist so callers that hold
  * this module's spelling keep working; new code should call `Outline.js`
  * directly.
@@ -356,8 +369,8 @@ function paintTwill(ctx, contrast) {
  * The band widths sum to exactly 256 so the sequence wraps.
  */
 const PLAID_BANDS = Object.freeze([
-  [34, [-40, -48, -26]], [10, [40, 22, -8]], [52, [0, 0, 0]], [8, [48, -8, 4]],
-  [40, [-26, -18, 0]], [14, [22, 16, -18]], [98, [0, 0, 0]],
+  [34, [-54, -62, -34]], [10, [56, 32, -10]], [52, [0, 0, 0]], [8, [62, -12, 6]],
+  [40, [-36, -24, 2]], [14, [34, 24, -26]], [98, [0, 0, 0]],
 ]);
 
 function paintPlaid(ctx) {
@@ -395,7 +408,7 @@ function paintDamask(ctx) {
 
   const cell = 64;
   const rosette = (c) => {
-    c.strokeStyle = detailTint(-30, -34, -22);
+    c.strokeStyle = detailTint(-44, -50, -32);
     c.lineWidth = 3;
     for (let k = 0; k < 4; k++) {
       c.save();
@@ -405,7 +418,7 @@ function paintDamask(ctx) {
       c.stroke();
       c.restore();
     }
-    c.fillStyle = detailTint(26, 20, 6);
+    c.fillStyle = detailTint(38, 30, 10);
     c.beginPath();
     c.arc(0, 0, 3.2, 0, Math.PI * 2);
     c.fill();
@@ -413,7 +426,7 @@ function paintDamask(ctx) {
 
   // The lattice: a diagonal grid through the node centres, drawn before the
   // rosettes so the flowers sit on top of the stems rather than under them.
-  ctx.strokeStyle = detailGrey(-16);
+  ctx.strokeStyle = detailGrey(-24);
   ctx.lineWidth = 2;
   for (let i = -DETAIL_SIZE; i < DETAIL_SIZE * 2; i += cell) {
     ctx.beginPath();
@@ -450,26 +463,26 @@ function paintSprig(ctx) {
   const cell = 64;
   const sprig = (angle) => (c) => {
     c.rotate(angle);
-    c.strokeStyle = detailTint(-22, -12, -26);
+    c.strokeStyle = detailTint(-32, -18, -38);
     c.lineWidth = 2;
     c.beginPath();
     c.moveTo(0, 12);
     c.lineTo(0, -6);
     c.stroke();
-    c.fillStyle = detailTint(34, -14, -4);
+    c.fillStyle = detailTint(48, -20, -6);
     for (let k = 0; k < 5; k++) {
       const a = (k * Math.PI * 2) / 5;
       c.beginPath();
       c.arc(Math.cos(a) * 6, Math.sin(a) * 6 - 8, 4.2, 0, Math.PI * 2);
       c.fill();
     }
-    c.fillStyle = detailTint(30, 24, -18);
+    c.fillStyle = detailTint(44, 34, -26);
     c.beginPath();
     c.arc(0, -8, 3, 0, Math.PI * 2);
     c.fill();
     // Two leaves, so the motif has a direction and the grid stops reading as a
     // grid the moment the jitter rotates it.
-    c.fillStyle = detailTint(-18, 6, -22);
+    c.fillStyle = detailTint(-26, 10, -32);
     for (const side of [-1, 1]) {
       c.beginPath();
       c.ellipse(side * 6, 6, 6, 2.6, side * 0.6, 0, Math.PI * 2);
@@ -641,6 +654,20 @@ export function disposeToonDetailMaps() {
  * `SHADOW_TINT`.
  */
 const SKIN_SHADOW_TINT = 0xe0a98f;
+
+/**
+ * The hair shadow's hue target.
+ *
+ * Hair is the second surface whose shadow stays warm, and the plates are
+ * unambiguous about it: the darkest eighth of Seth's hair mass on
+ * `bravely01.jpg` reads channel ratios 1.00 / 0.40 / 0.48 against its own peak
+ * and the ninja's on `bravely05.jpg` reads 1.00 / 0.47 / 0.81 — red-dominant in
+ * both, a deep warm brown that is the hair's own colour taken down and enriched
+ * rather than rotated to another hue. `0xB3564F` is 1.00 / 0.48 / 0.44, which
+ * sits on that measurement, and the hair preset spends only 0.18 of the distance
+ * to it so the rotation warms rather than replaces.
+ */
+const HAIR_SHADOW_TINT = 0xb3564f;
 
 /**
  * The face clamp: the face's dark level, as a fraction of its lit level. The
@@ -1066,7 +1093,30 @@ export const TOON_PRESETS = Object.freeze({
     // the top-plane lift is a readable eighth of a stop, and at 1.18 it was
     // stacking on top of the arc and putting the crown itself into the clip.
     highBand: 0.72, highGain: 1.10,
-    shadowMix: 0.42, shadowSat: 1.28, shadowValue: 0.88,
+    // **Hair keeps a warm shadow, like skin and unlike everything else**, and
+    // this is a correction rather than a preference. Taking the darkest eighth
+    // of a hair mass and reading its channel ratios against its own peak:
+    //
+    // | source | dark r/g/b | light r/g/b |
+    // |---|---|---|
+    // | `bravely01.jpg`, Seth | 1.00 / 0.40 / 0.48 | 1.00 / 0.77 / 0.85 |
+    // | `bravely05.jpg`, the ninja | 1.00 / 0.47 / 0.81 | 1.00 / 0.84 / 0.85 |
+    // | ours, before | **0.18 / 0.49 / 1.00** | 1.00 / 0.74 / 0.57 |
+    //
+    // The plates' hair shadow is red-dominant — a deep warm brown that is the
+    // hair's own colour taken down and enriched. Ours was blue-dominant: the
+    // channel order was literally reversed, because `shadowMix: 0.42` toward the
+    // scene's teal `SHADOW_TINT` is more rotation than a brown albedo has hue to
+    // spare, and the saturation lift then pushed it the rest of the way. On the
+    // closeup that reads as navy blocks punched through the crown, which is the
+    // single loudest wrong note the hair had.
+    //
+    // `HAIR_SHADOW_TINT` at ratios 1.00 / 0.48 / 0.44 lands on the plate's, and
+    // the mix comes down to 0.18 so the rotation is a warming rather than a
+    // replacement. The saturation lift comes down with it: at 1.28 it was doing
+    // half the damage on its own.
+    shadowTint: HAIR_SHADOW_TINT,
+    shadowMix: 0.18, shadowSat: 1.15, shadowValue: 0.88,
     shadowLevel: 0.22, shadowGain: 1.0, shadowLift: 0.12, shadowFloor: 0.0,
     shadowDepth: 0.26,
     // Lowered from 0.85. Our hair mass measured p2 69 / p50 174 / p75 237 sRGB
@@ -1130,14 +1180,20 @@ export const TOON_PRESETS = Object.freeze({
     // over `specThreshold: 0.50` gives it a drawn inner and outer edge with a
     // flat interior: **one bright ribbon**, not a gradient.
     //
-    // `specAlbedoMix: 0.62` keeps the band the hair's own colour lightened
+    // `specAlbedoMix: 0.48` keeps the band the hair's own colour lightened
     // rather than a white streak, and `specRelMax: 0.75` lets it reach 1.75× the
     // mass it sits on — measured on Elvis's swept-back mass, whose band runs
     // about 1.7× the median of the mass around it. `specSum: 0.88` is the bound
     // that keeps it off the clip point: mark plus surface lands near 222 sRGB
     // after ACES, against the plate's brightest hair fragment at 225.
+    //
+    // 0.48 rather than 0.62 because the band's *hue* was measurably off, in the
+    // same reading that caught the shadow: the plate's brightest hair runs
+    // 1.00 / 0.77 / 0.85 and ours ran 1.00 / 0.74 / 0.57, i.e. a full third
+    // short of blue. A pass over hair is light catching the strand, so it keeps
+    // more of the light's colour and less of the fibre's than the mix implied.
     specColor: SURFACE_TINT.SILK_SPEC, specGain: 0.95, specExponent: 96,
-    specThreshold: 0.50, specSoftness: 0.06, specAlbedoMix: 0.62,
+    specThreshold: 0.50, specSoftness: 0.06, specAlbedoMix: 0.48,
     specCeiling: 0.95, specRelMax: 0.75, specSum: 0.88,
     // 0.28 rather than 0.18: the shift slides the band off the geometric centre
     // of the mass and up toward the crown, which is where every plate puts it.
@@ -1196,7 +1252,7 @@ export const TOON_PRESETS = Object.freeze({
     // shows, a boundary you can point at but not trace.
     terminator: 0.20, softness: 0.08, rampGamma: 1.00, edgePixels: DEFAULT_EDGE_PIXELS,
     clothFresnel: 0.05,
-    detail: 'auto', detailScale: 9.0, detailStrength: 0.60,
+    detail: 'auto', detailScale: 9.0, detailStrength: 1.00,
     shadowMix: 0.42, shadowSat: 1.30, shadowValue: 0.88,
     shadowLevel: 0.24, shadowGain: 1.0, shadowLift: 0.14, shadowFloor: 0.0,
     // The dark side of a garment is a mass and has to be dark enough to anchor
@@ -1408,7 +1464,7 @@ export const TOON_PRESETS = Object.freeze({
     // that variation survives into his shadow side, where a lighting term could
     // not put it. Tighter scale than cloth: weathering on armour is a smaller
     // feature than a print on a skirt.
-    detail: 'wear', detailScale: 14.0, detailStrength: 0.45,
+    detail: 'wear', detailScale: 14.0, detailStrength: 0.70,
     rimPower: 3.6, rimGain: CHARACTER_RIM_GAIN.metal, rimFloor: 0.30,
     rimWidth: 0.38, rimCeiling: 1.90, rimMax: 0.10, rimTint: 0.30,
     // The one character class that keeps its environment reflection, because on
@@ -1640,8 +1696,31 @@ const DETAIL_MAP_KEYS = Object.freeze(['normalMap', 'roughnessMap', 'aoMap', 'bu
  * @param {THREE.Texture} [opts.map] base colour map — the painted face texture,
  *   or a garment pattern. Never dropped, and nothing in this material multiplies
  *   anything into it.
- * @param {boolean} [opts.detailMaps] force detail maps on a `flat` preset. They
- *   are dropped by default on every character class.
+ * @param {boolean} [opts.detailMaps] force three's `normalMap` / `roughnessMap` /
+ *   `aoMap` slots on a `flat` preset. They are dropped by default on every
+ *   character class because in this project they are fBm. Unrelated to `detail`.
+ * @param {string|false} [opts.detail] the **hand-painted** albedo multiply: a
+ *   style key (`'twill'`, `'plaid'`, `'damask'`, `'sprig'`, `'wear'`), `'auto'`
+ *   to hash a cloth print from the material's name, or `false` to opt out.
+ *   Defaults from the preset — `'auto'` on cloth, `'wear'` on metal. Authored
+ *   canvases only; no procedural noise reaches a character through this or any
+ *   other channel.
+ * @param {number} [opts.detailScale] cycles of the print per metre of object
+ *   space. 9 puts a cloth motif at roughly 11 cm.
+ * @param {number} [opts.detailStrength] 0–2, the print's contrast about neutral.
+ *   0 is the identity and 1 is the canvas as drawn; past 1 the multiply's range
+ *   widens, which is what a very dark garment needs — see `awToonDetail`.
+ * @param {number} [opts.clothFresnel] the fold turn, spent as a multiply on the
+ *   surface's own radiance. 0.05 on cloth, 0 everywhere else.
+ * @param {number} [opts.cavityDepth] / [opts.cavityWidth] metal's darkened
+ *   recess where the surface grazes the key.
+ * @param {number} [opts.edgeWear] / [opts.wearColor] metal's light rubbed rim
+ *   along a rolled edge.
+ * @param {Object} [opts.creaseLine] overrides for the interior ink line,
+ *   forwarded to `Outline.creaseInk`. Spelled in full rather than `crease`
+ *   because `Garments.RECIPES` already carries a per-recipe `crease` meaning a
+ *   geometry smoothing angle, and one of those two names reaching the wrong
+ *   module would be silent. The line is compiled onto character classes only.
  * @param {number} [opts.terminator] the form ramp's midpoint, in N·L. 0.10–0.18
  *   on the character classes.
  * @param {number} [opts.softness] the band's **half-width**, in N·L. 0.05–0.14 on
@@ -1773,7 +1852,17 @@ export function createToonMaterial(opts = {}) {
   // garment and every worn pauldron they contain. `detail: false` opts a piece
   // out; `'auto'` picks a cloth print from the material's own name.
   const materialName = opts.name ?? `toon:${presetName}`;
-  const detailStyle = resolveDetailStyle(opts.detail ?? p.detail ?? null, materialName);
+  // A piece that already arrived with a base colour map is a piece the garment
+  // system has *already* printed — `Garments.patternTexture` draws checks,
+  // damasks and embroidered hems into the albedo. Stacking a second motif on top
+  // of one of those reads as a printing error rather than as fabric, so `'auto'`
+  // falls back to the woven ground there and the authored print stays the only
+  // pattern on the piece.
+  const detailStyle = resolveDetailStyle(
+    opts.detail ?? p.detail ?? null,
+    materialName,
+    !!opts.map,
+  );
   const detailMap = detailStyle ? toonDetailTexture(detailStyle) : null;
 
   // `faceFlatten` is the readable spelling of the face clamp, and it acts on the
@@ -1804,7 +1893,7 @@ export function createToonMaterial(opts = {}) {
   // not fit the capture budget. Character classes only — the meadow is shaded
   // through `generic`, and inking every blade of grass is both wrong and the
   // most expensive thing this material could do.
-  const crease = flat ? creaseInk(opts.crease) : { enabled: false };
+  const crease = flat ? creaseInk(opts.creaseLine) : { enabled: false };
 
   const material = new THREE.MeshStandardMaterial({
     name: materialName,
@@ -2017,7 +2106,9 @@ export function createToonMaterial(opts = {}) {
   // the surface is a candidate. See `RE_IndirectDiffuse_Toon`.
   if (flat) material.defines.TOON_FLAT_AMBIENT = '';
 
-  material.userData.toon = { kind: 'surface', uniforms, levels, shared, preset: presetName };
+  material.userData.toon = {
+    kind: 'surface', uniforms, levels, shared, preset: presetName, detail: detailStyle,
+  };
   material.userData.isToonMaterial = true;
 
   material.onBeforeCompile = (shader) => {
@@ -2084,11 +2175,14 @@ export function createToonMaterial(opts = {}) {
  *
  * @param {string|false|null} spec a style key, `'auto'`, or a falsy value.
  * @param {string} name the material's name, the hash's only input.
+ * @param {boolean} printed the piece already carries an authored albedo map, so
+ *   `'auto'` resolves to the woven ground rather than a second motif.
  * @returns {string|null}
  */
-function resolveDetailStyle(spec, name) {
+function resolveDetailStyle(spec, name, printed) {
   if (!spec) return null;
   if (spec !== 'auto') return DETAIL_PAINTERS[spec] ? spec : null;
+  if (printed) return 'twill';
   return CLOTH_DETAIL_STYLES[hashName(name) % CLOTH_DETAIL_STYLES.length];
 }
 

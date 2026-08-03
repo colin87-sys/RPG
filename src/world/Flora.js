@@ -75,12 +75,16 @@
  *
  * Everything that repeats is one `InstancedMesh`, so a full meadow is single
  * digits of draw calls per species: grass 1, ground cover 1, seed grass 1,
- * lavender 2 (spikes + basal leaves), tulips 2 (stems + heads), blossom tree 2
- * (branches + blossom clusters), broadleaf 2 or 3 (bark + canopy lobes, plus a
- * leaf fringe on a hero tree only), conifers 2, boulders 2 (merged cluster +
- * instanced chips), flower patch 2. Density falls off from the scatter centre
- * with `falloff`, and blade size rises with radius so coverage holds while the
- * count drops.
+ * lavender 2 (spikes + basal leaves), tulips 2 (stems + heads), blossom tree 3
+ * (branches + blossom puffs + petal fringe), broadleaf 2 or 3 (bark + canopy
+ * clumps, plus a leaf fringe on a hero tree only), conifers 2, boulders 2
+ * (merged cluster + instanced chips), flower patch 2. Density falls off from the
+ * scatter centre with `falloff`, and blade size rises with radius so coverage
+ * holds while the count drops.
+ *
+ * A `gaps` term on the scatter empties a share of every drift in coherent voids
+ * rather than thinning it evenly, because a bed you cannot see through is a
+ * curtain at any density — see {@link scatter}.
  *
  * **A species is not a preset.** The five that share `bladeGeometry` do not
  * share a *read*: grass is a silhouette against the sky, ground cover is a plan
@@ -155,6 +159,16 @@ export const FLORA_PALETTE = Object.freeze({
   /** Tulip reds, masked r>110 & r>g+55 & r>b+55: p10 #7b1404, p90 #b25439. */
   TULIP_RED: 0xc0402c,
   TULIP_RED_DEEP: 0x8a2410,
+  /**
+   * The third tulip in the plate's bed, and the one ours had never built.
+   *
+   * Zoom `bravely01.jpg` between the archer and the caster (x 1240–1500,
+   * y 250–420) and the flowers there are neither of the two colours above: they
+   * sit at hue 22° against the reds' 8°, half a stop brighter, and there are
+   * roughly as many of them as there are reds. A bed with two flower colours
+   * reads as two species planted in rows; three is what reads as a meadow.
+   */
+  TULIP_ORANGE: 0xdc7326,
   /** Tulip whites, masked r,g,b > 170/165/150: p50 #b3c4b1 — green-cast, not paper. */
   TULIP_WHITE: 0xeceee0,
   /** Neutral-warm, deliberately *not* the green throat the plate's whites show:
@@ -170,6 +184,24 @@ export const FLORA_PALETTE = Object.freeze({
   /** The bloom's warm centre, as a *value* ramp toward white — the pink is the
    *  instance colour, so this end has to stay near neutral. */
   BLOSSOM_HEART: 0xf3e4c8,
+  /**
+   * The **shaded floor of a blossom bunch**, and the other end of that ramp.
+   *
+   * Near-neutral for exactly the reason `BLOSSOM_HEART` is, and the first pass
+   * at the puff canopy proved why the rule exists by breaking it: the puffs were
+   * ramped `BLOSSOM_DEEP` → `BLOSSOM_PALE` in the vertex colour and then given a
+   * *pink* instance colour on top, so the canopy shipped as pink × pink. Two
+   * saturated pinks multiplied is a magenta half again outside the measured
+   * p10–p90 band, and the capture came back with the cherry as a flat magenta
+   * plate — the same trap this module's header records for two greens giving a
+   * black lawn, on the one prop where it is most visible.
+   *
+   * So the puff's own ramp is a *value* statement — where the sun reaches a
+   * bunch and where it does not — and every gram of hue arrives per instance.
+   * Warm rather than grey, because the shaded side of a blossom cluster is lit
+   * by light that has already passed through petals.
+   */
+  BLOSSOM_SHADE: 0x8a7770,
   /** Cherry bark reads a dark maroon-brown wherever it shows through the canopy. */
   BARK_DARK: 0x3d2a36,
   BARK_LIT: 0x6a4a58,
@@ -217,6 +249,21 @@ export const FLORA_PALETTE = Object.freeze({
    */
   COVER_ROOT: 0x24400f,
   COVER_TIP: 0x6f8c34,
+
+  /**
+   * Moss on the weathered top of a boulder.
+   *
+   * The plate's rocks are not clean slate. Every up-facing plane in its massif
+   * carries a green wash where the meadow has crept onto it — measured over the
+   * wall's crown (x 560–900, y 60–150) the up-faces run hue 96° at saturation
+   * 0.31 against the cleaved sides' 218° at 0.24, i.e. the top of a rock is a
+   * *different hue family* from its face, not a lighter version of it. That one
+   * relationship is most of what separates a painted rock from a grey polygon,
+   * and it is applied as a gradient rather than as a coat so the crown reads as
+   * having been rained on rather than dipped.
+   */
+  MOSS_LIT: 0x7f8c46,
+  MOSS_DEEP: 0x44532a,
 
   /** The small wildflowers dotted through the bed — instance colours. */
   PETAL_WHITE: 0xf0efe2,
@@ -561,6 +608,248 @@ function mixLin(a, b, t) {
   return lin(a).lerp(lin(b), t);
 }
 
+const _hsl = { h: 0, s: 0, l: 0 };
+const _rotated = new THREE.Color();
+
+/**
+ * Per-instance **hue** jitter, written as an instance-colour multiplier.
+ *
+ * Instance colour multiplies the vertex albedo, so it can only ever scale
+ * channels — there is no hue control on an `InstancedMesh`. What there is, and
+ * what this exploits, is that a *specific* albedo rotated a few degrees around
+ * the wheel differs from the original by a fixed per-channel ratio, and that
+ * ratio is a multiplier. Hand it the ramp colour the species actually reads at
+ * (a blade's mid-green, a raceme's `LAVENDER_MID`) and the whole instance
+ * rotates with it; the rest of the ramp rotates approximately, which at ±6° is
+ * well under the quantisation of the frame.
+ *
+ * This replaces the per-channel wiggle every builder in this module used to
+ * carry. Those wiggles were *value* noise wearing a hue's clothes: multiplying
+ * red by 1.02 and blue by 0.94 on a green blade moves its hue by under a degree
+ * while moving its luminance by 3%, so a field dressed that way varies in
+ * brightness — which is exactly the salt-and-pepper the grass builder spent a
+ * round removing — and never in colour. The plate's meadow does the opposite: a
+ * masked run across its lawn holds luminance to ±8% and spreads hue over 14°.
+ *
+ * @param {THREE.Color} out written in place and returned.
+ * @param {THREE.Color} reference the albedo this instance's colour is solved for.
+ * @param {number} degrees signed hue rotation.
+ * @param {number} [value=1] level multiplier, applied after the rotation.
+ */
+function hueTint(out, reference, degrees, value = 1) {
+  reference.getHSL(_hsl);
+  _rotated.setHSL((_hsl.h + degrees / 360 + 1) % 1, _hsl.s, _hsl.l);
+  // Clamped to ±40% of the level. A reference whose weakest channel is near zero
+  // — a saturated primary — would otherwise produce an unbounded ratio on that
+  // channel and a single instance would come back fluorescent. The rotations
+  // this is asked for are ±6°, which never approaches the clamp on any albedo in
+  // `FLORA_PALETTE`; the clamp is here so that a future caller handing it a
+  // primary gets a muted instance rather than a hole in the frame.
+  const ratio = (a, b) => value * Math.min(1.4, Math.max(0.6, a / Math.max(1e-4, b)));
+  out.setRGB(
+    ratio(_rotated.r, reference.r),
+    ratio(_rotated.g, reference.g),
+    ratio(_rotated.b, reference.b),
+  );
+  return out;
+}
+
+/**
+ * A rounded, irregular shell — the module's one *mass* primitive.
+ *
+ * Three things in the plate are built from overlapping soft lumps and nothing
+ * else: a broadleaf crown, a cherry's blossom bunches, and the mossy shoulder of
+ * a boulder. All three fail the same way when they are built from one smooth
+ * ball — the silhouette comes back as an arc of a circle, which is the single
+ * most reliable tell of a generated tree — and all three succeed when the mass
+ * is *several* of these, overlapping, with darker ones underneath.
+ *
+ * Deformation is sampled from the vertex's own unit direction rather than from
+ * the RNG, so the sphere's duplicated seam and pole vertices agree and the
+ * surface stays closed; the RNG supplies only the three phases, which is what
+ * makes every clump on a tree a different shape for one geometry's worth of
+ * authoring.
+ *
+ * Indexed and smooth-normalled on purpose. An `IcosahedronGeometry` at the same
+ * triangle count is non-indexed and comes back faceted — a low-poly ball, which
+ * is the thing this primitive exists to stop being.
+ *
+ * @param {Object} o
+ * @param {Object} o.rng deterministic source, for the three phases.
+ * @param {number} [o.widthSegments=6] / @param {number} [o.heightSegments=4]
+ * @param {number} [o.lumps=0.24] radial deformation amplitude.
+ * @param {number} [o.squash=0.86] vertical flattening — a leaf clump is wider
+ *   than it is deep, and a perfectly round one reads as a bubble.
+ * @param {number|THREE.Color} o.underColor colour at the clump's shaded floor.
+ * @param {number|THREE.Color} o.overColor colour at its sky-lit crown.
+ * @param {number} [o.rampBias=1.0] exponent on the vertical ramp; above 1 keeps
+ *   more of the clump in its own shade, which is what a canopy actually does.
+ */
+function clumpGeometry(o) {
+  const {
+    rng, widthSegments = 6, heightSegments = 4,
+    lumps = 0.24, squash = 0.86, underColor, overColor, rampBias = 1.0,
+  } = o;
+  const geo = new THREE.SphereGeometry(1, widthSegments, heightSegments);
+  const pos = geo.getAttribute('position');
+  const pa = rng.range(0, Math.PI * 2);
+  const pb = rng.range(0, Math.PI * 2);
+  const pc = rng.range(0, Math.PI * 2);
+  const under = lin(underColor);
+  const over = lin(overColor);
+  const c = new THREE.Color();
+  const cols = new Float32Array(pos.count * 3);
+  for (let v = 0; v < pos.count; v++) {
+    _v3.fromBufferAttribute(pos, v);
+    const k = 1
+      + lumps * Math.sin(_v3.x * 2.9 + pa) * Math.cos(_v3.y * 3.3 + pb)
+      + lumps * 0.6 * Math.sin(_v3.z * 4.1 + pc);
+    _v3.multiplyScalar(k);
+    pos.setXYZ(v, _v3.x, _v3.y * squash, _v3.z);
+    // Clamped before the ramp: the deformation can push a vertex past the unit
+    // sphere and an unclamped `lerp` extrapolates, which on the crown's top row
+    // pushes the lit colour past its own measured percentile.
+    const u = Math.pow(Math.min(1, Math.max(0, _v3.y * 0.5 + 0.5)), rampBias);
+    c.copy(under).lerp(over, u);
+    cols[v * 3] = c.r;
+    cols[v * 3 + 1] = c.g;
+    cols[v * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * Crease a flat-shaded hull and grow moss on whatever it turns to the sky.
+ *
+ * `props/RockForms.js` emits a convex block: correct proportions, correct facet
+ * families, and — because it is a convex hull — **large uninterrupted planes**.
+ * That is the whole of what made our rock read as low-poly asset-pack card
+ * against the plate's painted stone: the plate's boulders carry a broken,
+ * chipped surface where every plane is subdivided by shallow steps, and no
+ * amount of tinting a 12-triangle hull produces one.
+ *
+ * So each triangle is fanned about its own centroid and that centroid is pushed
+ * along the face normal by a per-facet random. Three sub-facets replace one
+ * facet, each with a slightly different normal, so a single plane becomes a
+ * shallow dome or dish — a crease — and the flat shading that RockForms already
+ * relies on draws the boundary for free. It is the cheapest possible way to buy
+ * surface incident on a hull, at exactly 3× a geometry that costs 500 triangles
+ * for a whole massif.
+ *
+ * The moss rides the same pass because it needs the same per-facet normal: it is
+ * keyed on `ny`, so it lands on the weathered up-faces and never on a cleaved
+ * side, and it is graded by height up the block so the crown is greenest and the
+ * shoulders only tinged — a gradient, which is what a rock in a meadow has.
+ *
+ * @param {THREE.BufferGeometry} geo non-indexed, per-face vertices, with a face
+ *   normal on each vertex. Consumed: the caller must not reuse it.
+ * @param {Object} o
+ * @param {Object} o.rng deterministic source.
+ * @param {number} o.amount crease depth in metres, peak-to-peak.
+ * @param {number} [o.moss=0] strength of the moss wash, 0–1.
+ * @returns {THREE.BufferGeometry} a new geometry; the input is disposed.
+ */
+function creaseFacets(geo, o) {
+  const { rng, amount, moss = 0 } = o;
+  const pos = geo.getAttribute('position');
+  const nrm = geo.getAttribute('normal');
+  const uv = geo.getAttribute('uv');
+  const col = geo.getAttribute('color');
+  const faces = pos.count / 3;
+
+  const outPos = new Float32Array(faces * 9 * 3);
+  const outNrm = new Float32Array(faces * 9 * 3);
+  const outUv = new Float32Array(faces * 9 * 2);
+  const outCol = new Float32Array(faces * 9 * 3);
+
+  geo.computeBoundingBox();
+  const yMin = geo.boundingBox.min.y;
+  const ySpan = Math.max(1e-3, geo.boundingBox.max.y - yMin);
+  const mossLit = lin(FLORA_PALETTE.MOSS_LIT);
+  const mossDeep = lin(FLORA_PALETTE.MOSS_DEEP);
+  const mossColor = new THREE.Color();
+  const facetColor = new THREE.Color();
+  const cornerColor = new THREE.Color();
+
+  const px = [0, 0, 0]; const py = [0, 0, 0]; const pz = [0, 0, 0];
+  const cu = [0, 0]; const cv = [0, 0];
+  let w = 0;
+
+  for (let f = 0; f < faces; f++) {
+    const base = f * 3;
+    const nx = nrm.getX(base);
+    const ny = nrm.getY(base);
+    const nz = nrm.getZ(base);
+    // Signed, so a hull comes back with both bosses and pits rather than
+    // uniformly inflated — a rock that only bulges reads as a bag of gravel.
+    const push = rng.range(-amount, amount);
+
+    let mx = 0; let my = 0; let mz = 0;
+    let mu = 0; let mv = 0;
+    let mr = 0; let mg = 0; let mb = 0;
+    for (let k = 0; k < 3; k++) {
+      px[k] = pos.getX(base + k); py[k] = pos.getY(base + k); pz[k] = pos.getZ(base + k);
+      mx += px[k]; my += py[k]; mz += pz[k];
+      mu += uv.getX(base + k); mv += uv.getY(base + k);
+      mr += col.getX(base + k); mg += col.getY(base + k); mb += col.getZ(base + k);
+    }
+    mx = mx / 3 + nx * push;
+    my = my / 3 + ny * push;
+    mz = mz / 3 + nz * push;
+    mu /= 3; mv /= 3;
+    facetColor.setRGB(mr / 3, mg / 3, mb / 3);
+
+    cornerColor.copy(facetColor);
+    if (moss > 0) {
+      // Up-facing and high up the block. `ny` alone puts moss on a low ledge
+      // that is buried in the meadow anyway; the height term is what makes it a
+      // gradient over the whole rock rather than a per-facet decision.
+      const upness = Math.max(0, (ny - 0.18) / 0.82);
+      const rise = (my - yMin) / ySpan;
+      const m = moss * upness * upness * (0.35 + 0.65 * rise) * rng.range(0.65, 1.15);
+      mossColor.copy(mossDeep).lerp(mossLit, Math.min(1, rise * 1.25));
+      // The centroid takes the full wash and the corners half of it, so a mossed
+      // plane is a gradient across itself and the boundary between two mossed
+      // facets is a soft one. A flat coat at the same strength reads as paint.
+      facetColor.lerp(mossColor, Math.min(0.88, m));
+      cornerColor.lerp(mossColor, Math.min(0.55, m * 0.55));
+    }
+
+    for (let k = 0; k < 3; k++) {
+      const k2 = (k + 1) % 3;
+      // Corner, next corner, displaced centroid — one sub-facet, emitted with
+      // its own recomputed normal so the crease actually shades.
+      _v3.set(px[k2] - px[k], py[k2] - py[k], pz[k2] - pz[k]);
+      _t3.set(mx - px[k], my - py[k], mz - pz[k]).cross(_v3).normalize().negate();
+      cu[0] = uv.getX(base + k); cv[0] = uv.getY(base + k);
+      cu[1] = uv.getX(base + k2); cv[1] = uv.getY(base + k2);
+      const corners = [
+        [px[k], py[k], pz[k], cu[0], cv[0], cornerColor],
+        [px[k2], py[k2], pz[k2], cu[1], cv[1], cornerColor],
+        [mx, my, mz, mu, mv, facetColor],
+      ];
+      for (const c of corners) {
+        outPos[w * 3] = c[0]; outPos[w * 3 + 1] = c[1]; outPos[w * 3 + 2] = c[2];
+        outNrm[w * 3] = _t3.x; outNrm[w * 3 + 1] = _t3.y; outNrm[w * 3 + 2] = _t3.z;
+        outUv[w * 2] = c[3]; outUv[w * 2 + 1] = c[4];
+        outCol[w * 3] = c[5].r; outCol[w * 3 + 1] = c[5].g; outCol[w * 3 + 2] = c[5].b;
+        w++;
+      }
+    }
+  }
+
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(outPos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(outNrm, 3));
+  out.setAttribute('uv', new THREE.Float32BufferAttribute(outUv, 2));
+  out.setAttribute('color', new THREE.Float32BufferAttribute(outCol, 3));
+  out.computeBoundingSphere();
+  geo.dispose();
+  return out;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Scatter                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -582,13 +871,39 @@ function mixLin(a, b, t) {
  *   plate's lavender and tulips actually sit — in drifts, not evenly sprinkled.
  * @param {(x:number,z:number)=>number} [opts.mask] 0–1 probability of keeping a
  *   sample. This is how a caller carves the dirt path out of the lawn.
+ * @param {number} [opts.gaps=0] 0–1: the share of the disc left **empty**, in
+ *   coherent voids a couple of metres across rather than as a thinning.
+ *
+ *   This is the difference between a bed and a wall and it cannot be bought with
+ *   density. On the plate the lavender mass has holes in it — you see meadow
+ *   grass, and occasionally sky, straight through the bed in a dozen places, and
+ *   those holes are what let the eye read the bed as a scatter of plants at
+ *   different depths instead of as one violet curtain. A uniform scatter has no
+ *   holes at any count: reduce it and every plant simply gets more air around it,
+ *   which thins the mass evenly and reads as a *sparser* curtain.
+ *
+ *   Implemented as a low-frequency product of sinusoids thresholded against the
+ *   requested share, so the voids are irregular, tile at no visible period, and
+ *   cost one evaluation per attempted sample at build time.
+ * @param {number} [opts.gapScale=0.22] void size as a fraction of `radius`.
  * @returns {Array<{x:number,z:number,t:number}>} `t` is the normalised radius,
  *   for callers that grow things larger the further out they sit.
  */
 function scatter(opts) {
   const {
     rng, count, radius, innerRadius = 0, falloff = 0.55, clumping = 0, mask,
+    gaps = 0, gapScale = 0.22,
   } = opts;
+  // Two incommensurate frequencies so the voids beat against each other instead
+  // of repeating on a lattice. The field below is the mean of two unit
+  // sinusoids, so it is symmetric about 0 and roughly uniform over its middle;
+  // thresholding it at `1 − 2·gaps` therefore empties close to `gaps` of the
+  // area, which is the accuracy this needs — the option is a composition control,
+  // not a budget.
+  // π over the void size, so a half-period *is* the void: at the 0.20 default on
+  // a 10 m drift the holes are 2 m across and the stands between them another 2.
+  const gapFreq = Math.PI / Math.max(0.05, radius * gapScale);
+  const gapThreshold = 1 - 2 * gaps;
   const exponent = 0.5 + falloff * 0.5;
   const out = [];
 
@@ -623,6 +938,11 @@ function scatter(opts) {
     // mask that covers most of the disc spins, and the caller asked for a count
     // to *attempt*, which is the number that bounds the cost.
     if (mask && rng.next() > mask(x, z)) continue;
+    if (gaps > 0) {
+      const g = 0.5 * Math.sin(x * gapFreq + z * gapFreq * 0.57)
+        + 0.5 * Math.cos(z * gapFreq * 0.83 - x * gapFreq * 0.39);
+      if (g > gapThreshold) continue;
+    }
     out.push({ x, z, t });
   }
   return out;
@@ -1201,8 +1521,35 @@ export function buildGrassField(opts = {}) {
    *
    * The bed's tufts keep 0.55: there the blade is meant to stand and arch, and
    * its silhouette against the sky is the whole read.
+   *
+   * ## It is now a **band**, not a number, and that is the correction
+   *
+   * The arc was a property of the *geometry*, so all 26 000 blades left the
+   * ground at one angle and arrived at their tips at one angle. That is
+   * invisible on a blade and unmissable on a field, because the only thing
+   * separating one instance from the next was a yaw — and a yaw is exactly the
+   * transform an arc of revolution is invariant under at the silhouette. The
+   * near lawn duly resolved as a repeating comb.
+   *
+   * `arcRange` states the band in the terms the eye reads, which is the *chord*
+   * angle: how far the blade's tip has travelled from directly above its own
+   * root. The geometry's arc puts the tip at `(droop·reach·h, h·(1 − 0.30·droop))`
+   * so `tan θ = droop·reach / (1 − 0.30·droop)`, and `arcToReach` inverts it to
+   * the Z scale each instance is given. The nominals above sit inside their own
+   * bands: the lawn's 1.25 is 55°, the bed's 0.55 is 23°.
+   *
+   * The bed's band is 5–40°, which is the reference's own — the plate's tall
+   * tufts run from near-upright to a hard lean, and the spread across neighbours
+   * is what makes a tuft read as several blades rather than as a fan. The lawn's
+   * is 30–68°, the same band rotated onto the streak read the paragraph above
+   * argues for: even its most upright blade still lies over into its neighbour.
    */
-  const bladeReach = isMeadow ? 0.55 : 1.25;
+  const arcRange = opts.arcRange ?? (isMeadow ? [5, 40] : [30, 68]);
+  const bladeDroop = isMeadow ? 0.62 : 0.85;
+  const arcToReach = (deg) => (Math.tan((deg * Math.PI) / 180) * (1 - 0.30 * bladeDroop))
+    / bladeDroop;
+  const reachMin = arcToReach(arcRange[0]);
+  const reachMax = arcToReach(arcRange[1]);
 
   const geo = setSway(
     bladeGeometry({
@@ -1211,9 +1558,9 @@ export function buildGrassField(opts = {}) {
       // droop 0.30 is a vertical tick with clear ground either side of it; the
       // plate's mown lawn has no visible ground between its blades at all,
       // because each one lies over into its neighbours. This is the same
-      // coverage argument as the width and it is likewise free. See
-      // `bladeReach` — droop is a fraction of that reach, so the two multiply.
-      droop: isMeadow ? 0.62 : 0.85,
+      // coverage argument as the width and it is likewise free. See `arcRange` —
+      // droop is a fraction of the per-instance reach, so the two multiply.
+      droop: bladeDroop,
       // `halfWidth = 0.5·(1−t)^taper`, so the exponent decides how quickly the
       // blade comes to a point. 0.62 puts a needle on the lawn — 24% of full
       // width nine tenths of the way up — and a field of needles is a field of
@@ -1265,17 +1612,29 @@ export function buildGrassField(opts = {}) {
     mask,
   });
 
+  // The albedo the hue jitter below is solved against: the blade's own ramp
+  // midpoint, which is what a field of these actually presents to the camera.
+  const bladeRef = mixLin(
+    isMeadow ? FLORA_PALETTE.MEADOW_ROOT : FLORA_PALETTE.GRASS_ROOT,
+    isMeadow ? FLORA_PALETTE.MEADOW_TIP : FLORA_PALETTE.GRASS_TIP,
+    0.55,
+  );
+
   const mesh = instanced(geo, material, places.length, (i, m, c) => {
     const p = places[i];
     const size = 1 + p.t * growth;
-    const h = rng.range(hMin, hMax) * size;
+    // Height variance is deliberately wide — 0.6–1.4 × the range's own draw, so
+    // roughly a factor of two between the shortest blade in a clump and the
+    // tallest. A field whose blades all end at the same height has a *mown* top
+    // edge wherever it meets the frame, and the plate's meadow never does.
+    const h = rng.range(hMin, hMax) * rng.range(0.6, 1.4) * size;
     _e.set(rng.jitter(0.14), rng.range(0, Math.PI * 2), rng.jitter(0.20));
     _q.setFromEuler(_e);
     // Set slightly below the surface so no blade shows a floating root edge on
     // a slope. Width is not scaled by height — coupling them turns a tuft of
     // grass into agave.
     _v3.set(p.x, heightAt(p.x, p.z) - h * 0.06, p.z);
-    _s3.set(rng.range(0.65, 1.05) * bladeWidth * size, h, h * bladeReach);
+    _s3.set(rng.range(0.65, 1.05) * bladeWidth * size, h, h * rng.range(reachMin, reachMax));
     m.compose(_v3, _q, _s3);
     // Value drift across the field — still there, but now at the *spatial*
     // frequency the plate actually shows it at.
@@ -1299,7 +1658,11 @@ export function buildGrassField(opts = {}) {
     // to break the sinusoids' regularity, far too little to detach a blade from
     // its neighbours.
     const v = (0.94 + patch * 0.17) * rng.range(0.97, 1.03);
-    c.setRGB(v * rng.range(0.97, 1.02), v, v * rng.range(0.93, 1.0));
+    // ±6° of hue on top of that value, half of it patch-coherent and half
+    // per-blade. See {@link hueTint} for why this replaced a per-channel wiggle:
+    // the wiggle varied luminance and left the hue alone, which is the opposite
+    // of what the plate's lawn does.
+    hueTint(c, bladeRef, patch * 3.0 + rng.range(-3.0, 3.0), v);
     return rng.range(0.7, 1.35);
   }, { castShadow: false, receiveShadow: true });
 
@@ -1341,12 +1704,41 @@ const LAVENDER_MAGENTA = 0x9a55c0;
  * basal foliage is a second instanced mesh of long blades, because on the plate
  * you can see grass-like leaves pushing up between the stems everywhere.
  *
+ * ## The wall, and the three things that were making it one
+ *
+ * The review's finding was that our bed is "identical bottle-brush lavender
+ * strips in a uniform wall", and the diagnosis holds up under measurement.
+ * Three properties were doing it, none of them a density or a palette:
+ *
+ *  1. **The raceme had no incident.** Its whorls were sized to *close* on their
+ *     neighbours — the note below records the arithmetic and the reason — and
+ *     the result was a smooth violet cylinder tapering to a point. That was the
+ *     right correction to the previous failure (a dotted string of beads that
+ *     averaged into the grass) and it overshot: a column with nothing on it
+ *     reads as an extruded strip at any distance, which is exactly what a
+ *     bottle brush is. The whorls now keep their vertical contact and gain a
+ *     **scalloped radius** — per-whorl scale jitter, per-whorl lateral offset
+ *     and alternating azimuth — so the silhouette is lumpy while the mass stays
+ *     continuous. That is what the plate shows: an unbroken violet column whose
+ *     *edge* resolves into eight or ten distinct floret clusters.
+ *  2. **Every spike was the same height.** A uniform draw over a 30 cm range
+ *     puts almost every plant within a few centimetres of the mean, so the bed
+ *     crested on one line. `heightTiers` draws from three discrete populations
+ *     instead, which is what a stand of lavender at three ages actually looks
+ *     like and what gives the mass a stepped top edge.
+ *  3. **The scatter had no holes in it.** See `scatter`'s `gaps`: a bed you
+ *     cannot see through is a curtain, and no amount of thinning makes holes.
+ *
  * @param {Object} [opts]
  * @param {number} [opts.radius=6] drift radius.
  * @param {number} [opts.count=520] spikes.
  * @param {[number,number]} [opts.height=[1.05,1.35]] total spike height, metres.
+ * @param {number} [opts.heightTiers=3] discrete height populations drawn from
+ *   inside that range. 1 restores a plain uniform draw.
  * @param {number} [opts.spikeRatio=0.35] fraction of the height carrying florets.
- * @param {number} [opts.whorls=9] floret whorls up the raceme.
+ * @param {number} [opts.whorls=10] floret whorls up the raceme.
+ * @param {number} [opts.gaps=0.10] share of the drift left empty, in coherent
+ *   voids — see {@link scatter}.
  * @param {number} [opts.paleFraction=0.08] share of near-white spikes; the plate
  *   has roughly one in twelve.
  * @param {number} [opts.foliage=1] multiplier on the basal leaf count; 0 omits it.
@@ -1359,8 +1751,10 @@ export function buildLavender(opts = {}) {
   const radius = opts.radius ?? 6;
   const count = opts.count ?? 520;
   const [hMin, hMax] = opts.height ?? [1.05, 1.35];
+  const heightTiers = Math.max(1, opts.heightTiers ?? 3);
   const spikeRatio = opts.spikeRatio ?? 0.35;
-  const whorls = opts.whorls ?? 9;
+  const whorls = opts.whorls ?? 10;
+  const gaps = opts.gaps ?? 0.10;
   const paleFraction = opts.paleFraction ?? 0.08;
 
   const group = new THREE.Group();
@@ -1369,14 +1763,21 @@ export function buildLavender(opts = {}) {
   /* --- the spike: one stem plus a raceme of florets, unit height ---------- */
   const parts = [];
   const stemTop = 1 - spikeRatio;
+  // The stem darkens into violet as it climbs, rather than staying grey-green
+  // to the tip. That matters now the whorls scallop: wherever the raceme's edge
+  // draws in, what shows behind it is this stem, and a green stalk glimpsed
+  // between violet clusters is the one thing that would make the scallop read as
+  // damage rather than as form. Real lavender does the same — the rachis inside
+  // a raceme is stained by the calyces it carries.
   parts.push(stemGeometry({
     height: 1.0,
     radiusBottom: 0.006,
     radiusTop: 0.0035,
     bend: 0.05,
     segments: 3,
+    radial: 4,
     rootColor: FLORA_PALETTE.LAVENDER_STEM,
-    tipColor: FLORA_PALETTE.LAVENDER_STEM,
+    tipColor: mixLin(FLORA_PALETTE.LAVENDER_STEM, FLORA_PALETTE.LAVENDER_DEEP, 0.75),
   }));
 
   // The whole raceme ramp, rotated toward one end of the plate's own violet
@@ -1390,16 +1791,37 @@ export function buildLavender(opts = {}) {
   const pale = lin(FLORA_PALETTE.LAVENDER_PALE).lerp(anchor, shift * 0.45);
   const floretColor = new THREE.Color();
 
+  /**
+   * Whorl pitch, in units of the spike's own height.
+   *
+   * Everything about the raceme is expressed against this rather than in
+   * absolute floret dimensions, because the one relationship that has to hold is
+   * between a floret's size and the gap to the next one — and that gap is set by
+   * `whorls`, which a caller may change.
+   */
+  const pitch = (spikeRatio * 0.96) / (whorls - 1);
+
   for (let w = 0; w < whorls; w++) {
     const u = w / (whorls - 1);
-    const y = stemTop + spikeRatio * (0.04 + u * 0.96);
-    // Florets are fattest at the base of the raceme and taper to buds. The
-    // silhouette that produces — a soft spearhead, not a cylinder — is the
-    // single most recognisable thing about lavender at 10 m.
-    const scale = (0.95 - 0.42 * u * u) * spikeRatio;
-    // Two florets per whorl, alternating 90° so the spike is not flat from any
-    // angle. Cheaper than three and indistinguishable past two metres.
-    const phase = w * 1.87;
+    // Anchors are jittered along the axis by a tenth of the pitch. Perfectly
+    // even spacing is the other half of what made the raceme read as extruded:
+    // a regular period is the property the eye uses to identify a machine.
+    const y = stemTop + spikeRatio * 0.04 + pitch * (w + rng.jitter(0.10));
+    /**
+     * Florets are fattest at the base of the raceme and taper to buds, and each
+     * whorl varies ±14% about that taper.
+     *
+     * Sized at 1.04 × the pitch so consecutive whorls still touch: the mass has
+     * to stay continuous (see the module note — a dotted raceme averages into
+     * the grass behind it and the bed loses its violet), and it is the *radius*
+     * that is allowed to vary, not the vertical coverage. What the jitter buys
+     * is a scalloped edge on a solid column, which is what the plate resolves.
+     */
+    const scale = pitch * 1.06 * (1 - 0.50 * u * u) * rng.range(0.82, 1.18);
+    // Three florets per whorl on a rotating azimuth, so no two consecutive
+    // whorls present the same profile and the spike is never flat from any
+    // bearing. The 2.4 rad step is deliberately not a fraction of 2π/3.
+    const phase = w * 2.4;
     // Base of the raceme is deepest, tip is nearly white with unopened buds.
     //
     // Both rates were too fast. The masked lavender in the plate runs p10
@@ -1414,46 +1836,53 @@ export function buildLavender(opts = {}) {
     if (u > 0.78) floretColor.lerp(pale, (u - 0.78) / 0.22);
 
     const floret = petalWhorlGeometry({
-      petals: 4,
+      petals: 3,
       rows: 2,
       phase,
-      // A raceme is a *column*, not a string of beads, and this is where ours
-      // stopped being one.
-      //
-      // Whorls sit `spikeRatio·0.96/(whorls−1)` apart — 0.042 of the spike's
-      // height at the defaults. The florets were 0.020 tall before the `scale`
-      // above shrank them to 0.006, so better than four fifths of the raceme's
-      // volume was air, and at the 11–16 m the bed actually sits at the grass
-      // behind simply showed through and averaged the violet away. Measured on
-      // the last capture: violet-pixel fraction 0.008 over the band, against
-      // 0.071 for the same band in the plate and 0.167 inside the plate's dense
-      // bed. Run-length over the plate's violet mask gives contiguous
-      // *horizontal* runs of 7 px median and 18 px at p90 — solid columns, with
-      // nothing dotted about them.
-      //
-      // So the florets are sized to close on their neighbours instead. The
-      // condition is `span × scale(0) ≥ spacing`: 0.135 × 0.3325 = 0.0449
-      // against 0.042, so the lower whorls overlap by about 7% and the base of
-      // the raceme is continuous colour with no grass visible through it. The
-      // taper in `scale` still opens the top out into separate buds — at u = 1
-      // the same span covers only 0.025 of a 0.042 gap — which is the spearhead
-      // silhouette the plate shows and the reason this is not simply a cylinder.
-      //
-      // Radial reach is set from the plate's own proportion: 0.068 × 0.3325 is a
-      // half-width of 0.023 against a 0.35 raceme, i.e. a width-to-length ratio
-      // of 0.13, or 5.4 cm across on a 1.2 m spike. This costs nothing — it is
-      // the same 9 whorls of the same 4 petals on the same instanced geometry,
-      // so the meadow gains its violet for zero triangles and zero draw calls,
-      // which is the only kind of fix the capture's time budget allows.
-      radius: (t) => 0.014 + 0.054 * t,
+      /**
+       * Authored at **unit pitch** — the `scale` above is the only thing that
+       * says how big a whorl is — so the raceme's proportions survive a caller
+       * changing `whorls`.
+       *
+       * Radial reach 0.72 against a vertical span of 1.0 makes each cluster
+       * distinctly wider than it is tall, which is what a whorl of calyces
+       * actually is and what makes it read as a *cluster* rather than as a
+       * segment of tube.
+       *
+       * That is **0.18 of the raceme's own length across, against the 5.4 cm /
+       * 0.13 the module header measured off the plate**, and the exaggeration is
+       * deliberate and of a piece with the tulip head's. The measurement is of a
+       * flower 11 m from that lens; ours stands in a bed at the same distance,
+       * where 0.13 puts a raceme 6 px wide and its 9 floret clusters 1 px apart
+       * — resolvable in principle and invisible in practice. At 0.18 the same
+       * spike is 12 px with 7 px between bumps, and the scallop the whole rebuild
+       * is for actually survives to the frame. It stays well inside a real
+       * lavender's range; what it leaves behind is the plate's *rendered* one.
+       *
+       * `cup` is high and the petal is short and broad, so each floret is a
+       * rounded bract catching the key on its outer bow rather than a flat
+       * blade. That bow is what puts a highlight on the near side of every
+       * cluster and a shadow between them, which is the entire difference
+       * between resolving ten florets and resolving one strip.
+       */
+      radius: (t) => 0.12 + 0.60 * t,
       // Starts below its own whorl anchor and finishes above it, so the floret
       // straddles the gap rather than hanging under the next one up.
-      height: (t) => -0.048 + 0.135 * t,
-      width: (t) => 0.024 * (1 - t * 0.5),
-      cup: 0.5,
-      colorAt: (t) => floretColor,
+      height: (t) => -0.32 + 1.0 * t,
+      width: (t) => 0.28 * (1 - t * 0.45),
+      cup: 0.8,
+      colorAt: () => floretColor,
     });
-    parts.push(placed(floret, 0, y, 0, 0, 0, 0, scale, scale, scale));
+    // A lateral offset as well as a scale. A stack of concentric whorls has one
+    // axis however much their radii vary; nudging each off the midline by a
+    // fifth of its own size is what turns the column's edge from a smooth
+    // profile into a scalloped one.
+    parts.push(placed(
+      floret,
+      rng.jitter(scale * 0.20), y, rng.jitter(scale * 0.20),
+      0, 0, 0,
+      scale, scale, scale,
+    ));
   }
 
   const spikeGeo = setSway(mergeAndDispose(parts), (x, y) => y);
@@ -1477,12 +1906,28 @@ export function buildLavender(opts = {}) {
     falloff: opts.falloff ?? 0.35,
     // Lavender grows in drifts on the plate, never evenly sprinkled.
     clumping: opts.clumping ?? 0.7,
+    // …and the drifts have holes between them. See the module note above: this
+    // is the term that stops a dense bed being a curtain.
+    gaps, gapScale: opts.gapScale ?? 0.20,
     mask,
   });
 
   const spikes = instanced(spikeGeo, spikeMat, places.length, (i, m, c) => {
     const p = places[i];
-    const h = rng.range(hMin, hMax);
+    /**
+     * Three discrete height populations rather than one uniform draw.
+     *
+     * A uniform draw over `[hMin, hMax]` is a *flat* distribution, so its
+     * standard deviation is only 29% of the range and nearly every spike lands
+     * near the middle of it — measured on the shipped bed, 80% of the plants
+     * were inside 12 cm of each other and the mass crested on one line. Tiers
+     * spread the same range into three modes with a 15% skirt each, which is
+     * what a stand of lavender at three ages looks like and what gives the top
+     * edge the steps the plate has.
+     */
+    const tier = rng.int(0, heightTiers - 1);
+    const step = heightTiers === 1 ? 0 : tier / (heightTiers - 1);
+    const h = (hMin + (hMax - hMin) * step) * rng.range(0.93, 1.07);
     // Real lavender leans; a bed of perfect verticals reads as a pin cushion.
     _e.set(rng.jitter(0.22), rng.range(0, Math.PI * 2), rng.jitter(0.22));
     _q.setFromEuler(_e);
@@ -1496,8 +1941,12 @@ export function buildLavender(opts = {}) {
       // point where the albedo would leave the physical range.
       c.setRGB(1.55, 1.42, 1.62);
     } else {
-      const v = rng.range(0.78, 1.12);
-      c.setRGB(v * rng.range(0.95, 1.06), v * rng.range(0.9, 1.0), v);
+      // ±5° of hue per spike about the drift's own violet, on top of a level
+      // draw. Half the plate's 26° drift-scale spread is carried by `hueShift`
+      // between drifts; this is the within-drift half, and without it a drift of
+      // 900 identical hues is a wall even when the drift beside it is a
+      // different colour.
+      hueTint(c, mid, rng.range(-5, 5), rng.range(0.80, 1.14));
     }
     return rng.range(0.75, 1.3);
   }, { castShadow: false, receiveShadow: true });
@@ -1528,11 +1977,14 @@ export function buildLavender(opts = {}) {
       windGain: 0.10,
       shadowDepth: FOLIAGE_SHADOW_DEPTH,
     });
+    // Same voids as the spikes, and from the same field: foliage that filled the
+    // holes the spikes left would put the curtain straight back, in green.
     const leafPlaces = scatter({
       rng, count: leafCount, radius: radius * 1.05,
       innerRadius: opts.innerRadius ?? 0,
       falloff: opts.falloff ?? 0.35,
       clumping: opts.clumping ?? 0.7,
+      gaps, gapScale: opts.gapScale ?? 0.20,
       mask,
     });
     /**
@@ -1576,24 +2028,39 @@ export function buildLavender(opts = {}) {
 }
 
 /**
- * Tulips — cupped goblets on bare stems, in the plate's red and white.
+ * Tulips — cupped goblets on bare stems, in the plate's red, white and orange.
  *
  * The heads are a separate instanced mesh from the stems, and that split is what
- * makes the colour work: the head geometry is authored **white**, and the red or
- * white of each individual flower arrives as an instance colour multiplied into
- * it. One geometry, one draw call, two species. Tinting a merged stem-and-head
- * plant instead would tint the stem red as well.
+ * makes the colour work: the head geometry is authored **white**, and the
+ * species of each individual flower arrives as an instance colour multiplied
+ * into it. One geometry, one draw call, three colours. Tinting a merged
+ * stem-and-head plant instead would tint the stem red as well.
  *
  * Two whorls of three petals, offset 60°, with the inner whorl slightly shorter —
  * that is what a tulip is, and it is why the plate's flowers show a dark throat
  * between overlapping petal edges rather than a smooth ball.
  *
+ * ## Why the head is bigger than it was
+ *
+ * `headLength` was 0.085 m, measured off the plate and correct as a
+ * measurement — and it is a measurement of a flower standing 11 m from that
+ * lens, where 8.5 cm is 13 px and the goblet's overlapping petal edges are two
+ * pixels apart. Ours sits in a bed at the same depth and the same 13 px, and the
+ * capture duly came back with red *dots*: the colour arrived and the shape did
+ * not. That is a resolution problem, not a proportion one, and the answer at
+ * chibi scale is the same one the cast uses on a head — the readable feature is
+ * enlarged against the body carrying it. 0.115 m against a 0.8 m stem is a
+ * flower 14% of its own plant, which is a tulip's real proportion at the *low*
+ * end, and it puts 18 px on the head: enough that the three outer petal tips and
+ * the dark throat between them resolve as the cup the criterion asks for.
+ *
  * @param {Object} [opts]
  * @param {number} [opts.radius=6]
  * @param {number} [opts.count=180]
  * @param {[number,number]} [opts.height=[0.42,0.62]] stem height, metres.
- * @param {number} [opts.headLength=0.085] flower head length, metres — measured.
- * @param {number} [opts.whiteFraction=0.45] the plate runs close to even.
+ * @param {number} [opts.headLength=0.115] flower head length, metres.
+ * @param {number[]} [opts.colors] sRGB hexes for the species mix.
+ * @param {number[]} [opts.weights] relative frequency per colour.
  * @returns {THREE.Group} with `userData.dispose()`.
  */
 export function buildTulips(opts = {}) {
@@ -1601,8 +2068,21 @@ export function buildTulips(opts = {}) {
   const radius = opts.radius ?? 6;
   const count = opts.count ?? 180;
   const [hMin, hMax] = opts.height ?? [0.42, 0.62];
-  const headLength = opts.headLength ?? 0.085;
-  const whiteFraction = opts.whiteFraction ?? 0.45;
+  const headLength = opts.headLength ?? 0.115;
+  /**
+   * The species mix, as instance colours.
+   *
+   * Counted over the plate's bed between the caster and the archer the three
+   * run close to even with the whites marginally ahead, which is what the
+   * weights below say. Two colours read as a planting scheme; three reads as a
+   * meadow, and the orange is the one that ties the bed to the warm key.
+   */
+  const speciesColors = (opts.colors ?? [
+    FLORA_PALETTE.TULIP_WHITE,
+    FLORA_PALETTE.TULIP_RED,
+    FLORA_PALETTE.TULIP_ORANGE,
+  ]).map(lin);
+  const speciesWeights = opts.weights ?? [0.38, 0.34, 0.28];
 
   const group = new THREE.Group();
   group.name = 'tulips';
@@ -1643,13 +2123,27 @@ export function buildTulips(opts = {}) {
     const scale = inner ? 0.88 : 1.0;
     headParts.push(petalWhorlGeometry({
       petals: 3,
-      rows: 5,
+      rows: 4,
       phase: inner ? Math.PI / 3 : 0,
-      // The goblet profile. Widest a little past halfway, then drawing back in,
-      // so the petal tips converge — the plate's tulips are barely open.
-      radius: (t) => (0.020 + 0.052 * t - 0.040 * t * t) * scale,
+      /**
+       * The goblet profile, expressed as **fractions of `headLength`**.
+       *
+       * It used to be absolute metres, which meant `headLength` scaled the
+       * flower's height and nothing else: asking for a bigger head produced a
+       * longer, *narrower* one — a bud rather than a cup — and every caller that
+       * changed the option quietly changed the species. The coefficients are the
+       * old absolutes divided through by the old 0.085, so the shape at the
+       * default is identical and it now holds at any size.
+       *
+       * Widest a little past halfway, then drawing back in, so the petal tips
+       * converge: the plate's tulips are barely open, and the mark that makes
+       * one legible at 18 px is the dark throat showing between three converging
+       * tips, not an open bowl.
+       */
+      radius: (t) => headLength * (0.235 + 0.612 * t - 0.470 * t * t) * scale,
       height: (t) => headLength * t * scale,
-      width: (t) => (0.026 * Math.pow(Math.sin(Math.PI * (0.15 + t * 0.85)), 0.7) + 0.004) * scale,
+      width: (t) => headLength
+        * (0.306 * Math.pow(Math.sin(Math.PI * (0.15 + t * 0.85)), 0.7) + 0.047) * scale,
       cup: 0.55,
       colorAt: (t, j) => {
         // Value only, never hue: the hue arrives per instance, and baking one
@@ -1727,9 +2221,14 @@ export function buildTulips(opts = {}) {
   stems.name = 'tulip-stems';
   group.add(stems);
 
-  const red = lin(FLORA_PALETTE.TULIP_RED);
   const redDeep = lin(FLORA_PALETTE.TULIP_RED_DEEP);
-  const white = lin(FLORA_PALETTE.TULIP_WHITE);
+  // Cumulative weights, so one uniform draw picks a species.
+  const speciesCumulative = [];
+  let speciesTotal = 0;
+  for (let i = 0; i < speciesColors.length; i++) {
+    speciesTotal += speciesWeights[i] ?? 1;
+    speciesCumulative.push(speciesTotal);
+  }
   const heads = instanced(headGeo, headMat, places.length, (i, m, c) => {
     const p = places[i];
     const h = heights[i];
@@ -1744,11 +2243,16 @@ export function buildTulips(opts = {}) {
     _v3.set(p.x, heightAt(p.x, p.z), p.z).add(_t3);
     _s3.set(1, 1, 1);
     m.compose(_v3, _q, _s3);
-    if (rng.next() < whiteFraction) {
-      c.copy(white).multiplyScalar(rng.range(0.92, 1.02));
-    } else {
-      c.copy(red).lerp(redDeep, rng.next() * 0.5).multiplyScalar(rng.range(0.9, 1.1));
-    }
+    const roll = rng.next() * speciesTotal;
+    let k = 0;
+    while (k < speciesCumulative.length - 1 && roll > speciesCumulative[k]) k++;
+    c.copy(speciesColors[k]);
+    // A share of every coloured species runs toward the deep red rather than
+    // only the reds: on the plate the shaded flowers inside the bed are all
+    // several stops down whatever their hue, and letting only one colour do that
+    // is what makes a mix read as three flat swatches.
+    if (k > 0) c.lerp(redDeep, rng.next() * 0.45);
+    c.multiplyScalar(rng.range(0.9, 1.08));
     return gains[i];
   }, { castShadow: false, receiveShadow: true });
   heads.name = 'tulip-heads';
@@ -1771,14 +2275,35 @@ export function buildTulips(opts = {}) {
  *
  * Petals measure ≈ 15 px at the knight's depth, which is 5.7 cm.
  *
+ * ## Puffs first, petals second — and the arithmetic that forces it
+ *
+ * The canopy was 1 200 instanced *rosettes*, three five-petal flowers each. At
+ * the tree's own station a rosette is 6 cm and covers about 4 px, so what the
+ * frame received was 1 200 pink specks: no mass, no clump, no silhouette, and
+ * 146 k triangles spent on it — the second most expensive object in the meadow
+ * after the lavender bed, for a read the plate does not have.
+ *
+ * The plate's cherry is a stack of **bunches**. Zoom its canopy (x 60–640,
+ * y 90–560) and the resolvable unit is not a flower, it is a 25–40 cm puff of
+ * blossom with a lit crown, a shaded underside and a dark gap to the puff beside
+ * it; individual petals only ever separate along the canopy's outer contour,
+ * where they break the silhouette against the sky.
+ *
+ * So the canopy is built the way it reads: `clusters` soft {@link clumpGeometry}
+ * puffs carrying a pink gradient per clump, plus a `petalFringe` of the old
+ * rosettes placed only on the puffs' outer shells. That is one more draw call
+ * and roughly **two fifths** of the triangles, and it is the difference between
+ * candy floss and blossom.
+ *
  * @param {Object} [opts]
  * @param {number} [opts.height=2.9] overall height in metres.
  * @param {number} [opts.spread=1.15] canopy width as a multiple of height.
- * @param {number} [opts.clusters=340] blossom clusters. Each is three rosettes
- *   of five petals — the plate's blossom reads as bunches, not single flowers.
+ * @param {number} [opts.clusters=380] blossom puffs hung on the branch tips.
+ * @param {number} [opts.petalFringe] loose rosettes on the puffs' outer shells,
+ *   for the contour. Defaults to `clusters`, i.e. one apiece.
  * @param {number} [opts.depth=4] branching recursion depth.
- * @param {number} [opts.leafFraction=0.16] share of the clusters replaced by
- *   green leaf sprigs; the plate's cherry carries a few.
+ * @param {number} [opts.leafFraction=0.16] share of the puffs turned green; the
+ *   plate's cherry carries a few leaves through the bloom.
  * @param {Object} [opts.forge] an `AssetForge`, to bind its `bark` detail maps.
  * @returns {THREE.Group} with `userData.dispose()`.
  */
@@ -1786,7 +2311,8 @@ export function buildBlossomTree(opts = {}) {
   const { rng, lighting, forge } = common(opts);
   const height = opts.height ?? 2.9;
   const spread = opts.spread ?? 1.15;
-  const clusterCount = opts.clusters ?? 340;
+  const clusterCount = opts.clusters ?? 380;
+  const fringeCount = opts.petalFringe ?? clusterCount;
   const maxDepth = opts.depth ?? 4;
   const leafFraction = opts.leafFraction ?? 0.16;
 
@@ -1822,13 +2348,65 @@ export function buildBlossomTree(opts = {}) {
   branches.receiveShadow = true;
   group.add(branches);
 
-  /* --- blossom clusters --------------------------------------------------- */
+  /* --- blossom puffs ------------------------------------------------------ */
+  const canopyRadius = height * spread * 0.5;
+  /**
+   * Puff radius in metres, before the 0.70–1.25 × instance scale below.
+   *
+   * **0.145 of the crown, not 0.22.** At 0.22 the first capture's clumps were
+   * 60 cm across on a 5.4 m tree, so eight of them spanned the canopy and each
+   * one's 6 × 4 shell resolved its own facets: the cherry shipped as a hard-
+   * edged magenta polygon rather than as blossom. The plate's bunches are a
+   * quarter of that against their own tree. Smaller clumps also fix the
+   * silhouette, which is what the whole rebuild is for — a mass made of eight
+   * lumps has eight bumps on its outline and a mass made of forty has a texture.
+   */
+  const puffRadius = canopyRadius * 0.145;
+  /**
+   * The gradient inside one puff is a **value** ramp, not a pink one.
+   *
+   * See `FLORA_PALETTE.BLOSSOM_SHADE`: the instance colour below carries the
+   * bunch's pink, so a pink baked in here as well would be multiplied by it. The
+   * shell says where the sun reaches a bunch and where it does not; the instance
+   * says which bunch caught it.
+   */
+  const puffGeo = setSway(
+    clumpGeometry({
+      rng,
+      widthSegments: 7,
+      heightSegments: 5,
+      lumps: 0.22,
+      squash: 0.80,
+      underColor: FLORA_PALETTE.BLOSSOM_SHADE,
+      overColor: FLORA_PALETTE.BLOSSOM_HEART,
+      rampBias: 1.15,
+    }).scale(puffRadius, puffRadius, puffRadius),
+    // A puff hangs off a twig, so it flexes about its own underside rather than
+    // about its centre.
+    (x, y) => Math.min(1, Math.max(0, y / puffRadius) * 0.5 + 0.5),
+  );
+
+  const puffMat = floraMaterial({
+    name: 'flora:blossom-puff',
+    lighting,
+    wind: true,
+    windGain: 0.035,
+    windChop: 0.8,
+    // A bunch of blossom is thick enough to be genuinely opaque in its middle,
+    // so it takes less transmission lift than a single petal — which is what
+    // keeps the gaps between puffs dark and the masses separable.
+    shadowDepth: 0.44,
+    roughness: 0.82,
+    side: THREE.FrontSide,
+  });
+
+  /* --- the petal fringe, on the puffs' outer shells ----------------------- */
   const heart = lin(FLORA_PALETTE.BLOSSOM_HEART);
   const petalRim = lin(FLORA_PALETTE.BLOSSOM_PALE);
   const clusterColor = new THREE.Color();
   const rosettes = [];
-  for (let k = 0; k < 3; k++) {
-    // Three rosettes at small offsets: a cherry flowers in bunches off one bud,
+  for (let k = 0; k < 2; k++) {
+    // Two rosettes at small offsets: a cherry flowers in bunches off one bud,
     // and a single five-petal flower per anchor reads as a daisy from any
     // distance the battle camera actually uses.
     const rosette = petalWhorlGeometry({
@@ -1857,7 +2435,10 @@ export function buildBlossomTree(opts = {}) {
   }
   // Tips move a little more than the bunch's root, so a cluster flexes rather
   // than sliding as a rigid lump.
-  const clusterGeo = setSway(mergeAndDispose(rosettes), (x, y, z) => 0.55 + 0.45 * Math.min(1, Math.hypot(x, y, z) / 0.06));
+  const clusterGeo = setSway(
+    mergeAndDispose(rosettes),
+    (x, y, z) => 0.55 + 0.45 * Math.min(1, Math.hypot(x, y, z) / 0.06),
+  );
 
   const clusterMat = floraMaterial({
     name: 'flora:blossom',
@@ -1869,47 +2450,81 @@ export function buildBlossomTree(opts = {}) {
     roughness: 0.8,
   });
 
-  const canopyRadius = height * spread * 0.5;
   const pale = lin(FLORA_PALETTE.BLOSSOM_PALE);
   const deepPink = lin(FLORA_PALETTE.BLOSSOM_DEEP);
   const midPink = lin(FLORA_PALETTE.BLOSSOM);
   const leafGreen = lin(0x486f2c);
   const anchor = new THREE.Vector3();
+  /** Where each puff ended up and how big it is, so the fringe sits on the
+   *  canopy that was actually built rather than on the one it might have been. */
+  const puffShells = [];
 
-  const clusters = instanced(clusterGeo, clusterMat, clusterCount, (i, m, c) => {
+  const puffs = instanced(puffGeo, puffMat, clusterCount, (i, m, c) => {
     const t = twigs.length
       ? twigs[rng.int(0, twigs.length - 1)]
       : { p: new THREE.Vector3(0, height, 0), d: WORLD_UP, depth: maxDepth };
-    // Jitter along and around the twig so clusters sit on the wood rather than
-    // at a point on it, and scale the jitter to the canopy so a bigger tree does
-    // not get a tighter-looking bloom.
+    // Jitter along and around the twig so puffs sit on the wood rather than at a
+    // point on it, and scale the jitter to the canopy so a bigger tree does not
+    // get a tighter-looking bloom.
     anchor.copy(t.p)
       .addScaledVector(t.d, rng.range(-0.10, 0.06) * height)
-      .add(_v3.set(rng.jitter(0.05), rng.jitter(0.05), rng.jitter(0.05)).multiplyScalar(height * 0.35));
-    _e.set(rng.range(0, Math.PI * 2), rng.range(0, Math.PI * 2), rng.range(0, Math.PI * 2));
+      .add(_v3.set(rng.jitter(0.05), rng.jitter(0.05), rng.jitter(0.05))
+        .multiplyScalar(height * 0.35));
+    _e.set(rng.jitter(0.5), rng.range(0, Math.PI * 2), rng.jitter(0.5));
     _q.setFromEuler(_e);
-    const s = rng.range(0.75, 1.35);
-    _s3.set(s, s, s);
+    const s = rng.range(0.70, 1.25);
+    _s3.set(s, s * rng.range(0.8, 1.05), s);
     m.compose(anchor, _q, _s3);
+    puffShells.push({ centre: anchor.clone(), radius: puffRadius * s });
     if (rng.next() < leafFraction) {
       c.copy(leafGreen).multiplyScalar(rng.range(0.8, 1.2));
     } else {
       // Measured spread: p50 #aa6796 to p90 #cd87b2 with highlights past
-      // #e19bc0. Sampling the whole range per cluster is what gives the canopy
-      // its depth — a canopy at one pink is a paper cutout.
+      // #e19bc0. Sampling the whole range per puff is what gives the canopy its
+      // depth — the within-puff ramp says which way is up, and this says which
+      // bunch caught the sun.
       const u = rng.next();
       c.copy(u < 0.3 ? deepPink : midPink).lerp(pale, rng.next() * 0.7);
     }
-    // Clusters further from the trunk hang on thinner wood and move more.
+    // Puffs further from the trunk hang on thinner wood and move more.
     return 0.6 + Math.min(1.6, anchor.length() / Math.max(0.5, canopyRadius));
     // Casting is worth it here even though the depth pass has no sway compiled
     // into it: the canopy's shadow is the largest thing this prop puts on the
     // ground, and the mismatch it hides is under 4 cm.
   }, { castShadow: true, receiveShadow: true });
-  clusters.name = 'blossom-clusters';
-  group.add(clusters);
+  puffs.name = 'blossom-puffs';
+  group.add(puffs);
 
-  return ownResources(group, [branchGeo, clusterGeo], [branchMat, clusterMat]);
+  // Guarded because the fringe is *derived* from the puffs: a caller that asked
+  // for no canopy has no shells for a rosette to sit on, and drawing zero
+  // instances of a geometry is still a mesh, a program and a draw call.
+  const fringe = instanced(clusterGeo, clusterMat, puffShells.length ? fringeCount : 0, (i, m, c) => {
+    const shell = puffShells[rng.int(0, puffShells.length - 1)];
+    // A point on that puff's own shell, biased to its upper half — the contour
+    // that reads against the sky is the top and the outside, and a rosette
+    // buried under a puff is a rosette nothing will ever see.
+    const a = rng.range(0, Math.PI * 2);
+    const y = rng.range(-0.35, 1.0);
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    _t3.set(Math.cos(a) * r, y, Math.sin(a) * r);
+    _v3.copy(shell.centre).addScaledVector(_t3, shell.radius * 1.02);
+    _e.set(rng.range(0, Math.PI * 2), rng.range(0, Math.PI * 2), rng.range(0, Math.PI * 2));
+    _q.setFromEuler(_e);
+    const s = rng.range(0.9, 1.7);
+    _s3.set(s, s, s);
+    m.compose(_v3, _q, _s3);
+    const u = rng.next();
+    c.copy(u < 0.25 ? midPink : pale).multiplyScalar(rng.range(0.9, 1.12));
+    return 1.2;
+  }, { castShadow: false, receiveShadow: true });
+  fringe.name = 'blossom-fringe';
+  group.add(fringe);
+
+  return ownResources(
+    group,
+    [branchGeo, puffGeo, clusterGeo],
+    [branchMat, puffMat, clusterMat],
+  );
 }
 
 /**
@@ -2099,6 +2714,13 @@ export function buildConiferTree(opts = {}) {
  * @param {number} [opts.tint] sRGB hex read as "what a white face becomes",
  *   multiplied into the rock's vertex colours in linear light. See
  *   {@link tintVertexColors}.
+ * @param {number} [opts.crease=0.030] crease depth as a fraction of `size`. See
+ *   {@link creaseFacets}: this is what turns a convex hull's large flat planes
+ *   into broken painterly stone, and it is the whole of the difference between
+ *   our asset-pack rock and the plate's.
+ * @param {number} [opts.moss=0.55] strength of the green wash on the up-faces,
+ *   0 disables it. A rock standing in a meadow has moss on top; one that does
+ *   not is a rock that was dropped there this morning.
  * @returns {THREE.Group} with `userData.dispose()`.
  */
 export function buildBoulderCluster(opts = {}) {
@@ -2108,6 +2730,8 @@ export function buildBoulderCluster(opts = {}) {
   const size = opts.size ?? 2.4;
   const chipCount = opts.chips ?? 26;
   const tint = opts.tint ?? null;
+  const crease = opts.crease ?? 0.030;
+  const moss = opts.moss ?? 0.55;
 
   const group = new THREE.Group();
   group.name = 'boulders';
@@ -2138,16 +2762,30 @@ export function buildBoulderCluster(opts = {}) {
     const along = (i / Math.max(1, count - 1)) * 2 - 1;
     const bulk = 1 - Math.abs(along) * 0.55;
     const s = size * bulk * rng.range(0.7, 1.25);
-    const geo = createAngularRockGeometry({
-      rng,
-      size: s,
-      height: rng.range(0.62, 0.95),
-      seedPoints: rng.int(11, 15),
-      ridge: rng.range(0.3, 0.6),
-      cleaves: rng.int(1, 3),
-      sink: rng.range(0.1, 0.22),
-      uvScale: 0.6,
-    });
+    /**
+     * Tint, then crease, then place — and the order is load-bearing twice.
+     *
+     * `tint` is an *exposure* correction on the slate (see {@link ROCK_TINT}'s
+     * own note in the stage), so it has to land before the moss or the wash
+     * would be multiplied by a cool blue-grey and the green would go with it.
+     * The crease then runs on the block's own untilted facet normals rather
+     * than on the leant ones, which is what a boss growing square out of the
+     * face it belongs to requires — and it is also correct for the moss, since
+     * a 20° lean does not move which faces of a boulder the rain lands on.
+     */
+    const geo = creaseFacets(
+      tintVertexColors(createAngularRockGeometry({
+        rng,
+        size: s,
+        height: rng.range(0.62, 0.95),
+        seedPoints: rng.int(11, 15),
+        ridge: rng.range(0.3, 0.6),
+        cleaves: rng.int(1, 3),
+        sink: rng.range(0.1, 0.22),
+        uvScale: 0.6,
+      }), tint),
+      { rng, amount: s * crease, moss },
+    );
     const x = along * radius + rng.jitter(radius * 0.18);
     const z = rng.jitter(radius * 0.42);
     // Leaning is what makes a pile of rocks a rock face. The plate's blocks are
@@ -2162,7 +2800,8 @@ export function buildBoulderCluster(opts = {}) {
   // `mergeGeometries` returns null for an empty list, so a caller asking for
   // chips only ( `count: 0` ) must not reach it.
   if (blocks.length > 0) {
-    const wallGeo = tintVertexColors(mergeAndDispose(blocks), tint);
+    // Already tinted per block, above.
+    const wallGeo = mergeAndDispose(blocks);
     const wall = new THREE.Mesh(wallGeo, material);
     wall.name = 'boulder-wall';
     wall.castShadow = true;
@@ -2173,7 +2812,13 @@ export function buildBoulderCluster(opts = {}) {
 
   /* --- scatter chips ------------------------------------------------------ */
   if (chipCount > 0) {
-    const chipGeo = tintVertexColors(createStoneChipGeometry({ rng, size: size * 0.16 }), tint);
+    // Chips take the crease but no moss: a stone lying loose on a lawn is one
+    // the meadow has not had time to grow over, and a green top on a 15 cm
+    // pebble at the party's feet reads as a smear rather than as lichen.
+    const chipGeo = creaseFacets(
+      tintVertexColors(createStoneChipGeometry({ rng, size: size * 0.16 }), tint),
+      { rng, amount: size * 0.16 * crease, moss: 0 },
+    );
     const places = scatter({
       rng,
       count: chipCount,
@@ -2615,8 +3260,18 @@ export function buildGroundCover(opts = {}) {
  * @param {number} [opts.count=1] trees; above one they are instanced.
  * @param {number} [opts.height=6.0] height in metres.
  * @param {number} [opts.spread=1.12] crown width as a multiple of height.
- * @param {number} [opts.lobes=6] canopy masses. Five or six is the plate's read;
- *   past eight the gaps close and it becomes a ball again.
+ * @param {number} [opts.lobes=14] canopy clumps.
+ *
+ *   **Fourteen, not six**, and this is the correction that made the crown stop
+ *   reading as an icosphere. Six masses at 0.40–0.56 of the crown radius each
+ *   are larger than the gaps between them, so they fuse into one envelope whose
+ *   outline is an arc of a circle — the deformation inside them is invisible at
+ *   the 25–40 m a treeline sits at, because it is smaller than the silhouette's
+ *   own curvature. The plate's crown resolves into a dozen-plus distinct clumps
+ *   with sky between them and a clear value break where a shaded one sits under
+ *   a lit one. Fourteen at 0.24–0.38 gives a mass-to-gap ratio the eye reads as
+ *   foliage; the triangle cost is the same order because the clumps are that
+ *   much smaller and the whole crown is merged and instanced either way.
  * @param {number} [opts.fringe] leaf sprigs on the lobe shells. Defaults to 200
  *   for a single hero tree and **0** for a grove, where at 25 m a sprig is under
  *   a pixel and the mass carries the whole read.
@@ -2629,7 +3284,7 @@ export function buildBroadleafTree(opts = {}) {
   const count = opts.count ?? 1;
   const height = opts.height ?? 6.0;
   const spread = opts.spread ?? 1.12;
-  const lobeCount = opts.lobes ?? 6;
+  const lobeCount = opts.lobes ?? 14;
   const fringeCount = opts.fringe ?? (count === 1 ? 200 : 0);
   const maxDepth = opts.depth ?? 3;
 
@@ -2653,71 +3308,63 @@ export function buildBroadleafTree(opts = {}) {
 
   /* --- canopy lobes -------------------------------------------------------- */
   const crownRadius = spread * 0.5;
-  const deep = lin(FLORA_PALETTE.BROADLEAF_DEEP);
-  const mid = lin(FLORA_PALETTE.BROADLEAF_MID);
-  const litLeaf = lin(FLORA_PALETTE.BROADLEAF_LIT);
-  const lobeColor = new THREE.Color();
   /** Lobe centres and radii, kept so the fringe can sit on the shells the
    *  canopy actually built rather than on a sphere it might have built. */
   const shells = [];
   const lobeParts = [];
-  // Anchors are drawn from the *outer* twigs so the lobes sit where the wood
-  // ends. Striding rather than sampling: a random draw clusters two lobes on one
-  // branch and leaves a quadrant of the crown empty, which on a shape made of
-  // five masses is immediately visible.
+  // Anchors are drawn from the *outer* twigs so the clumps sit where the wood
+  // ends. Striding rather than sampling: a random draw clusters two clumps on
+  // one branch and leaves a quadrant of the crown empty, which on a shape made
+  // of a dozen masses is immediately visible.
   const outer = twigs.filter((t) => t.depth >= maxDepth - 1);
   const pool = outer.length ? outer : twigs;
   for (let i = 0; i < lobeCount; i++) {
     const t = pool[Math.floor((i + 0.5) * pool.length / lobeCount) % pool.length];
-    const r = crownRadius * rng.range(0.40, 0.56);
+    const r = crownRadius * rng.range(0.24, 0.38);
     const centre = new THREE.Vector3()
       .copy(t.p)
-      .addScaledVector(t.d, r * 0.35)
-      .add(_v3.set(rng.jitter(0.09), rng.jitter(0.05), rng.jitter(0.09)));
-    // Keep every lobe over the bole. A branch that wandered wide would otherwise
-    // hang a mass off the side of the tree with nothing under it.
+      .addScaledVector(t.d, r * 0.55)
+      .add(_v3.set(rng.jitter(0.12), rng.jitter(0.09), rng.jitter(0.12)));
+    // Keep every clump over the bole. A branch that wandered wide would
+    // otherwise hang a mass off the side of the tree with nothing under it.
     const reach = Math.hypot(centre.x, centre.z);
-    if (reach > crownRadius * 0.72) {
-      centre.x *= (crownRadius * 0.72) / reach;
-      centre.z *= (crownRadius * 0.72) / reach;
+    if (reach > crownRadius * 0.80) {
+      centre.x *= (crownRadius * 0.80) / reach;
+      centre.z *= (crownRadius * 0.80) / reach;
     }
     shells.push({ centre, radius: r });
 
-    // 9x6 is 90 triangles and, being indexed, closes to genuinely smooth normals
-    // — which is the entire point of a lobe. An icosahedron at the same triangle
-    // count is non-indexed and would come back faceted, i.e. a low-poly ball.
-    const lobe = new THREE.SphereGeometry(1, 9, 6);
-    const pos = lobe.getAttribute('position');
-    // Three incommensurate lobes of deformation on the unit direction. Sampled
-    // from *position* rather than from the RNG so coincident seam vertices agree
-    // and the surface stays closed; the RNG supplies only the phases.
-    const pa = rng.range(0, 6.28);
-    const pb = rng.range(0, 6.28);
-    const pc = rng.range(0, 6.28);
-    const cols = new Float32Array(pos.count * 3);
-    for (let v = 0; v < pos.count; v++) {
-      _v3.fromBufferAttribute(pos, v);
-      const k = 1
-        + 0.20 * Math.sin(_v3.x * 2.7 + pa) * Math.cos(_v3.y * 3.1 + pb)
-        + 0.13 * Math.sin(_v3.z * 4.3 + pc);
-      _v3.multiplyScalar(k);
-      pos.setXYZ(v, _v3.x, _v3.y * 0.82, _v3.z);
-      // A crown's value structure is vertical: sky-lit on top, in its own shade
-      // underneath. Painting it into the albedo is what keeps the mass reading
-      // as a mass when the terminator falls somewhere else entirely.
-      // Clamped, because the deformation above can push a vertex past the unit
-      // sphere and an unclamped `lerp` *extrapolates* — which on the crown's top
-      // row would push the lit green past its own measured p90.
-      const u = Math.min(1, Math.max(0, _v3.y * 0.5 + 0.5));
-      lobeColor.copy(deep).lerp(mid, Math.min(1, u * 1.8));
-      if (u > 0.55) lobeColor.lerp(litLeaf, (u - 0.55) / 0.45 * 0.85);
-      cols[v * 3] = lobeColor.r;
-      cols[v * 3 + 1] = lobeColor.g;
-      cols[v * 3 + 2] = lobeColor.b;
-    }
-    lobe.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
-    lobe.computeVertexNormals();
-    lobeParts.push(placed(lobe, centre.x, centre.y, centre.z, 0, 0, 0, r, r, r));
+    /**
+     * The **under-clump**, and why the crown needs two colour families.
+     *
+     * A crown built of one green with a vertical ramp inside each mass is still
+     * one mass at the silhouette: every clump presents the same lit top and the
+     * same shaded bottom, so where two of them overlap there is no value break
+     * and the eye merges them. The plate's tree does the opposite — its lower
+     * and inner clumps sit a clear two stops under the ones catching the sky,
+     * and those darker masses are what make the crown's outline *irregular*
+     * rather than merely bumpy.
+     *
+     * `under` is decided by the clump's own height in the crown rather than at
+     * random, so the darkening is a coherent statement about where the light
+     * comes from. A third of the clumps qualify at the defaults.
+     */
+    const inShade = centre.y < crownRadius * 0.55;
+    lobeParts.push(placed(
+      clumpGeometry({
+        rng,
+        widthSegments: 7,
+        heightSegments: 5,
+        lumps: 0.26,
+        squash: 0.82,
+        underColor: FLORA_PALETTE.BROADLEAF_DEEP,
+        overColor: inShade ? FLORA_PALETTE.BROADLEAF_MID : FLORA_PALETTE.BROADLEAF_LIT,
+        // Under-clumps hold their deep green most of the way up; sky-lit ones
+        // reach their lit colour early, which is what opens the value gap.
+        rampBias: inShade ? 2.0 : 0.75,
+      }),
+      centre.x, centre.y, centre.z, 0, 0, 0, r, r, r,
+    ));
   }
   const canopyGeo = setSway(
     mergeAndDispose(lobeParts),

@@ -61,21 +61,32 @@
  *
  * ## Injection points
  *
- * Three, chosen because they are the only ones that survive CSM having already
- * rewritten the lighting chunks:
+ * Four in the fragment stage, chosen because they are the only ones that survive
+ * CSM having already rewritten the lighting chunks, plus two in the vertex stage
+ * that exist only for the painted detail channel:
  *
  *  1. after `<lights_physical_pars_fragment>` — declare uniforms, helpers and
  *     the three toon response functions, then repoint the `RE_*` macros. CSM's
  *     replacement chunk calls `RE_Direct` by macro, so cascade selection,
  *     cascade fading and shadow sampling all keep working untouched and the
  *     toon response is what they feed.
- *  2. after `<lights_physical_fragment>` — reset the per-fragment accumulators.
+ *  2. after `<color_fragment>` — the hand-painted albedo multiply, which has to
+ *     land here and not later: everything a surface is shaded from is derived
+ *     from `diffuseColor` by `<lights_physical_fragment>`, including the
+ *     `specularColorBlended` that tints a metal's reflection.
+ *  3. after `<lights_physical_fragment>` — reset the per-fragment accumulators.
  *     This chunk is the last thing before the lighting loop and CSM does not
  *     touch it.
- *  3. after `<lights_fragment_end>` — the composite, once, after both the direct
+ *  4. after `<lights_fragment_end>` — the composite, once, after both the direct
  *     loop and the two indirect calls have run. It has to be one place and not
  *     per light: the whole model is "two levels, one edge between them", and
  *     neither level nor the edge is knowable until every light has reported.
+ *
+ * The vertex pair sits after `<beginnormal_vertex>` and `<begin_vertex>`, which
+ * are both *before* skinning — so what the print is projected from is the bind
+ * pose and it stays welded to the cloth through an animation. They are injected
+ * only into materials that carry a detail map, so the instanced meadow and the
+ * shadow cascades never pay for them.
  *
  * OWNED BY: render/ToonMaterial.js.
  */
@@ -553,6 +564,16 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
   // just balanced.
   vec3 awSurface = mix( awShadeOut, awLitOut, awShape );
 
+  #if defined( TOON_CREASE_INK ) || defined( TOON_METAL_SURFACE )
+
+    // Read once, in uniform control flow, and spent by up to three terms below:
+    // the edge wear, the interior ink line and nothing else. See
+    // 'awToonCreaseGradients' — six derivative pairs is not a cost to pay twice
+    // on the CPU rasteriser the capture harness runs.
+    vec2 awCreaseGrad = awToonCreaseGradients( nonPerturbedNormal, geometryPosition );
+
+  #endif
+
   #ifdef TOON_METAL_SURFACE
 
     // The recesses between plates, taken near black where the surface grazes the
@@ -583,8 +604,7 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
     // rather than glowing at dusk, and tinted rather than white — exposed steel
     // under this world's sky is a cool grey, and a pure white edge on a chibi
     // pauldron reads as a chrome rim.
-    float awWear = awToonEdgeWear( normal, geometryViewDir,
-                                   nonPerturbedNormal, geometryPosition );
+    float awWear = awToonEdgeWear( normal, geometryViewDir, awCreaseGrad );
     reflectedLight.directSpecular += awToonKey * uToonWearColor
       * ( awWear * uToonEdgeWear * RECIPROCAL_PI );
 
@@ -735,7 +755,7 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
     // light could draw over would break exactly where a plate's border catches
     // the sun, which is the one border a viewer is looking at.
     float awInk = mix( 1.0, clamp( uToonCreaseInk, 0.0, 1.0 ),
-                       awToonCreaseInk( awToonCurvature( nonPerturbedNormal, geometryPosition ) ) );
+                       awToonCreaseInk( awCreaseGrad ) );
 
     reflectedLight.directDiffuse *= awInk;
     reflectedLight.indirectDiffuse *= awInk;

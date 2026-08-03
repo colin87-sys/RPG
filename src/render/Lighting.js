@@ -175,11 +175,22 @@ import {
  * that a character's contact shadow detaches. `shadowMapSize` never drops below
  * 1024 because ART_BIBLE section 7.6 lists sub-1024 key shadows as a failed
  * review. `pointLights` is the hard budget the pool allocates up front.
+ *
+ * **`high` runs three cascades, not four.** A cascade is a full re-render of
+ * every caster in the scene, and on the CPU rasteriser the capture harness uses
+ * that is the most expensive single line item the rig owns — it has already cost
+ * one screenshot timeout. Against a 60 m stage range the three-way split lands
+ * at 5.5 m and 16.6 m, so the whole party, the enemy opposite it and the flower
+ * bank behind them still sit in the first two cascades at ~7 mm texels; the
+ * fourth cascade was buying resolution only for the treeline, which the haze and
+ * the background defocus have already taken most of the detail out of. The pass
+ * it frees is what pays for `PostFX`'s background defocus, which is worth far
+ * more to this frame. `ultra` keeps four for machines that are not the harness.
  */
 const QUALITY = {
   low: { cascades: 3, shadowMapSize: 1024, pointLights: 3, shadowPoint: false },
   medium: { cascades: 3, shadowMapSize: 2048, pointLights: 4, shadowPoint: false },
-  high: { cascades: 4, shadowMapSize: 2048, pointLights: 6, shadowPoint: true },
+  high: { cascades: 3, shadowMapSize: 2048, pointLights: 6, shadowPoint: true },
   ultra: { cascades: 4, shadowMapSize: 3072, pointLights: 8, shadowPoint: true },
 };
 
@@ -253,29 +264,81 @@ const SHADOW_DEPTH_SLACK = 2;
  * characters brighten, which is exactly the "lift the subject relative to the
  * field" the value note asks for, bought without touching a single exposure.
  *
- * The ceiling is **40 degrees**, measured off `bravely01.jpg` rather than
- * argued down from the geometry alone. The plate's cast shadows run short and
- * forward-left of each figure and its terminators sit low on the torso rather
- * than up in the hair, which is a mid-morning sun — not the 55-62 degrees the
- * section 3 table puts overhead at the stage hour, and not the 34 an earlier
- * revision of this file dramatised it down to either. Thirty-four raked the key
- * so far across the body that the lit side became a narrow band on one flank;
- * forty keeps the terminator on the chest where the plate has it while still
- * throwing a shadow the fixed 9-degree-down battle camera can see.
+ * The ceiling is **36 degrees**, measured off `bravely01.jpg` and off our own
+ * capture beside it. Two measurements set it. The plate's terminators sit low on
+ * the torso and its cast shadows run visibly out from each figure, which is a
+ * mid-morning sun rather than the 55-62 degrees the section 3 table puts
+ * overhead at the stage hour. And the *ground* settles it: the plate's midground
+ * grass eyedrops to V 0.28-0.34 where ours measured V 0.50, i.e. our field is
+ * better than half a stop hot against a party that is not — which is what turns
+ * a yellow-green albedo into khaki. The ground plane's N·L is `sin(elevation)`
+ * and a torso's is `cos(elevation)·cos(azimuth spread)`, so every degree taken
+ * off the elevation darkens the field and brightens the cast at the same time.
+ * An earlier revision put this at 40 and read flat; 34 was tried before that and
+ * was reported as raking the lit side down to a narrow flank — but that was with
+ * a key sitting 22 degrees off the lens axis, where the *whole* front of a figure
+ * is near-peak and the flank is all that is left to lose. With the azimuth
+ * staged out to `KEY_STAGE_AZIMUTH_SPREAD_DEG` the terminator already runs down
+ * the body, and 36 buys the ground value back without narrowing anything.
  *
- * **Azimuth is untouched, and that is what keeps this honest.** The review's
- * test for a committed key is "you can point at the sun", and that is a
- * statement about *where in plan* the shadows run — which still agrees with the
- * dome exactly. Only the elevation is dramatised, and only downward, so the disc
- * can never end up on the opposite side of the sky from the shadows it casts.
- * The floor is the same idea at the other end: at the hero dusk key the sun sits
- * at 6 degrees, where the ground's N·L is 0.10 and the whole stage falls into a
- * near-black grazing light with the fill carrying the entire frame. Twelve
- * degrees is still unmistakably a low sun and still leaves the terminator low on
- * the body; it just keeps a floor under the stage.
+ * **Azimuth is staged too, and bounded** — see `KEY_STAGE_AZIMUTH_SPREAD_DEG`,
+ * which states what that costs and why the dome's *side* is still never
+ * overruled. The floor here is the same idea at the other end of the elevation
+ * band: at the hero dusk key the sun sits at 6 degrees, where the ground's N·L
+ * is 0.10 and the whole stage falls into a near-black grazing light with the
+ * fill carrying the entire frame. Fourteen degrees is still unmistakably a low
+ * sun and still leaves the terminator low on the body; it just keeps a floor
+ * under the stage.
  */
-const KEY_STAGE_ELEVATION_MIN_DEG = 12;
-const KEY_STAGE_ELEVATION_MAX_DEG = 40;
+const KEY_STAGE_ELEVATION_MIN_DEG = 14;
+const KEY_STAGE_ELEVATION_MAX_DEG = 36;
+
+/**
+ * The smallest angle, in plan, the rig will let open between the key and the
+ * lens axis — and the largest rotation it will spend to open it.
+ *
+ * This is the change the "no sun direction is readable" note is actually about,
+ * and no amount of intensity or fill tuning could have reached it. `Sky` solves
+ * the sun's azimuth from the clock, and `LookdevScene` stages its hour at
+ * t = 0.56, which lands the sun **21.6 degrees off the lens axis** — that is to
+ * say, very nearly behind the camera. A key behind the lens is the definition of
+ * a flat light: on the shipped frame a chibi's camera-facing planes took
+ * N·L = 0.71 while its screen-left planes took 0.28, so the *front* of every
+ * figure was the brightest thing on it and the modelling ran the wrong way
+ * round. It also throws every cast shadow directly away from the camera, where
+ * the figure that cast it stands on top of it — which is why the meadow under
+ * our party had no shadow in it at all while the plate has a pool beside every
+ * pair of boots.
+ *
+ * Fifty-five degrees is read off the plate. Every figure in `bravely01.jpg` has
+ * its screen-left plane lit and its screen-right plane in shade with the
+ * terminator running down the centre of the torso, and the shadows leave the
+ * feet to screen-right — a key between a half and two-thirds of a right angle
+ * off the lens, on the left. At 55 degrees and 36 up, a front plane takes
+ * N·L = 0.46 and a screen-left plane 0.66, so the lit side is genuinely the
+ * side and not the face, and the shadow leaves the figure with 0.66 of its
+ * length across the frame rather than 0.30.
+ *
+ * **What this costs, and what bounds it.** Staging the azimuth makes the key
+ * camera-relative, and a key that chases the camera is a light with no place in
+ * the world: spin a free field camera through 360 degrees and the shadows spin
+ * with it. Three things keep that inside a stylisation rather than an error.
+ * The rotation is *bounded* at `KEY_STAGE_AZIMUTH_MAX_SWING_DEG`, so the dome's
+ * own azimuth still carries most of the answer and the sun never ends up on the
+ * far side of the sky from where it is painted. It is *one-directional* — the
+ * rig only ever opens the angle, so a key that already rakes is passed through
+ * bit-identical and every dawn and dusk framing is untouched. And the *side* is
+ * never flipped: whichever flank the dome puts the sun on is the flank it stays
+ * on, so a player who walks around a landmark still sees its lit face where the
+ * sky says it should be. What is left moves at the rig's own `TAU_DIRECTION`,
+ * which is 0.6 s — a drift, not a snap.
+ *
+ * The default side, for a key exactly on the lens axis where there is no flank
+ * to preserve, is screen-**left**, because that is the side `bravely01.jpg`
+ * lights from.
+ */
+const KEY_STAGE_AZIMUTH_SPREAD_DEG = 55;
+const KEY_STAGE_AZIMUTH_MAX_SWING_DEG = 42;
 
 /**
  * The daylight white balance the meadow key is held at, and the sun height band
@@ -285,11 +348,18 @@ const KEY_STAGE_ELEVATION_MAX_DEG = 40;
  * plate's lit surfaces carry a gentle warm cast — the white hat's sunlit crown
  * eyedrops to (185, 195, 206) against an underside of (132, 141, 143), so the
  * *lit* side is barely warm at all and the frame's warmth lives in the grass
- * and skin rather than in a hot amber key. Sampling the section 3 table at the
- * stage hour and mixing it in linear light gives (255, 222, 195), which is a
- * ~4900 K blackbody: the table is already almost exactly right for this hour,
- * and the point of this band is not to *change* it but to stop it drifting out
- * of the late-morning look as the clock moves either side of noon.
+ * and skin rather than in a hot amber key.
+ *
+ * Sampling the section 3 table at the stage hour and mixing it in linear light
+ * gives (255, 222, 195) — a ~4900 K blackbody, and measurably too amber for this
+ * frame. A 4900 K key multiplied into a yellow-green meadow albedo is most of
+ * why our ground came back reading khaki: hue-bucketing our capture against the
+ * plate put 10.2% of our frame in the 45-70 degree yellow wedge at mean
+ * saturation 0.46, against the plate's 3.7% at 0.37. The floor is therefore
+ * raised to **5200 K**, which resolves to (255, 232, 213) — within a level of
+ * the (1.00, 0.93, 0.82) this workstream was given, still unambiguously warm
+ * sunlight, and about a sixth less amber into the grass. The ceiling moves with
+ * it so the band stays a band rather than a single value.
  *
  * The band is therefore a clamp with a floor and a ceiling, applied only while
  * the sun is genuinely high. `dayness` is the wrong gate for it — that term is
@@ -299,8 +369,8 @@ const KEY_STAGE_ELEVATION_MAX_DEG = 40;
  * the sun above ~46 degrees, none below ~27, so the meadow hours are guaranteed
  * and every low-sun hour keeps the table's colour untouched.
  */
-const KEY_WHITE_MIN_K = 4400;
-const KEY_WHITE_MAX_K = 5600;
+const KEY_WHITE_MIN_K = 5200;
+const KEY_WHITE_MAX_K = 5900;
 const KEY_DAYLIGHT_HEIGHT_LOW = 0.45;
 const KEY_DAYLIGHT_HEIGHT_HIGH = 0.72;
 
@@ -337,14 +407,30 @@ const KEY_DAYLIGHT_HEIGHT_HIGH = 0.72;
  * 0.545 display against its crown at 0.758, and the cast shadow under Gloria at
  * 0.276 against open ground at 0.411 — i.e. **67–72% on screen**, which through
  * the sRGB encode is a linear ratio near 0.41. Solving `φ/(1 + φ) = 0.29` for a
- * key of 2.91 raking a ground plane at 40 degrees puts the hemisphere at 0.71
- * with the probe taking 0.28 alongside it, and lands a torso's shadow side near
- * 55% of its lit side on screen — the bottom of the 55–60% band this workstream
- * was given, and a little firmer than the plate so a chibi keeps its form at the
- * 80 px the battle camera gives it.
+ * key of 2.91 raking a ground plane puts the hemisphere and probe together at
+ * about a third of the key.
+ *
+ * That is the share; where it is *spent* has changed, and the change is what the
+ * "characters do not separate, the frame sits in a washed haze" note is about.
+ * The two terms this budget buys are not interchangeable. The hemisphere at
+ * least carries a sky-to-ground gradient, so it still models a chin differently
+ * from a scalp. The PMREM probe is direction-blind, unoccluded and constant
+ * across every pixel it touches — it is the single most chalk-making term in the
+ * rig — and it was taking better than a third of the budget. Its share drops to
+ * `AMBIENT_PROBE_SHARE`'s new figure and the hemisphere absorbs the difference,
+ * which deepens every shadow side by roughly a sixth without changing the total
+ * ambient by one photon and without touching the environment specular that
+ * armour needs more than a diffuse lift.
+ *
+ * The share itself therefore stays where the plate puts it — a third, which is
+ * also the figure this workstream was given — rather than being cut to buy
+ * contrast the reallocation already bought. Measuring across the reallocation
+ * with the share briefly at 0.30 put a shaded cheek at 0.24 of its lit side
+ * against the plate's 0.67, which is a hole rather than a shadow; 0.33 with the
+ * probe held down lands the modelling without it.
  */
-const AMBIENT_KEY_SHARE = 0.34;
-const AMBIENT_MIN = 0.34;
+const AMBIENT_KEY_SHARE = 0.33;
+const AMBIENT_MIN = 0.32;
 
 /**
  * The ground bounce's luminance, as a share of the sky fill's.
@@ -357,8 +443,15 @@ const AMBIENT_MIN = 0.34;
  * raking sun, so it returns roughly half of what the sky above delivers — and it
  * is what the plate shows: undersides that are warm and clearly readable
  * (the white hat's brim at 0.545 display) but never as bright as the crown.
+ *
+ * 0.42 rather than a clean half. Half is the radiometry of a *bare* meadow, and
+ * this one is not bare: `bravely01.jpg` stands its cast in grass that reaches
+ * the ankle and its own midground grass measures V 0.28 against V 0.52 for the
+ * open path, i.e. the sward eats a third of what a flat diffuser would return.
+ * The difference lands almost entirely on the undersides of a chibi, which is
+ * where the frame least wants a lift.
  */
-const BOUNCE_SKY_SHARE = 0.5;
+const BOUNCE_SKY_SHARE = 0.42;
 
 /**
  * The PMREM probe's share of that budget, and why the rig clamps it at all.
@@ -375,17 +468,25 @@ const BOUNCE_SKY_SHARE = 0.5;
  *
  * ARCHITECTURE's service table already assigns the env probe to this module, so
  * the fix is to spend it from the same budget as everything else rather than
- * beside it. The share is high — over a third — because the probe is not only
+ * beside it. The share stays substantial because the probe is not only
  * ambient diffuse: it is also the environment *specular* that BRAVELY section 4
  * requires for armour to read as metal, and three drives both from one scalar.
  * Starving it to make the shadows deeper would trade one review note for
  * another.
  *
+ * It comes down from 0.38 to 0.28 because a *flat, washed* frame is the note
+ * actually on the table and this is the only term in the rig that can produce
+ * one on its own. A probe contribution is identical on a lit cheek, a shadowed
+ * flank and the underside of a jaw; a tenth of the ambient budget moved out of
+ * it and into the hemisphere is a tenth that now knows which way is up. What
+ * remains is still more environment specular than the cast's armour was getting
+ * before this rig divided the budget at all.
+ *
  * The clamp is one-directional. A scene that authors *less* probe than its share
  * keeps what it authored and the hemisphere absorbs the remainder; only an
  * over-budget probe is pulled back.
  */
-const AMBIENT_PROBE_SHARE = 0.38;
+const AMBIENT_PROBE_SHARE = 0.28;
 
 /**
  * Why there is no fourth, downward, shadow-casting ambient light here.
@@ -553,9 +654,9 @@ const RIM_ELEVATION_BASE_DEG = 18;
  * frame — where the key is the dim ring — from losing the environment's back
  * separation entirely; the ceiling stops a 3.0 noon key from promoting it.
  */
-const RIM_KEY_SHARE = 0.19;
+const RIM_KEY_SHARE = 0.22;
 const RIM_INTENSITY_MIN = 0.12;
-const RIM_INTENSITY_MAX = 0.45;
+const RIM_INTENSITY_MAX = 0.55;
 
 /**
  * The character rim's radiance target, expressed against the haze rather than
@@ -640,8 +741,25 @@ const RIM_DISPLAY_CAP = 0.85;
  * `_rimSceneCap` — which is authored on screen and inverted through this same
  * exposure — stays true, and so a frame rendered without the post chain grades
  * the same way.
+ *
+ * **Re-solved at 0.78, and the direction is up rather than down.** 0.61 landed
+ * the histogram exactly on the plate on the frame it was solved against, and it
+ * has been overtaken twice since — first upward by garment and staging work,
+ * then hard downward by the meadow rebuild that now fills the lower half of the
+ * frame with dense, dark-albedo sward. Measured on the current build the frame
+ * comes back at median 0.214 against the plate's 0.295, near ground 0.225
+ * against 0.391, and its sky — the one large region no scene work touches — at
+ * 0.576 against 0.811. Three independent regions all short by a third is an
+ * exposure error and nothing else.
+ *
+ * Solved rather than dialled, the same way as before: invert the ACES fit and
+ * the sRGB encode on the measured median through the composite's own contrast
+ * curve, and the radiance ratio between where the frame sits and where the plate
+ * sits is 1.38. 0.565 × 1.38 = 0.78. That also lands p95 near the plate's 0.628
+ * and keeps the fraction of the frame above display 0.75 inside the plate's
+ * 1.6%, so the correction buys midtones without opening a shoulder.
  */
-const EXPOSURE_CALIBRATION = 0.61;
+const EXPOSURE_CALIBRATION = 0.78;
 
 /**
  * The rim's *shape*, published to every toon material the rig lights.
@@ -699,11 +817,22 @@ const EXPOSURE_CALIBRATION = 0.61;
  *
  * So the intent is authored geometrically and the parameterisation is solved
  * for. On a sphere the projected radius is `sin θ` and `N·V` is `cos θ`, so a
- * reach of 0.36 puts the band's foot at 93.3% of a silhouette's projected radius
- * and full strength by 97.6% — the outer ~7%, ramping across the outer ~4%. At
- * the ~20 px shoulder the battle camera gives a chibi that is a hair under two
- * pixels; at closeup it grows with the subject, which is the correct behaviour
- * for a light and the only one available without `fwidth`.
+ * reach of 0.50 puts the band's foot at 86.6% of a silhouette's projected radius
+ * and full strength by 97.1% — the outer ~13%, ramping across the outer ~10%.
+ *
+ * The previous pair (0.36 / 0.22) stated the outer **7%**, and measured against
+ * our own capture that was a rim nobody could find. Two reasons, and only the
+ * first is about pixels. At the ~20 px shoulder the battle camera gives a chibi,
+ * 7% of a projected radius is a hair under two pixels — the brief's minimum, on
+ * a *sphere*. Our cast is not spheres: it is built from bevelled plates, lofted
+ * garment shells and faceted hair clumps, and across a flat facet `N·V` barely
+ * moves, so a window that only opens in the last 7% of a curvature sweep never
+ * opens at all on the surfaces that make up most of a silhouette. Stating the
+ * outer 13% instead means a plate angled anywhere past ~60 degrees from the eye
+ * catches the band, which is what puts a lit edge along a pauldron rather than
+ * only around a shoulder ball. `bravely01.jpg` carries exactly that: the back
+ * light on Seth's rear pauldron is a broad bright margin down the whole plate,
+ * not a hairline.
  *
  * `RIM_EDGE_POWER` sits mid-band of the 4–6 the note asks for. Inside the
  * remapped span the exponent is no longer fighting the window for control of the
@@ -715,10 +844,10 @@ const EXPOSURE_CALIBRATION = 0.61;
  * outside `RIM_REACH_NV` (at the span the fresnel is exactly zero, so a reach on
  * the span would need an infinite window) and is otherwise free.
  */
-const RIM_SPAN_NV = 0.55;
-const RIM_EDGE_POWER = 4.5;
-const RIM_REACH_NV = 0.36;
-const RIM_FULL_NV = 0.22;
+const RIM_SPAN_NV = 0.70;
+const RIM_EDGE_POWER = 4.0;
+const RIM_REACH_NV = 0.50;
+const RIM_FULL_NV = 0.24;
 
 /** The shader's fresnel term at a given `N·V`, i.e. the inverse of the window
  *  above. Exported into `RIM_CONTRACT` so the published `shape` pair means
@@ -730,7 +859,13 @@ function rimFresnelAt(nv) {
 const RIM_CONTRACT = Object.freeze({
   floor: 0.0,
   focusIn: 0.0,
-  focusOut: 0.30,
+  // Closes at 0.36 rather than 0.30. The mask is the *only* thing carrying the
+  // rim's direction now that the band is wider, so it wants to be a threshold
+  // and not a fade — but it also has to survive the same faceting the width
+  // does: on a flat plate `N·L_rim` is constant, so a window that closes too
+  // early flips the whole facet on or off at once and reads as a hard-edged
+  // decal. A third of a hemisphere is short enough to still read as an edge.
+  focusOut: 0.36,
   width: RIM_SPAN_NV,
   power: RIM_EDGE_POWER,
   shapeIn: rimFresnelAt(RIM_REACH_NV),
@@ -865,10 +1000,25 @@ const PENUMBRA_RADIUS_MAX = 3;
  * the distances that matter (the fixed battle camera stands at ~9 m) while
  * bringing the kernel back inside the range where the moment reconstruction is
  * still telling the truth near an occluder.
+ *
+ * 0.022 rather than 0.018, and only just: this workstream was asked to soften
+ * the shadow edge ("PCF radius up"), and that instruction is written for a
+ * renderer this build does not have. `core/Engine.js` selects `VSMShadowMap`,
+ * where the two filters move in opposite directions — a wider PCF kernel costs
+ * taps and buys a softer edge, a wider VSM kernel raises the variance term and
+ * buys *lost* shadow, which is the failure documented above. So the note is
+ * honoured by a fifth rather than by the factor it implies, and only because the
+ * geometry underneath it changed in the same direction: with the key raked out
+ * to `KEY_STAGE_AZIMUTH_SPREAD_DEG` the shadow now leaves the figure sideways
+ * across the frame instead of collapsing under its own boots, so the
+ * occluder-to-receiver gap along the light axis is tens of centimetres rather
+ * than millimetres — an order of magnitude clear of where the moment
+ * reconstruction starts lying. The softness the note actually wants is bought
+ * geometrically, by a low sun throwing a long fanned shadow, not by the filter.
  */
-const VSM_PENUMBRA_METRES = 0.018;
+const VSM_PENUMBRA_METRES = 0.022;
 const VSM_RADIUS_MIN = 1.0;
-const VSM_RADIUS_MAX = 3;
+const VSM_RADIUS_MAX = 4;
 /** Enough taps that the widest kernel above does not band on flat ground. */
 const VSM_BLUR_SAMPLES = 12;
 
@@ -883,8 +1033,16 @@ const VSM_BLUR_SAMPLES = 12;
  * lit side, so the occlusion has to bite harder to keep the same ratio, which is
  * the opposite of the intuition and the reason both constants are stated here
  * with their shared solve rather than tuned one at a time.
+ *
+ * The pairing runs the other way this round: `AMBIENT_KEY_SHARE` comes down to
+ * 0.30 and a tenth of the ambient budget moves out of the direction-blind probe,
+ * so a shaded surface now sits lower to begin with and the occlusion can be a
+ * little firmer before it reaches the same 0.67 display the plate measures.
+ * 0.88 leaves 0.12 of the key inside a cast shadow, which against φ ≈ 0.26 lands
+ * the shadowed grass at 0.30 of the lit grass in linear terms — the plate's
+ * number at the plate's contrast.
  */
-const SHADOW_INTENSITY = 0.83;
+const SHADOW_INTENSITY = 0.88;
 
 /** Exponential-smoothing time constants, in seconds. All comfortably above the
  *  150 ms floor ART_BIBLE section 7.8 puts on any visible state change. */
@@ -1553,6 +1711,9 @@ export class Lighting {
     // ---- scratch ---------------------------------------------------------
     this._vecA = new THREE.Vector3();
     this._vecB = new THREE.Vector3();
+    /** Scratch for the lens axis the key's azimuth is staged against. Its own
+     *  vector rather than `_vecA`, which `_build` holds across a call. */
+    this._camFwd = new THREE.Vector3();
     this._zenith = new THREE.Color(0x33628f);
     this._shadowTint = new THREE.Color(LIGHT.SHADOW_TINT);
     this._bounce = new THREE.Color(LIGHT.BOUNCE_GROUND);
@@ -2127,15 +2288,16 @@ export class Lighting {
       sstep(sunHeight, KEY_DAYLIGHT_HEIGHT_LOW, KEY_DAYLIGHT_HEIGHT_HIGH),
     );
 
-    // ---- key elevation, staged -------------------------------------------
-    // Azimuth is taken exactly as the dome reports it and rebuilt from the same
-    // number, so the shadows and the sun disc always agree about *which way* the
-    // light comes from. Only the elevation is held inside the staging band, and
-    // the rebuild is unconditional rather than guarded on "did the clamp bite" —
-    // reconstructing an unclamped direction from its own azimuth and elevation
-    // is the identity to float precision, and a branch here would mean two code
-    // paths for one vector.
-    const keyAz = Math.atan2(T.keyDir.x, T.keyDir.z);
+    // ---- key direction, staged -------------------------------------------
+    // Both angles are held inside a staging band and neither is invented: the
+    // elevation is clamped (`KEY_STAGE_ELEVATION_MAX_DEG`) and the azimuth is
+    // opened away from the lens axis by a bounded, one-directional rotation that
+    // never flips the flank the dome put the sun on
+    // (`KEY_STAGE_AZIMUTH_SPREAD_DEG`). The rebuild is unconditional rather than
+    // guarded on "did either clamp bite" — reconstructing an unstaged direction
+    // from its own azimuth and elevation is the identity to float precision, and
+    // a branch here would mean two code paths for one vector.
+    const keyAz = this._stageKeyAzimuth(Math.atan2(T.keyDir.x, T.keyDir.z));
     const keyElDeg = THREE.MathUtils.clamp(
       THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(T.keyDir.y, -1, 1))),
       KEY_STAGE_ELEVATION_MIN_DEG, KEY_STAGE_ELEVATION_MAX_DEG,
@@ -2236,6 +2398,49 @@ export class Lighting {
     // reserve while leaving it well clear of the environment's own ceiling.
     T.charRimColor.copy(this._charRimAnchor);
     conformChroma(T.charRimColor, CHAR_RIM_GAMUT, 0, KEY_CHROMA_RANGE);
+  }
+
+  /**
+   * Open the key's plan angle away from the lens axis, by a bounded rotation.
+   *
+   * See `KEY_STAGE_AZIMUTH_SPREAD_DEG` for what this buys and what it costs. The
+   * three properties that keep it a staging clamp rather than a camera-locked
+   * light are all enforced here and are all one line each: the rotation is
+   * clamped to `KEY_STAGE_AZIMUTH_MAX_SWING_DEG`, it is one-directional (a key
+   * already past the spread returns bit-identical), and it carries the sign of
+   * the angle it started with, so the sun stays on the flank the dome put it on.
+   *
+   * A camera whose forward vector is vertical has no plan azimuth to measure
+   * against — a top-down map view, a cutscene crane looking at the floor — and
+   * gets the dome's own answer untouched rather than a value read out of two
+   * near-zero components.
+   *
+   * @param {number} keyAz the dome's azimuth for the key, in radians.
+   * @returns {number} the staged azimuth, in radians.
+   */
+  _stageKeyAzimuth(keyAz) {
+    const cam = this._activeCamera();
+    if (!cam) return keyAz;
+    cam.getWorldDirection(this._camFwd);
+    const planar = Math.hypot(this._camFwd.x, this._camFwd.z);
+    if (planar < 1e-3) return keyAz;
+
+    // The azimuth a key would arrive from to be a pure frontal light: pointing
+    // from the stage back toward the lens, which is the negated view direction.
+    const lensAz = Math.atan2(-this._camFwd.x, -this._camFwd.z);
+    // Signed shortest arc, so a key at 350 degrees against a lens at 10 reads as
+    // 20 degrees on one side rather than 340 on the other.
+    const delta = ((keyAz - lensAz + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    const open = Math.abs(delta);
+    // Exactly frontal has no flank to preserve; `bravely01.jpg` lights from
+    // screen-left, and screen-left is a negative offset from the lens azimuth
+    // under three's right-handed convention.
+    const side = open < 1e-4 ? -1 : Math.sign(delta);
+    const swing = THREE.MathUtils.clamp(
+      THREE.MathUtils.degToRad(KEY_STAGE_AZIMUTH_SPREAD_DEG) - open,
+      0, THREE.MathUtils.degToRad(KEY_STAGE_AZIMUTH_MAX_SWING_DEG),
+    );
+    return keyAz + side * swing;
   }
 
   /**

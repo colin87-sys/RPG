@@ -155,16 +155,55 @@ export const BESTIARY = Object.freeze({
      */
     height: 1.52,
     description:
-      'An ashland courser that beds down in spent-magic drifts. Glasspetals fuse '
-      + 'into the ridge of its neck as it ages, so an old one walks under a crest '
-      + 'of other people\'s memories.',
+      'An ashland courser that beds down in spent-magic drifts. Its winter coat '
+      + 'comes in the colour of cold charcoal and it carries the ember of every '
+      + 'drift it has slept in behind its eyes.',
+    /**
+     * **Charcoal and one ember, and the crystals are gone.**
+     *
+     * The review's finding was an "off-style magenta-crystal wolf" that "belongs
+     * to a different game", and both halves of that are palette decisions rather
+     * than modelling ones. `0x8c4dd9` growth over a `0x2b2136` violet-brown hide
+     * put two saturated purples on the frame's darkest mass, in a picture whose
+     * reference reserves saturation for *accents* — the plate's own party is
+     * built from near-neutral armour, near-neutral cloth and one colour each.
+     *
+     * So the whole animal is neutral now. Hide, flank, plate and ridge are a
+     * single desaturated charcoal ramp — measured against the plate's knight,
+     * whose armour runs p50 sRGB 60 at saturation 0.09 — and the belly is a warm
+     * off-white rather than a purple-grey, because counter-shading is a *value*
+     * device and a hue on both ends of it cancels the read.
+     *
+     * The one accent is `earth.accent`, a warm amber, and it appears in exactly
+     * two places: the eye lens and the ear membranes. That is the cast's own
+     * discipline — one saturated colour per figure, placed where the eye is
+     * meant to land — and against a charcoal coat under a warm key it is also
+     * the only colour on the animal that the meadow's violet cannot swallow.
+     */
     palette: Object.freeze({
-      hide: 0x2b2136, flank: 0x483b5c, belly: 0x7d6f5d,
-      plate: 0x574a63, ridge: 0x8d7f9e,
-      bone: 0xc2b9a8,
-      growth: 0x8c4dd9, emissive: ELEMENT.dark.accent,
-      eye: ELEMENT.dark.fringe,
-      socket: 0x140f1a,
+      hide: 0x22242a, flank: 0x3b4048, belly: 0x8d887c,
+      plate: 0x4a505b, ridge: 0x9aa1a9,
+      // Fangs and claws, dropped from a near-white. The head carries a lit eye,
+      // two lit ear membranes and four visible fangs inside 40 px, and at the
+      // old `0xd2c9b4` the teeth were the brightest mark on the animal — a
+      // charcoal wolf whose face read as a handful of white chips. This sits
+      // half a stop under the pale belly, so the fangs are still the lightest
+      // thing on the muzzle and no longer the lightest thing on the creature.
+      bone: 0xb3a992,
+      /** The ember, used for the ear membranes; the eye takes the same family. */
+      accent: ELEMENT.earth.accent,
+      /**
+       * `accent` rather than `earth.core`.
+       *
+       * The lens material multiplies this by 2.2 to make the eye a bloom source,
+       * and `core` is `0xf2d9a6` — a near-white cream, which at 2.2 × is simply
+       * white. The whole point of giving this animal one accent is that the
+       * frame's eye lands on it *as a colour*, and a white dot on a charcoal
+       * head is indistinguishable from the fangs beside it. `accent` is a
+       * saturated amber and survives the multiplier as amber.
+       */
+      eye: ELEMENT.earth.accent,
+      socket: 0x0c0e12,
     }),
   }),
 
@@ -562,6 +601,105 @@ function spike(mb, o) {
   }
 }
 
+const _fOrigin = new THREE.Vector3();
+const _fDir = new THREE.Vector3();
+const _fSide = new THREE.Vector3();
+const _fRef = new THREE.Vector3();
+const _fBend = new THREE.Vector3();
+const _fb0 = new THREE.Vector3();
+const _fb1 = new THREE.Vector3();
+const _fm0 = new THREE.Vector3();
+const _fm1 = new THREE.Vector3();
+const _fTip = new THREE.Vector3();
+
+/**
+ * A **fur shell** — one flat, tapered, back-swept lock of hair.
+ *
+ * This is what the crystal crest was replaced with, and it is a different
+ * primitive from {@link spike} for a reason the silhouette makes obvious. A
+ * spike is a solid of revolution: it presents the same width from every bearing,
+ * which is correct for a horn and wrong for hair, because hair lies in *sheets*.
+ * A shell is a two-sided blade with real width across the body and almost none
+ * through it, so a row of them overlapping like roof tiles reads as a mane from
+ * the side, thins to a ragged line seen end-on, and never resolves into a comb
+ * of identical cones — which is exactly what our crest did.
+ *
+ * Three triangles: a base pair, a waisted mid pair, a tip. The mid ring is what
+ * lets the lock *curl* — `bend` is applied at t² so the root stays flush with
+ * the hide it grows out of while the tip sweeps back, and a lock that leaves the
+ * body on a curve is the difference between fur and a paper fringe.
+ *
+ * Emitted through `facetQuad`/`facetTri`, so it flat-shades and takes a hard
+ * value break against the hide behind it. That break is the whole point at
+ * battle distance: the coat has no texture map, so its only way to read as fur
+ * is a row of distinct lit faces along the spine.
+ *
+ * @param {MeshBuffer} mb
+ * @param {Object} o
+ * @param {number[]} o.origin base centre, on the hide.
+ * @param {number[]} o.dir direction of growth; need not be unit.
+ * @param {number[]} [o.side] the width axis. Defaults to the horizontal
+ *   perpendicular of `dir`, which is what a dorsal lock wants.
+ * @param {number} o.length / @param {number} o.width base width across.
+ * @param {number} [o.waist=0.72] mid-ring width as a fraction of the base.
+ * @param {number[]} [o.bend] tip displacement, applied as t².
+ * @param {number[]} o.color root colour, linear. @param {number[]} [o.tipColor]
+ */
+function furShell(mb, o) {
+  _fOrigin.set(o.origin[0], o.origin[1], o.origin[2]);
+  _fDir.set(o.dir[0], o.dir[1], o.dir[2]).normalize();
+  _fBend.set(o.bend?.[0] ?? 0, o.bend?.[1] ?? 0, o.bend?.[2] ?? 0);
+  if (o.side) {
+    _fSide.set(o.side[0], o.side[1], o.side[2]);
+  } else {
+    _fRef.copy(Math.abs(_fDir.y) < 0.9 ? REF_UP : REF_FWD);
+    _fSide.crossVectors(_fRef, _fDir);
+  }
+  // Orthogonalised against the growth direction, so `width` is a width whatever
+  // axis the caller handed in.
+  _fSide.addScaledVector(_fDir, -_fSide.dot(_fDir));
+  if (_fSide.lengthSq() < 1e-8) _fSide.set(1, 0, 0);
+  _fSide.normalize();
+
+  const waist = o.waist ?? 0.72;
+  const half = o.width * 0.5;
+  const root = o.color;
+  const tip = o.tipColor ?? o.color;
+  const mid = [
+    root[0] + (tip[0] - root[0]) * 0.5,
+    root[1] + (tip[1] - root[1]) * 0.5,
+    root[2] + (tip[2] - root[2]) * 0.5,
+  ];
+
+  _fb0.copy(_fOrigin).addScaledVector(_fSide, -half);
+  _fb1.copy(_fOrigin).addScaledVector(_fSide, half);
+  _fm0.copy(_fOrigin).addScaledVector(_fDir, o.length * 0.55)
+    .addScaledVector(_fBend, 0.3025).addScaledVector(_fSide, -half * waist);
+  _fm1.copy(_fm0).addScaledVector(_fSide, half * waist * 2);
+  _fTip.copy(_fOrigin).addScaledVector(_fDir, o.length).add(_fBend);
+
+  mb.facetQuad(_fb0, _fb1, _fm1, _fm0, root, root, mid, mid);
+  mb.facetTri(_fm0, _fm1, _fTip, mid, mid, tip);
+  /**
+   * The same blade again, wound the other way.
+   *
+   * Not an optimisation to skip. Every other primitive in this module is a
+   * *closed solid* — a swept tube, a cone, a plate lying on a body — so its back
+   * faces are inside something and the hide material's `FrontSide` never has to
+   * see them. A lock of hair is the one open surface here: it stands proud of
+   * the body and the camera reaches both of its faces at the silhouette, where a
+   * mane is doing all of its work. Culled, half the ranks would simply be absent
+   * from any given bearing, and the crest would flicker between dense and bare
+   * as the animal turned.
+   *
+   * Six triangles rather than three on a mesh of two thousand, against the
+   * alternative of a second material with `side: DoubleSide` and a second draw
+   * call on the frame's largest silhouette.
+   */
+  mb.facetQuad(_fm0, _fm1, _fb1, _fb0, mid, mid, root, root);
+  mb.facetTri(_fTip, _fm1, _fm0, tip, mid, mid);
+}
+
 const _pAxis = new THREE.Vector3();
 const _pNormal = new THREE.Vector3();
 const _pSide = new THREE.Vector3();
@@ -852,8 +990,32 @@ function eye(hide, lens, o) {
  *  - **The hind leg is reverse-jointed** (hip 0.50 → stifle 0.35 forward → hock
  *    0.20 back → paw). A straight hind leg is the fastest way to make a
  *    quadruped read as a table.
- *  - **The crest is a value break, not a colour one.** The mane shards are the
- *    only bright thing above the shoulder line, so the eye lands on the head end.
+ *  - **The crest is a value break, not a colour one.** The mane is the only
+ *    lit-edged mass above the shoulder line, so the eye lands on the head end.
+ *
+ * ## The restyle: charcoal fur, no crystals, and forms the cast would recognise
+ *
+ * The review's finding was an "off-style magenta-crystal wolf". Three things
+ * were producing that and none of them was fixable by moving it:
+ *
+ *  1. **The crest and shoulder rows were emissive violet crystal.** They are
+ *     gone entirely — the `glow` buffer is never written by this species now, so
+ *     the creature also ships one mesh and one material lighter — and replaced
+ *     by rows of {@link furShell} locks along the spine, the haunch and the
+ *     tail. That is the same read the plate's own cast gets from its fur
+ *     collars: a ragged lit edge over a dark mass.
+ *  2. **The joints were armour.** Four hard-edged `plate()` scutes with proud
+ *     ridges sat on the shoulders and haunches — the right primitive for the
+ *     insectoid and the wrong one for a mammal, and against a party built from
+ *     rounded chibi masses it read as a mechanical thing. The mass is now
+ *     carried by the *sweep* instead: the trunk's control radii bulge at the
+ *     shoulder and haunch and draw in at the loin, which is a muscle rather than
+ *     a bolted plate, and the radial count comes up so the bulges resolve as
+ *     round.
+ *  3. **The skull wore a helmet.** Two swept-back horns were the tallest thing
+ *     on the head and the single most "different game" element in the frame.
+ *     They are gone; the ears grow instead, from spurs to broad amber-lined
+ *     blades, which is also the cheapest cue that this is an animal.
  *
  * ## The stance rebuild, and why it was structural rather than a tuning pass
  *
@@ -889,14 +1051,25 @@ function eye(hide, lens, o) {
  *    z against 0.72) so both are presented from the stage's own bearing.
  *  - **Ears.** The single cheapest "this is an animal" cue there is, and the
  *    build had none — the skull's only projections were a pair of swept-back
- *    horns, which read as a helmet. Two of them, low and wide on the cranium so
- *    they break the skull's outline where the horns do not.
+ *    horns, which read as a helmet. Two broad blades now carry the whole of that
+ *    read, and they carry the animal's one accent colour on their inner face.
  *  - **An open mouth line.** The jaw drops 0.02 clear of the muzzle and a plate
  *    in the socket colour — the darkest value on the animal — fills the seam, so
  *    the head carries a dark horizontal mark under the eyes. A closed muzzle at
  *    this scale is a snout; a dark line under it is a mouth.
  */
-function buildGlassmane(hide, glow, lens, ctx) {
+/**
+ * @param {MeshBuffer} hide the body buffer.
+ * @param {MeshBuffer} unusedGlow the crystal-growth buffer, which this species
+ *   deliberately never writes — see the restyle note above. The parameter stays
+ *   because every builder shares one call signature, and leaving it named `glow`
+ *   would read as an oversight rather than as a decision. `buildCreature` skips
+ *   the growth mesh, its material and its draw call entirely when it comes back
+ *   empty, so the quadruped ships two meshes where the other two ship three.
+ * @param {MeshBuffer} lens the emissive eye buffer.
+ * @param {Object} ctx palette, rng, noise and the shared eye spheres.
+ */
+function buildGlassmane(hide, unusedGlow, lens, ctx) {
   const { pal, rng, noise, sphere, lensSphere } = ctx;
   /**
    * How far the body sits above the ground it was originally authored at, in
@@ -916,32 +1089,46 @@ function buildGlassmane(hide, glow, lens, ctx) {
   const plateCol = hexToLinear(pal.plate, [0, 0, 0]);
   const ridgeCol = hexToLinear(pal.ridge, [0, 0, 0]);
   const darkCol = hexToLinear(pal.socket, [0, 0, 0]);
-  const growthCol = hexToLinear(pal.growth, [0, 0, 0]);
-  const growthTip = hexToLinear(pal.emissive, [0, 0, 0]);
+  const accentCol = hexToLinear(pal.accent, [0, 0, 0]);
   const flankCol = hexToLinear(pal.flank, [0, 0, 0]);
   const bellyCol = hexToLinear(pal.belly, [0, 0, 0]);
   const hideCol = hexToLinear(pal.hide, [0, 0, 0]);
 
-  // Trunk, neck and skull as one skin. Overlapping ellipsoids would each
-  // contribute their own silhouette edge and light up separately under the rim,
-  // so the animal would read as a string of bubbles; one swept skin has exactly
-  // one contour.
+  /**
+   * Trunk, neck and skull as one skin, and the **muscle is in the radii**.
+   *
+   * Overlapping ellipsoids would each contribute their own silhouette edge and
+   * light up separately under the rim, so the animal would read as a string of
+   * bubbles; one swept skin has exactly one contour. What that skin has to do,
+   * now the armour scutes over the joints are gone, is carry the joints itself.
+   *
+   * So the radius channel runs a real animal's profile rather than a smooth
+   * taper: 0.192 over the shoulder at z 0.150, drawn in to 0.146 at the loin
+   * (z −0.140) and back out to 0.176 over the haunch (z −0.300). That 25%
+   * excursion is what the eye reads as a chest and a hindquarter with a waist
+   * between them, and it is the same device the cast's own torsos use — the
+   * form is in the silhouette, not in a panel painted on it.
+   *
+   * `radial` 12 rather than 10, because those bulges are the read: at 10 the
+   * shoulder's widest ring is a decagon and the specular band on it steps.
+   */
   const trunk = sweep(hide, [
-    [0, Y(0.520), -0.560, 0.030, 0.90, 0.00],
-    [0, Y(0.545), -0.440, 0.120, 1.10, 0.10],
-    [0, Y(0.552), -0.300, 0.158, 1.26, 0.16],
-    [0, Y(0.560), -0.140, 0.136, 1.04, 0.20],
-    [0, Y(0.590), 0.010, 0.150, 1.02, 0.26],
-    [0, Y(0.625), 0.150, 0.172, 1.06, 0.30],
-    [0, Y(0.605), 0.285, 0.158, 1.14, 0.22],
-    [0, Y(0.580), 0.380, 0.108, 0.98, 0.16],
-    [0, Y(0.540), 0.470, 0.086, 0.92, 0.14],
-    [0, Y(0.495), 0.550, 0.080, 0.92, 0.12],
-    [0, Y(0.464), 0.618, 0.106, 1.14, 0.10],
-    [0, Y(0.448), 0.698, 0.072, 0.92, 0.06],
+    [0, Y(0.520), -0.560, 0.032, 0.90, 0.00],
+    [0, Y(0.545), -0.440, 0.126, 1.10, 0.08],
+    [0, Y(0.552), -0.300, 0.176, 1.24, 0.12],
+    [0, Y(0.556), -0.210, 0.166, 1.14, 0.14],
+    [0, Y(0.560), -0.140, 0.146, 1.02, 0.16],
+    [0, Y(0.588), 0.010, 0.162, 1.02, 0.20],
+    [0, Y(0.625), 0.150, 0.192, 1.08, 0.24],
+    [0, Y(0.608), 0.285, 0.168, 1.14, 0.18],
+    [0, Y(0.580), 0.380, 0.110, 0.98, 0.14],
+    [0, Y(0.540), 0.470, 0.086, 0.92, 0.12],
+    [0, Y(0.495), 0.550, 0.080, 0.92, 0.10],
+    [0, Y(0.464), 0.618, 0.108, 1.14, 0.08],
+    [0, Y(0.448), 0.698, 0.074, 0.92, 0.05],
     [0, Y(0.432), 0.772, 0.046, 0.80, 0.02],
     [0, Y(0.428), 0.822, 0.016, 0.70, 0.00],
-  ], { samples: 30, radial: 10, belly: 0.30, tint: tintBody });
+  ], { samples: 32, radial: 12, belly: 0.30, tint: tintBody });
 
   // Lower jaw, dropped 0.02 clear of the muzzle and darker than the hide. The
   // gap is the point: a mouth at this scale is a dark horizontal mark under the
@@ -995,24 +1182,52 @@ function buildGlassmane(hide, glow, lens, ctx) {
       });
     }
 
-    // Shoulder and haunch scutes, and an elbow tuft under each. The scutes are
-    // the only light-valued mass on the body and they sit exactly where a
-    // quadruped's form is hardest to read — the joint between limb and trunk.
-    plate(hide, {
-      center: [s * 0.148, Y(0.640), 0.205], axis: [0, -0.30, 1], normal: [s * 0.92, 0.38, 0],
-      length: 0.235, width: 0.155, rise: 0.044, lip: 0.032,
-      color: plateCol, ridgeColor: ridgeCol,
-    });
-    plate(hide, {
-      center: [s * 0.150, Y(0.585), -0.315], axis: [0, 0.24, 1], normal: [s * 0.94, 0.34, 0],
-      length: 0.205, width: 0.140, rise: 0.038, lip: 0.028,
-      color: plateCol, ridgeColor: ridgeCol,
-    });
+    /**
+     * Shoulder and haunch **fur**, where four armour scutes used to sit.
+     *
+     * The scutes were solving a real problem — the joint between limb and trunk
+     * is where a swept quadruped's form is hardest to read, and a light-valued
+     * mass there is what settles it — with the wrong material. Overlapping
+     * shells solve the same problem in the cast's own vocabulary: each lock is
+     * lit on its outer face and drops a hard edge onto the one behind it, so the
+     * joint gains a run of value breaks that follows the muscle instead of a
+     * plate bolted across it.
+     *
+     * Four per joint, back-swept and lengthening downward, with the tips in the
+     * pale belly colour: the value climbs *away* from the body, which is what a
+     * coat does where it catches the sky and what keeps the shoulder reading as
+     * round rather than as a lit rectangle.
+     */
+    for (let t = 0; t < 4; t++) {
+      const f = t / 3;
+      furShell(hide, {
+        origin: [s * (0.132 + f * 0.012), Y(0.660 - f * 0.115), 0.250 - f * 0.030],
+        dir: [s * 0.62, -0.42 - f * 0.30, -0.24],
+        side: [0, 0.30, 1],
+        length: 0.115 + f * 0.055 + rng.range(-0.010, 0.010),
+        width: 0.100 - f * 0.018,
+        bend: [s * 0.010, -0.024, -0.018],
+        color: hideCol, tipColor: ridgeCol,
+      });
+      furShell(hide, {
+        origin: [s * (0.136 + f * 0.010), Y(0.612 - f * 0.100), -0.300 - f * 0.020],
+        dir: [s * 0.60, -0.40 - f * 0.28, -0.34],
+        side: [0, 0.30, 1],
+        length: 0.100 + f * 0.045 + rng.range(-0.010, 0.010),
+        width: 0.092 - f * 0.016,
+        bend: [s * 0.008, -0.020, -0.022],
+        color: hideCol, tipColor: flankCol,
+      });
+    }
+    // Elbow feathering, kept from the scute build: a short forward-swept run
+    // under the shoulder, which is what stops the foreleg reading as a pipe
+    // pushed into the barrel.
     for (let t = 0; t < 3; t++) {
-      spike(hide, {
-        origin: [s * 0.130, Y(0.312 + t * 0.026), 0.300 - t * 0.014],
-        dir: [s * 0.55, -0.35 - t * 0.2, 0.75],
-        length: 0.085 + rng.range(-0.012, 0.012), radius: 0.020, sides: 3,
+      furShell(hide, {
+        origin: [s * 0.126, Y(0.318 + t * 0.026), 0.296 - t * 0.014],
+        dir: [s * 0.55, -0.38 - t * 0.20, 0.72],
+        length: 0.082 + rng.range(-0.010, 0.010), width: 0.060,
+        bend: [0, -0.014, 0.010],
         color: flankCol, tipColor: bellyCol,
       });
     }
@@ -1025,29 +1240,53 @@ function buildGlassmane(hide, glow, lens, ctx) {
   // contributes nothing to the height it is measured against, so it was the
   // cheapest 5% of the length:height ratio available — and a courser's tail is
   // a counterweight, not a train.
-  sweep(hide, [
+  const tail = sweep(hide, [
     [0, Y(0.535), -0.560, 0.044],
     [0, Y(0.572), -0.642, 0.032],
     [0, Y(0.552), -0.700, 0.021],
     [0, Y(0.500), -0.740, 0.012],
   ], { samples: 12, radial: 5, tint: tintLimb });
-  for (let t = 0; t < 5; t++) {
-    const a = (t / 5) * Math.PI * 2;
-    spike(hide, {
-      origin: [Math.cos(a) * 0.012, Y(0.504), -0.734], dir: [Math.cos(a) * 0.55, -0.42, -1],
-      length: 0.095 + rng.range(-0.018, 0.018), radius: 0.019, sides: 3,
-      color: hideCol, tipColor: flankCol,
-    });
+  /**
+   * The tail is **brushed**, not tufted, and that is the whole difference.
+   *
+   * It used to terminate in a rosette of five spikes at one station — a pompom,
+   * which is a shape no fur has. A tail's read is a *taper of overlapping locks*
+   * running the length of it, thin at the root and heaviest two thirds out, and
+   * it is one of the two places on this animal where the silhouette is nothing
+   * but fur. Six pairs down the sweep, alternating sides and lengthening toward
+   * the tip, give exactly that for eighteen triangles.
+   */
+  for (let t = 0; t < 6; t++) {
+    const f = t / 5;
+    const z = -0.590 - f * 0.150;
+    const p = atZ(tail, z);
+    const len = 0.055 + 0.075 * Math.sin(Math.PI * (0.22 + f * 0.72));
+    for (const s of [1, -1]) {
+      furShell(hide, {
+        origin: [s * p[3] * 0.55, p[1] - p[3] * 0.25, z],
+        dir: [s * 0.72, -0.30 - f * 0.24, -0.60],
+        side: [0, 1, 0.15],
+        length: len + rng.range(-0.008, 0.008),
+        width: 0.058 + f * 0.020,
+        bend: [0, -0.018, -0.014],
+        color: hideCol, tipColor: flankCol,
+      });
+    }
   }
 
-  // Chest ruff — five blades under the throat, breaking the neck-to-chest
-  // transition that a single swept skin makes too clean.
+  // Chest ruff — five locks under the throat, breaking the neck-to-chest
+  // transition that a single swept skin makes too clean. The plate's own cast
+  // wears a fur collar in exactly this position (`bravely05.jpg`), and the read
+  // it gets there is the read this is after: a pale ragged edge under a dark
+  // head, which is what separates the two masses without a contour line.
   for (let t = 0; t < 5; t++) {
     const s = t % 2 === 0 ? 1 : -1;
-    spike(hide, {
+    furShell(hide, {
       origin: [s * 0.045 * (t % 3), Y(0.505 - t * 0.018), 0.415 + t * 0.012],
       dir: [s * 0.35, -0.55, 0.76],
-      length: 0.115 + rng.range(-0.015, 0.015), radius: 0.026, sides: 3,
+      side: [1, 0, -0.4],
+      length: 0.115 + rng.range(-0.015, 0.015), width: 0.082,
+      bend: [0, -0.022, 0.014],
       color: flankCol, tipColor: bellyCol,
     });
   }
@@ -1060,21 +1299,34 @@ function buildGlassmane(hide, glow, lens, ctx) {
       length: 0.115, width: 0.078, rise: 0.020, lip: 0.014,
       color: hideCol, ridgeColor: plateCol,
     });
-    // Swept-back horns. The pair is the tallest thing on the head and gives the
-    // skull an outline the neck cannot be confused with.
-    spike(hide, {
-      origin: [s * 0.052, Y(0.508), 0.596], dir: [s * 0.36, 0.78, -0.50],
-      length: 0.175, radius: 0.030, waist: 0.46, sides: 4,
-      bend: [s * 0.02, 0.01, -0.045], color: plateCol, tipColor: boneCol,
+    /**
+     * The ears carry the whole top of the skull now that the horns are gone.
+     *
+     * A pair of broad blades rather than a pair of spurs: 0.175 long against the
+     * old 0.130 and set higher and more upright, so they are the tallest thing
+     * on the animal and give the head an outline the neck cannot be confused
+     * with — which is the job the horns were doing, done by a shape that belongs
+     * to a mammal.
+     *
+     * Two shells each, back to back. The outer one is hide-dark, the inner one
+     * is the animal's single accent, and it is 6% shorter and pushed forward so
+     * it sits *inside* the outer blade's outline: that is a lit amber membrane
+     * inside a charcoal ear, which is where the eye is meant to go second, after
+     * the eyes themselves.
+     */
+    furShell(hide, {
+      origin: [s * 0.062, Y(0.500), 0.588], dir: [s * 0.44, 0.86, -0.26],
+      side: [0, 0.20, 1],
+      length: 0.175, width: 0.112, waist: 0.62,
+      bend: [s * 0.014, 0.0, -0.042],
+      color: hideCol, tipColor: flankCol,
     });
-    // Ears — low and wide on the cranium, where the horns are high and narrow,
-    // so the skull's outline is broken twice at two different angles. Three
-    // sides and a heavy base: a broad triangular blade rather than a spur, which
-    // is the shape that still reads as an ear at 40 px and edge-on.
-    spike(hide, {
-      origin: [s * 0.074, Y(0.482), 0.560], dir: [s * 0.86, 0.50, -0.22],
-      length: 0.130, radius: 0.052, waist: 0.52, sides: 3, roll: 0.4,
-      bend: [s * 0.010, 0.020, -0.028], color: hideCol, tipColor: flankCol,
+    furShell(hide, {
+      origin: [s * 0.058, Y(0.498), 0.598], dir: [s * 0.42, 0.87, -0.24],
+      side: [0, 0.20, 1],
+      length: 0.164, width: 0.086, waist: 0.60,
+      bend: [s * 0.012, 0.0, -0.040],
+      color: darkCol, tipColor: accentCol,
     });
     // Fangs, visible under the muzzle at any azimuth the stage camera reaches.
     // Dropped with the jaw so they sit inside the mouth line rather than over it.
@@ -1097,46 +1349,82 @@ function buildGlassmane(hide, glow, lens, ctx) {
       sphere, lensSphere, at: [s * 0.064, Y(0.470), 0.660], face: [s * 0.54, 0.12, 0.83],
       radius: 0.052, squash: 0.60, socketColor: darkCol, lensColor: [1, 1, 1],
     });
-    // Cheek plate. The skull sweep alone reads as a swelling in the neck; a hard
-    // plate along the jaw line is what separates a head from a tube.
-    plate(hide, {
-      center: [s * 0.082, Y(0.452), 0.646], axis: [0.22 * s, -0.30, 1], normal: [s * 0.94, 0.10, 0.32],
-      length: 0.150, width: 0.088, rise: 0.026, lip: 0.018,
-      color: plateCol, ridgeColor: ridgeCol,
+    // The cheek. A soft muzzle sweep alone reads as a swelling in the neck and
+    // something has to separate a head from a tube — but the hard-edged scute
+    // that used to do it belonged to the armoured build. A single lock swept
+    // back along the jaw line does the same work in fur: it draws the same
+    // boundary and it catches the key on one face, so the jaw still has an edge
+    // and the head still has a plane.
+    furShell(hide, {
+      origin: [s * 0.078, Y(0.442), 0.690], dir: [s * 0.46, -0.10, -0.88],
+      side: [0, 1, 0.1],
+      length: 0.150, width: 0.086, waist: 0.66,
+      bend: [s * 0.010, 0.014, 0],
+      color: plateCol, tipColor: ridgeCol,
     });
   }
 
-  // The crest: fused glasspetal along the dorsal ridge from the skull to behind
-  // the withers. Placed against the *resampled* spine rather than against the
-  // control points, so no shard can float off a back it was authored before.
-  // Placed against `dorsal`/`atZ`, so both rows follow the trunk's own skin and
-  // the stance lift carries them without a single coordinate here changing.
-  const CREST = 9;
-  for (let i = 0; i < CREST; i++) {
-    const f = i / (CREST - 1);
-    const z = 0.560 - f * 0.520;
-    const y = dorsal(trunk, z) - 0.012;
-    // Longest over the neck and shoulder, tapering both ways: the crest is a
-    // shape in its own right and a constant-length row of spikes is a comb.
-    const len = 0.055 + 0.105 * Math.pow(Math.sin(Math.PI * (0.12 + f * 0.80)), 0.6);
-    spike(glow, {
-      origin: [0, y, z], dir: [0, 1, -0.42 - f * 0.18],
-      length: len * rng.range(0.92, 1.08), radius: 0.026 + 0.010 * (1 - f),
-      waist: 0.42, sides: 4, roll: rng.range(0, 1.5),
-      color: growthCol, tipColor: growthTip,
-    });
-  }
-  // A lower flanking row on the shoulder, half the length and offset off the
-  // midline, so the crest has depth from a three-quarter view.
-  for (let i = 0; i < 3; i++) {
+  /**
+   * The mane — **fur, on the hide buffer, where nine emissive crystal shards
+   * used to stand.**
+   *
+   * The crest's job has not changed: it is the value break above the shoulder
+   * line that lands the eye on the head end, and it is the only silhouette the
+   * animal has along its back. What changed is that it was made of the wrong
+   * substance and in the wrong colour — a row of glowing violet cones, which
+   * is the single element the review named as belonging to another game.
+   *
+   * Eleven pairs of {@link furShell} locks, laid in overlapping ranks either
+   * side of the dorsal line rather than on it. That is the correction that
+   * matters most: a *single* row of anything along a midline is a comb from
+   * every bearing, because there is nothing behind a lock for it to overlap.
+   * Offsetting each pair to ±0.35 of the trunk's own radius and giving the two
+   * sides opposite sweeps produces a mane with a near rank and a far rank, so
+   * from the stage's three-quarter bearing the eye reads depth in it.
+   *
+   * Placed against the *resampled* spine through `dorsal`/`atZ` rather than
+   * against the control points, so no lock can float off a back it was authored
+   * before and the stance lift carries the whole row without a coordinate here
+   * changing.
+   */
+  const MANE = 11;
+  for (let i = 0; i < MANE; i++) {
+    const f = i / (MANE - 1);
+    const z = 0.560 - f * 0.560;
+    const y = dorsal(trunk, z) - 0.014;
+    const p = atZ(trunk, z);
+    // Longest over the neck and shoulder, tapering both ways: the mane is a
+    // shape in its own right and a constant-length row is a brush.
+    const len = 0.070 + 0.135 * Math.pow(Math.sin(Math.PI * (0.10 + f * 0.84)), 0.6);
     for (const s of [1, -1]) {
-      const z = 0.400 - i * 0.130;
+      furShell(hide, {
+        origin: [s * p[3] * 0.35, y - p[3] * 0.05, z],
+        dir: [s * 0.30, 1, -0.50 - f * 0.22],
+        side: [1, 0, 0.35 * s],
+        length: len * rng.range(0.88, 1.12),
+        width: 0.086 + 0.030 * (1 - f),
+        bend: [s * 0.012, -0.010, -0.038],
+        // Root in the coat's own charcoal, tip in the lit fur value: the lock
+        // brightens as it leaves the body, which is the only way a mane reads
+        // against a dark back under a soft terminator.
+        color: hideCol, tipColor: ridgeCol,
+      });
+    }
+  }
+  // A lower flanking run over the shoulder, shorter and further down the flank,
+  // so the mane has a skirt as well as a crest and the two ranks above do not
+  // end on a hard line halfway down the body.
+  for (let i = 0; i < 4; i++) {
+    for (const s of [1, -1]) {
+      const z = 0.420 - i * 0.150;
       const p = atZ(trunk, z);
-      spike(glow, {
-        origin: [s * p[3] * p[4] * 0.62, p[1] + p[3] * 0.72, z],
-        dir: [s * 0.55, 0.82, -0.30],
-        length: 0.070 + i * 0.012, radius: 0.020, waist: 0.42, sides: 4,
-        color: growthCol, tipColor: growthTip,
+      furShell(hide, {
+        origin: [s * p[3] * p[4] * 0.66, p[1] + p[3] * 0.62, z],
+        dir: [s * 0.66, 0.66, -0.36],
+        side: [0, 1, 0.2],
+        length: 0.076 + i * 0.014, width: 0.070,
+        bend: [s * 0.008, -0.014, -0.020],
+        color: hideCol, tipColor: flankCol,
       });
     }
   }

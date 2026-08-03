@@ -248,10 +248,79 @@ const LAWN_NEAR_LIMIT = STAGE.camZ - 2.2;
  * The coefficients tilt the band so it enters the bottom-left corner of the
  * battle frame and passes out at the left edge, which is the one region of
  * floor no figure stands on and exactly where the plate puts its own. Both
- * edges are feathered over 1.2 m, because a hard boundary between bare earth
- * and mown grass is the one thing real ground never has.
+ * edges are feathered, because a hard boundary between bare earth and mown
+ * grass is the one thing real ground never has.
+ *
+ * **Half the width, and pushed a further 0.6 m out.** At 4.5 m the band was not
+ * a track, it was a *field* of bare earth: measured on the shipped capture it
+ * covered the whole bottom-left eighth of the frame in warm tan, and it is the
+ * single largest area of exposed soil in an image whose reference has none worth
+ * the name. The plate does carry a path in that corner — but it is narrow, it is
+ * grassed over along its middle, and it is gone by a third of the way up the
+ * frame. 2.2 m wide from `x0 = −1.6` reproduces that: a wedge in the extreme
+ * corner, out of frame by z = 4.3, and the grass mask now *thins* over it rather
+ * than clearing it (see `_floraMask`), so it reads as worn ground rather than as
+ * a hole in the meadow.
+ *
+ * ## Re-solved against the plate's own boundary, not re-argued
+ *
+ * The note above is right that the plate's track is not a field of soil, and it
+ * is wrong about where the track *is* — a width was tuned when the error was in
+ * the band's position, so no capture of this stage has ever had a visible path
+ * in it. Widening a band whose near edge already sits behind the lens changes
+ * nothing on screen: `t` runs from the band's far edge (up-frame) to its near
+ * one, and at 2.2 m the near edge was at z ≈ 7.1, i.e. half a metre from the
+ * camera and well past the 5.4 m at which the frustum's lower edge leaves the
+ * ground. Every metre of that width was spent off the bottom of the image.
+ *
+ * The far edge is the one the eye reads, so it is solved through two points
+ * measured off `bravely01.jpg`. Its worn ground is bounded above by a line from
+ * (0, 760) to (1150, 1080) of 1920 × 1080. Un-projecting both through this
+ * camera — depression = `STAGE.pitch + atan(ndc_y · tan(fov/2))`, ground range
+ * = `camY / tan(depression)` — puts them at world (−2.56, 3.65) and (0.28,
+ * 5.40). That is a slope of 0.62 in z per metre of x, and `z = 4.23 + 0.62·(x +
+ * 1.6)` passes through both to within a centimetre. `width` then only has to be
+ * large enough that the near edge clears the lens: 3.96 m does at frame left, so
+ * 4.2 with the feather outside it.
+ *
+ * The number matters because the track is where the plate's foreground gets its
+ * light. Over that region the plate reads p50 **(120,132,82), V 0.52, hue 74°**
+ * against the mown lawn beside it at V 0.47 / hue 86°, and it is 9% of the
+ * image. Our own foreground came back V 0.35 at hue 131° — two thirds of a stop
+ * dark and 57° cold — and a track that never appeared is a large part of why.
+ *
+ * The feather comes up with the band. 1.4 m across a boundary running the width
+ * of the bottom-left corner is the same *proportion* of soft edge the 1.0 m
+ * feather gave the old 2.2 m band, and the plate's own transition from lawn to
+ * wear is not resolvable as an edge anywhere along its length.
  */
-const PATH = { x0: -1.0, z0: 4.8, dx: 0.75, dz: 1.0, feather: 1.2, width: 4.5 };
+const PATH = { x0: -1.6, z0: 4.23, dx: 0.62, dz: 1.0, feather: 1.4, width: 4.2 };
+
+/**
+ * How much of the lawn a fully-covered path fragment actually removes.
+ *
+ * Not 1. A track through a meadow is *worn*, not sterilised: the plate's own
+ * shows grass standing in it, thinner and shorter than the lawn beside it but
+ * continuous, and the boundary you read is a density change rather than an edge.
+ * Clearing the band outright is what turned our path into a tan plate with a
+ * hard rim, and it is the other half of why the corner read as bare soil.
+ *
+ * 0.28 rather than 0.35, together with the near lawn's own thinning below. The
+ * survival fraction only decides what the track looks like *relative to* the
+ * lawn density it is cut out of, and that density has come down — at 0.35 of a
+ * 250/m² turf the track still carried 87 blades/m², which is more grass than the
+ * plate's untrodden lawn has and is why no capture of this stage has ever shown
+ * a path.
+ *
+ * **0.18.** With the band re-solved onto the plate's own boundary the track
+ * finally appears, and it is still not carrying its light: measured over the
+ * bottom-left corner (0–380, 930–1080) the plate reads **(167, 148, 112), hue
+ * 39°, V 0.65** and ours came back (123, 134, 105) at hue 83° / V 0.53 — green
+ * still the dominant channel where the plate's is red. A worn track is worn:
+ * the plate's does carry grass, but as isolated survivors, not as a thinner
+ * lawn.
+ */
+const PATH_GRASS_SURVIVAL = 0.18;
 
 /**
  * Where the cherry stands, how tall it is, and how high its petals drift.
@@ -314,8 +383,83 @@ const CHERRY = { x: -5.9, z: -6.4, height: 5.4, spread: 1.55, drift: 4.6 };
  * 0.62 / 0.68 / 0.76 rather than uniformly, which spends the same value drop on
  * widening the red-to-blue gap and lands the saturation on the plate's 0.52
  * instead of leaving it at 0.25.
+ *
+ * **`0x3e5c89`, and the correction above landed roughly half of what it claimed.**
+ * Re-measured on the shipped capture over the wall's own band (x 560–900,
+ * y 40–180) against the plate's massif (x 560–900, y 60–200):
+ *
+ * | | med sRGB | hue | sat | val |
+ * |---|---|---|---|---|
+ * | plate | (32, 58, 96) | 216° | **0.67** | **0.38** |
+ * | ours  | (62, 85, 114) | 214° | 0.46 | 0.45 |
+ *
+ * The hue is landed — that part worked — and the value and the chroma are not:
+ * still a fifth too bright at two thirds of the plate's saturation, so the wall
+ * reads as blue-grey card rather than as the dark, wet, saturated mass that is
+ * the plate's whole upper third. By the same power-law identity the note above
+ * establishes, the displayed ratio *is* the sRGB ratio on the tint, so the fix
+ * is the measured per-channel ratio applied to the tint in place: 32/62, 58/85,
+ * 96/114 = 0.52 / 0.68 / 0.84 on `0x7887a3`.
+ *
+ * This is also what the upper third needs compositionally. `_buildMeadow`'s belt
+ * notes record two rounds spent fighting a sky band that would not close; a
+ * massif at V 0.45 against a sky at V 0.40 has no silhouette to close it with,
+ * and at V 0.38 it does.
+ *
+ * **`0x2a538a`, spending the last of the gap on chroma rather than on value.**
+ * Re-measured after the frame went sharp — the far-field defocus was flattening
+ * the wall's own facet distribution, so the box above had been sampling a blur —
+ * the massif (x 430–900, y 60–240) now reads (44, 63, 91) against the plate's
+ * (25, 55, 92): **hue 216° against 213° and V 0.36 against 0.36, both landed**,
+ * with saturation 0.52 against 0.73 the only term left. Saturation at fixed
+ * value is a statement about the *gap between channels*, so the residual is
+ * spent entirely on red — 25/44, 55/63, 92/91 on the previous tint — which
+ * takes the wall from blue-grey to the deep cleaved blue the plate's is, without
+ * moving the value the paragraph above solved for.
  */
-const ROCK_TINT = 0x7887a3;
+const ROCK_TINT = 0x2a538a;
+
+/**
+ * The same slate at the bed's depth rather than at the massif's.
+ *
+ * {@link ROCK_TINT} is measured on rock standing 18 m out through its own aerial
+ * haze, and the mid-ground clusters sit at 5–12 m where that haze has not
+ * happened yet — the identical argument {@link NEAR_STONE_TINT} makes at 4 m,
+ * one depth band in. Applying the massif's value there would put 2 m blocks at
+ * V 0.38 immediately behind a party keyed at V 0.5+, which reads as holes in the
+ * bed rather than as stone in it.
+ *
+ * **`0x7d8ba4`, and the first attempt at this constant put it far too near the
+ * massif.** At `0x5b6f94` the mid-ground blocks rendered V 0.35–0.39 — the
+ * massif's own value, twelve metres nearer — and with the bed no longer
+ * defocused they resolved as isolated dark wedges standing in bright violet.
+ * The plate has nothing like that: zoom its bed and the only rock inside it is
+ * a pale grey shoulder at (820–1000, 100–250) that is *lighter* than the
+ * flowers around it, because a boulder at the bed's depth is in the same direct
+ * sun the bed is. Value, not size, is what made ours read as debris.
+ *
+ * So this sits a shade *above* the tint `RockForms` authors rather than below
+ * it, and the near stations shrink with it so the block crests the lavender by
+ * a head instead of standing clear of it.
+ */
+const MID_ROCK_TINT = 0x7d8ba4;
+
+/**
+ * The same slate, four metres from the lens instead of eighteen.
+ *
+ * {@link ROCK_TINT} is a *cool* blue-grey and that is not a property of the
+ * stone, it is a property of the twenty metres of air in front of it — the same
+ * shift that puts the plate's own massif at hue 218° while the rock chips
+ * scattered on its lawn read warm. Applied to a stone at the party's feet it
+ * produces the defect the capture shows: a 67 px blue lozenge on grass at hue
+ * 92°, the only object below the horizon that is not green, warm-grey or violet.
+ *
+ * Warmer and half a stop lighter, because a near stone is in direct sun with a
+ * lawn bouncing green into its undersides rather than in a distant mass's own
+ * shade. The facet contrast is untouched, as with `ROCK_TINT`, because a
+ * multiply cannot change a ratio.
+ */
+const NEAR_STONE_TINT = 0x9a9384;
 
 /**
  * The ground's analytic height field.
@@ -574,30 +718,56 @@ const PARTY = [
  */
 const ENCOUNTER = {
   id: 'glassmane',
-  ndc: -0.92,
-  depth: 8.20,
-  height: 2.05,
+  /**
+   * **`ndc` −0.80 and `depth` 8.40 — the animal is now wholly inside the frame.**
+   *
+   * The previous pair deliberately let 34% of the creature fall past the left
+   * edge, on the reasoning that the plate keeps its own threat entirely
+   * off-frame and cropping one in is that device taken a step further. That
+   * reasoning survives its own restyle badly: the whole point of rebuilding this
+   * animal in the cast's language — rounded muscle, fur ranks, one accent, no
+   * crystal — is that the frame can *see* it, and a silhouette whose hindquarter
+   * and tail are outside the image is a silhouette a review cannot grade.
+   *
+   * Solved against the same two edges as before, with the numbers re-read off
+   * the rebuilt buffers rather than inherited: the animal measures **1.40 × as
+   * long as it is tall** (down from 1.48 with the mane's shards gone), so at
+   * 1.80 m it is 2.52 m long and 0.82 m wide, and at the 23° off-lens heading
+   * the staging delivers it projects to 1.75 m. At 8.40 m of depth that is 0.323
+   * of `ndc`, spanning **−0.961 → −0.639**: 0.039 of clear frame at the left
+   * edge and 0.009 of daylight before Auren's silhouette starts at −0.63.
+   *
+   * `height` 1.80 rather than 2.05 is what buys that, and it costs nothing the
+   * staging needs. Against the tallest figure in the line it is still 1.51 ×,
+   * and because it stands 4.2 m deeper it holds 0.29 of frame height against
+   * Auren's 0.39 — the frame reads it as *large and further away*, which is the
+   * depth relationship an enemy needs, rather than as merely close.
+   */
+  ndc: -0.80,
+  depth: 8.40,
+  height: 1.80,
   hover: 0.014,
   bobRate: 1.05,
   /**
    * Degrees the animal is turned back **toward the lens** from the bearing it
    * would face if it were simply aimed at the party's centroid.
    *
-   * The party's own `face` column exists for exactly this reason and the enemy
-   * needs it just as much: aimed dead at the line the creature stands 56° off
-   * the lens, which is near broadside, and a 3.0 m animal seen broadside is 0.56
-   * of `ndc` — measured on the first capture, nearly half of it fell past the
-   * left edge and what remained was mostly ribcage. Turning it 14° back presents
-   * the head at 12° off the lens instead of 27°, and shortens the projected
-   * silhouette to 2.62 m (0.49 of `ndc`), which is what puts the face, both
-   * eyes, both ears and the forelegs inside the frame at once.
+   * **Zero, and it is the staging rather than the constant that changed.** The
+   * column was written when the creature stood at `ndc` −0.92 and 8.20 m, where
+   * aiming it at the line left it 27° off the lens and turning it 14° back
+   * shortened its projected silhouette enough to fit. From the four-slot line's
+   * centroid at (0.07, 2.89) the new station is on a bearing that already
+   * delivers **23° off the lens** with no correction at all — a frontal
+   * three-quarter that presents the face, both amber-lined ears, the near
+   * foreleg and the mane's near rank, with the body receding behind.
    *
-   * It is also better staging than the geometry that produced it. A creature
-   * squared up to its target is posed; one caught mid-turn, still bringing its
-   * head round, is doing something — and 14° is small enough that the line still
-   * reads as being addressed by it.
+   * Adding a turn on top of that would take it *past* square: the clamp in
+   * `_buildEncounter` caps the turn at the bearing gap precisely to stop that,
+   * so a non-zero value here would simply square the animal up to the lens and
+   * hide its own length behind its chest. Zero is the value that keeps it
+   * addressing the party, which is the one thing the pose has to say.
    */
-  turnToLens: 14,
+  turnToLens: 0,
   /** Fixed, so two captures of this stage dress the creature identically —
    *  `buildCreature` seeds its mottle and its tendril drift off this. */
   seed: 0x5c0a11ed,
@@ -797,17 +967,33 @@ const CAMERA_POSES = {
    * "backgrounds are soft" is simply not true of this image.
    *
    * The stop alone no longer buys that, and this is the trap worth recording:
-   * `dofShader.js` now carries a far-field *floor* keyed on `log2(z / focus)`,
-   * so past a couple of multiples of the focal plane it applies a fixed defocus
+   * `dofShader.js` carries a far-field *floor* keyed on `log2(z / focus)`, so
+   * past a couple of multiples of the focal plane it applies a fixed defocus
    * that closing the aperture cannot reach — by design, since physical far CoC
-   * saturates and the composer needs some way to soften a horizon. `bokeh: 0`
-   * is the documented off switch for both terms at once, and it is the only
-   * thing that keeps the treeline as crisp as the plate has it while the same
-   * chain still runs the portrait below at its authored softness.
+   * saturates and the composer needs some way to soften a horizon.
+   *
+   * **`bokeh: 0` is no longer the off switch for that floor, and `defocus` is.**
+   * `PostFX` split the two deliberately (see its `DOF_FAR_FLOOR_FRACTION`) so a
+   * scene could ask for a sharp stage without also giving up the physical CoC,
+   * and the floor now defaults to its full authored strength for any pose that
+   * does not say otherwise. Every meadow pose in this table was written against
+   * the old conflated behaviour, so until this line existed they were all
+   * shipping 10.3 px of guaranteed background blur that their `bokeh: 0` was
+   * documented — wrongly — as suppressing.
+   *
+   * 0.45 is measured rather than chosen. Laplacian variance over the plate's bed
+   * directly behind its archer (x 1250–1900, y 200–420) is **345**; ours over
+   * the equivalent band came back **133**, i.e. the plate's bed carries 2.6 × our
+   * detail, while over the boulder wall the two agree to within 15% (180 against
+   * 153). So the far band is right and the *bed* is being softened by a floor
+   * meant for a horizon. At 0.45 the floor is 4.6 px: the bed sits 0.42 of the
+   * way up the ramp and gets 1.9 px, which is under the composite's 0.75–3 px
+   * blend threshold and therefore effectively sharp, while the treeline and the
+   * massif saturate the ramp and keep most of the authored softness.
    */
   battle: {
     pos: [STAGE.camX, STAGE.camY, STAGE.camZ], look: STAGE_LOOK,
-    fov: STAGE.fov, focus: 5.0, aperture: 22, bokeh: 0, grade: 'battle',
+    fov: STAGE.fov, focus: 5.0, aperture: 22, bokeh: 0, defocus: 0.45, grade: 'battle',
   },
   /**
    * Command framing: the same axis, pushed in.
@@ -828,7 +1014,7 @@ const CAMERA_POSES = {
    */
   lineup: {
     pos: [STAGE.camX, STAGE.camY, STAGE.camZ - 0.70], look: [STAGE.camX, STAGE_AIM_Y, STAGE.camZ - 0.70 - STAGE.aimDist],
-    fov: STAGE.fov, focus: 4.3, aperture: 22, bokeh: 0, grade: 'battle',
+    fov: STAGE.fov, focus: 4.3, aperture: 22, bokeh: 0, defocus: 0.45, grade: 'battle',
   },
   /** Battle station, battle lens, rendered as a **matte**. The silhouette check
    *  has to be run on the shipped composition or it is checking nothing — and
@@ -836,7 +1022,10 @@ const CAMERA_POSES = {
    *  `_enterMatte`. */
   silhouette: {
     pos: [STAGE.camX, STAGE.camY, STAGE.camZ], look: STAGE_LOOK,
-    fov: STAGE.fov, focus: 5.0, aperture: 22, bokeh: 0, grade: 'neutral', silhouette: true,
+    // `defocus: 0` and not merely a low value: this pose grades a silhouette on
+    // its contour, and any blur at all on the rear slots' edges means the check
+    // is reading the composer rather than the shapes. See {@link MATTE}.
+    fov: STAGE.fov, focus: 5.0, aperture: 22, bokeh: 0, defocus: 0, grade: 'neutral', silhouette: true,
   },
   /**
    * Auren, head and shoulders, front three-quarter — the portrait.
@@ -921,7 +1110,9 @@ const CAMERA_POSES = {
     // `setDof` defaults the argument to whatever the *last* pose left behind,
     // and every meadow pose leaves 0 there. Omitting it would ship a portrait
     // with a pin-sharp 40 m background, which is the one frame in the sheet
-    // that genuinely wants its background gone.
+    // that genuinely wants its background gone. `defocus` is deliberately not
+    // set for the same reason in the other direction: this is the one pose that
+    // wants the full authored far-field floor, and 1 is what it gets by default.
     fov: 34, aperture: 11.0, bokeh: 4.0, grade: 'battle',
   },
   /**
@@ -939,13 +1130,13 @@ const CAMERA_POSES = {
    */
   wide: {
     pos: [7.40, 1.95, 8.90], look: [-1.20, 0.85, 0.60],
-    fov: 44, focus: 8.5, aperture: 16.0, bokeh: 0, grade: 'battle',
+    fov: 44, focus: 8.5, aperture: 16.0, bokeh: 0, defocus: 0.45, grade: 'battle',
   },
   /** Sky-dominant landscape for the day-cycle sweep, shot over the bank so the
    *  meadow's crest and the sky above it both carry the hour. */
   horizon: {
     pos: [-2.20, 1.70, 9.60], look: [4.40, 5.60, -24.0],
-    fov: 50, focus: 14, aperture: 16, bokeh: 0, grade: 'battle',
+    fov: 50, focus: 14, aperture: 16, bokeh: 0, defocus: 0.45, grade: 'battle',
   },
   'sphere-grid': {
     pos: [BAY.x, BAY_Y + 2.1, BAY.z + 7.2], look: [BAY.x, BAY_Y + 2.0, BAY.z],
@@ -1008,10 +1199,11 @@ const FOG_COOLING = 0.18;
  *
  * Two stages of the chain the diagnostic path does *not* drop have to be
  * neutralised from here, because PostFX has no way to know it is looking at a
- * matte. DOF stays enabled, so the pose carries `bokeh: 0` — otherwise the
- * far-field floor in `dofShader.js`, which is keyed on depth ratio and not on
- * aperture, would soften the rear slots' edges and the check would grade a
- * silhouette on a blur. And the HUD is DOM, so `_enterMatte` hides it.
+ * matte. DOF stays enabled, so the pose carries `bokeh: 0` *and* `defocus: 0` —
+ * the far-field floor in `dofShader.js` is keyed on depth ratio and is no longer
+ * scaled by the aperture or by `bokeh`, so zeroing the lens alone would leave
+ * the rear slots' contours blurred and the check would grade a silhouette on a
+ * blur. And the HUD is DOM, so `_enterMatte` hides it.
  */
 const MATTE = {
   subject: 0x000000,
@@ -1431,16 +1623,39 @@ export class LookdevScene extends Scene {
    *
    * | element | world | why there |
    * |---|---|---|
-   * | mown lawn | (0, 3) r 15, 26 k | the cast stands on it; 6.5–11.5 cm blades at 37/m², dense enough to read as turf rather than as spikes |
-   * | ground cover | (0, 2) r 13 | broad low leaves pooling between the blades, so the floor is not one green |
-   * | dirt path | bottom-left, see `_pathness` | the plate's warm path enters the bottom-left corner and leaves frame at the left edge |
+   * | mown lawn | (0, 3) r 15, 22 k | the cast stands on it; 4.5–8.5 cm blades at 31/m², short enough that the line's boots resolve |
+   * | near turf | (0, 4.2) r 3.2, 5.2 k | 160/m² and *shorter* than the field behind it, over the 6 m the lens resolves |
+   * | ground cover | (0, 2) r 13 and (0, 4) r 3.6 | low leaves pooling between the blades as patch-scale value break, under the eye's resolution as individual leaves |
+   * | dirt path | extreme bottom-left, see `_pathness` | a 3.2 m worn track in the one corner no figure stands on, thinned rather than cleared |
+   * | near flower drift | lavender (2.35, 4.55) r 0.85 | the plate's one piece of foreground flora: a violet band in the right eighth, under the HUD |
    * | bed, front band | (0, −1.5) r 6–8.5 | starts 1.7 m behind the deepest figure, so nothing grows through the line |
+   * | tulip drifts | (−3.1, −1.9), (2.6, −2.3), (−0.4, −3.4) r 1.5 | three single-colour stands at the bed's near edge, placed rather than left to the scatter |
    * | bed, main mass | (0, −5.5) r 9–11 | at that depth the frame is 7 m of half-width, so one field fills it edge to edge |
-   * | foreground drift | (2.1, 4.55) r 1.25 | the plate's own bottom-right flowers, crossing in front of the line |
+   * | mid-ground rock ×4 | (−2.9, −4.9), (2.7, −5.6), (−8.5, −12.5), (6.6, −9.0) | 1.9–2.3 m blocks cresting the bed in the gaps between figures, mossed on top |
+   * | near stones ×2 | (4.2, 5.0), (−5.0, 4.2) | scale cues at the frame's lower corners; the only rock in frame with no moss on it |
    * | cherry | (−5.9, −6.4) h 5.4 | a background mass whose canopy runs off the top-left corner, as the plate's does |
    * | broadleaf ×2 | (3.6, −8.5) and (6.9, −7.4) | the plate's two mid-right trees, above and behind the bed's right half |
    * | boulder massif | (−1.8, −17.4) size 7.4 | the dominant upper-third mass: 268 px tall, 1.1 of `ndc` wide |
    * | far belt | (0, −30) r 16, 10 + 10 | the treeline, *behind* the bank rather than standing in for it |
+   *
+   * ## The depth bands, and why the layering is the point
+   *
+   * Read down that table and it is five bands, not a scatter: near turf and
+   * stones at 3–6 m, a lavender drift crossing the bottom-right corner at 5 m,
+   * the bed's front band with its three placed tulip stands at 2–5 m behind the
+   * line, the lavender mass and the mid-ground boulders at 5–9 m, then the trees
+   * and the massif. Every one of them overlaps its neighbour in plan, so the
+   * frame reads depth by *occlusion* at five stations rather than by haze —
+   * which is exactly how the plate does it, and it is why the fog multiplier
+   * here is very nearly off.
+   *
+   * The near bands are deliberately the *quietest* of the five, and that is the
+   * plate's arrangement rather than a budget compromise. Its foreground carries
+   * no flower, no discrete blade and no prop larger than a fist; what it carries
+   * is a value gradient — masked over `bravely01.jpg`, the ground runs V 0.30 at
+   * the party's feet to **V 0.52** at the bottom edge and warms 116° → 74° of
+   * hue as it does, i.e. it opens into direct sun and a worn track. Depth in the
+   * bottom third of that frame is made of light, not of objects.
    *
    * ## Why nothing is faded out with distance
    *
@@ -1515,10 +1730,77 @@ export class LookdevScene extends Scene {
     // material; what they cost is vertex work, and it is paid for several times
     // over by the two rigs the four-slot line gave back, by eight fewer belt
     // trees and by six fewer boulders.
+    //
+    // ## The blades are shorter, and the density is not what was wrong
+    //
+    // Everything above is about *coverage* and it is correct. What no pass has
+    // checked is the height against the figures standing in it: at 0.115 m times
+    // the builder's 1.4 × variance the tallest blade is 0.16 m, which on a 1.00 m
+    // caster is a sixth of her whole body and buries every boot in the line. On
+    // the plate the party's feet are fully drawn and their soles meet the ground
+    // — the lawn there reaches maybe an ankle's third — and it is *because* the
+    // feet resolve that the line reads as standing on the meadow rather than
+    // wading in it.
+    //
+    // 0.045–0.085 m tops out at 0.12 m, which is under Emrys's boot cuff. The
+    // coverage that costs is bought back in the only place it is free: the floor
+    // underneath. Measured, the stage floor's own albedo renders at hue 87° /
+    // V 0.46 against the plate's near ground at hue 86° / V 0.47 — it is
+    // *already* the plate's lawn — while the region as shipped read hue 131° /
+    // V 0.35, because 35 000 blades of a cooler, darker green were standing
+    // between the lens and it. Letting a little more floor through is the same
+    // edit as putting the boots back and as warming the foreground.
     plant(buildGrassField, 0, 3.0, {
-      preset: 'lawn', radius: 15, count: 26000, falloff: 0.62, distanceGrowth: 0.9,
-      height: [0.065, 0.115],
+      preset: 'lawn', radius: 15, count: 22000, falloff: 0.62, distanceGrowth: 0.9,
+      height: [0.045, 0.085],
       mask: (x, z) => (z + 3.0 > LAWN_NEAR_LIMIT ? 0 : this._floraMask(x, z + 3.0)),
+    });
+    /**
+     * The near turf — a second, much denser lawn over the 6 m the lens actually
+     * resolves, and the direct answer to "no bare ground in the foreground".
+     *
+     * A single field cannot deliver this. Density is uniform per unit *area*, so
+     * a count that covers the bottom of frame at 2.2 m — where one square metre
+     * of ground is 90 000 px — is a count that also plants a hundred thousand
+     * blades out at 15 m, where the same square metre is 400 px and the ground
+     * is already covered by the far field's larger blades. The field above holds
+     * the whole floor at 37 blades/m²; this one adds 250/m² over the disc in
+     * front of the line and nothing anywhere else, which is 9 000 instances for
+     * the region that carries the criterion rather than 90 000 for the frame.
+     *
+     * Blades are also taller here (0.09–0.16 m against 0.065–0.115) and drawn on
+     * the same wide arc band, so at 2.2 m each one lies across two or three of
+     * its neighbours. Coverage is an overlap problem, not a count problem, and
+     * height buys overlap at no instance cost.
+     *
+     * ## Halved, and shorter than the field behind it — the plate has no
+     * foreground blade in it at all
+     *
+     * The paragraphs above solve "no bare ground in the foreground" and they
+     * solve it, but against the wrong target. Zoom `bravely01.jpg`'s bottom third
+     * and there is no discrete blade anywhere in it: the surface carries fine
+     * directional streaking and a worn track and nothing else, and its Laplacian
+     * variance is 558 against our 163 — the plate's foreground has *more* detail
+     * than ours while having no grass geometry in it, because its detail is
+     * tonal (sun, wear, the track) rather than a mat of 250 objects per square
+     * metre averaging to one flat green.
+     *
+     * So this layer stops trying to be a hedge and goes back to being turf:
+     * 160/m² at 0.055–0.10 m, i.e. shorter than the far field rather than taller,
+     * which is what a mown lawn actually does in perspective (the near blades
+     * subtend more, so they need *less* height to cover the same screen area).
+     * It is also the largest fill-rate saving available on this stage — these are
+     * the blades that cover the bottom of a 1080p frame at two metres — and the
+     * capture budget is what pays for the bed behind them.
+     */
+    plant(buildGrassField, 0, 4.2, {
+      preset: 'lawn', radius: 3.2, count: 5200, falloff: 0.25, distanceGrowth: 0.35,
+      // Capped so the tallest draw — the range's top times the builder's 1.4 ×
+      // height variance — is 0.14 m, which at the 2.2 m the frustum's lower edge
+      // meets the ground is 9% of frame height: a texture on the floor rather
+      // than a band standing in front of it.
+      height: [0.055, 0.10],
+      mask: (x, z) => (z + 4.2 > LAWN_NEAR_LIMIT ? 0 : this._floraMask(x, z + 4.2)),
     });
 
     // --- ground cover, in front of and around the line ----------------------
@@ -1529,8 +1811,25 @@ export class LookdevScene extends Scene {
     // is exactly what ours did. Same near cut-off as the lawn, for the same
     // reason.
     plant(buildGroundCover, 0, 2.0, {
-      radius: 13, count: 1400, size: [0.16, 0.36], falloff: 0.5,
+      radius: 13, count: 1500, size: [0.12, 0.26], falloff: 0.5,
       mask: (x, z) => (z + 2.0 > LAWN_NEAR_LIMIT ? 0 : this._floraMask(x, z + 2.0)),
+    });
+    // The same species again, over the near disc only, and *smaller* here rather
+    // than larger.
+    //
+    // A rosette is the cheapest coverage in the module — five broad leaves laid
+    // almost flat, so one hides roughly its own footprint of ground where a blade
+    // hides a stroke — and at 0.24–0.46 m that footprint is the size of a
+    // character's head. Two metres from the lens the shipped drift resolved as
+    // discrete palm-shaped leaves scattered over the bottom of frame, which is a
+    // *species* the plate's foreground does not contain; the mottling this layer
+    // exists to supply is a patch-scale value break, and it only reads as one
+    // while the individual leaf stays under the eye's resolution. 0.13–0.24 m at
+    // 170/m² is that break; the count halves with the size because the two
+    // multiply into the same covered area.
+    plant(buildGroundCover, 0, 4.0, {
+      radius: 3.6, count: 700, size: [0.13, 0.24], falloff: 0.3,
+      mask: (x, z) => (z + 4.0 > LAWN_NEAR_LIMIT ? 0 : this._floraMask(x, z + 4.0)),
     });
 
     // --- the bed -----------------------------------------------------------
@@ -1597,9 +1896,46 @@ export class LookdevScene extends Scene {
     // scattered correctly and then planted underneath the plant they were meant
     // to punctuate. The count comes up with the height, because a red accent
     // that appears once per 30 lavender is not an accent, it is a blemish.
+    //
+    // **Height 0.52–1.10 m, not 0.66–0.92.** A uniform draw over a 26 cm range
+    // has a standard deviation of 7.5 cm, so 400 flowers all arrive within a
+    // hand's width of each other and the bed's tulips ship as a *stripe*: a
+    // horizontal red line across the frame at one screen row, which is what the
+    // capture shows and is the same defect the lavender's height tiers were
+    // added to fix. The plate's tulips run from below the lavender's basal
+    // foliage to level with its racemes, so the range is opened to cover that
+    // and the band becomes a drift with depth in it.
     plant(buildTulips, 0, -1.2, {
-      radius: 7.5, count: 420, height: [0.66, 0.92], mask: behindLine(-1.2),
+      radius: 7.5, count: 420, height: [0.52, 1.10], clumping: 0.72,
+      mask: behindLine(-1.2),
     });
+    /**
+     * Named tulip drifts, on top of the scattered ones.
+     *
+     * `clumping` gives the bed's tulips drifts of a *statistical* size — a dozen
+     * flowers around each of forty seeds — and that is right for the mass and
+     * wrong for the read. On the plate the tulips that carry the frame are three
+     * or four dense stands of thirty-odd heads at the bed's near edge, each one
+     * of a single colour, and it is the *saturation of a patch* that makes them
+     * legible at 18 px rather than the presence of red somewhere in the field.
+     * A random seed cannot be relied on to put one of those where the
+     * composition needs it, so the three that matter are placed.
+     *
+     * Stations are chosen against the frame: two flank the party line at the
+     * bed's front edge where a head is largest, and the third sits behind and
+     * between the two centre figures so the band has a third depth in it.
+     */
+    for (const drift of [
+      { x: -3.10, z: -1.9, n: 130, colors: [FLORA_PALETTE.TULIP_RED], weights: [1] },
+      { x: 2.60, z: -2.3, n: 120, colors: [FLORA_PALETTE.TULIP_WHITE], weights: [1] },
+      { x: -0.40, z: -3.4, n: 110, colors: [FLORA_PALETTE.TULIP_ORANGE], weights: [1] },
+    ]) {
+      plant(buildTulips, drift.x, drift.z, {
+        radius: 1.5, count: drift.n, height: [0.58, 1.12],
+        colors: drift.colors, weights: drift.weights,
+        falloff: 0.2, clumping: 0.4,
+      });
+    }
     plant(buildFlowerPatch, 0, -0.6, { radius: 8.0, count: 360, mask: behindLine(-0.6) });
     // Seed grass through the near band — the bed's top edge. See
     // `Flora.buildSeedGrass`: this is the species that stands *above* the
@@ -1625,10 +1961,18 @@ export class LookdevScene extends Scene {
     // the only thing behind the cast — grass is the exception in it, not the
     // rule. So the mass sits 2.5 m forward of where it started, at a 10 m
     // radius, and the meadow grass sharing that ground is shorter than it.
+    //
+    // Counts come down 3 200 → 2 800 across the three drifts, and the mass is
+    // *denser* for it. `Flora.buildLavender` now empties a tenth of every drift
+    // in coherent voids and draws its heights from three discrete tiers, so the
+    // same violet is delivered by fewer, more varied plants standing in a bed
+    // you can see through — which is the plate's arrangement and was the whole
+    // of the "uniform wall" finding. The 400 spikes given back pay for the near
+    // turf above.
     for (const d of [
-      { r: 10.0, n: 1400, h: [1.05, 1.35], hue: -0.55 },
-      { r: 9.0, n: 1000, h: [1.15, 1.50], hue: +0.75 },
-      { r: 11.0, n: 800, h: [0.90, 1.20], hue: +0.15 },
+      { r: 10.0, n: 1200, h: [0.95, 1.45], hue: -0.55 },
+      { r: 9.0, n: 900, h: [1.10, 1.60], hue: +0.75 },
+      { r: 11.0, n: 700, h: [0.85, 1.25], hue: +0.15 },
     ]) {
       plant(buildLavender, 0, -5.5, {
         radius: d.r, count: d.n, height: d.h, hueShift: d.hue,
@@ -1636,10 +1980,35 @@ export class LookdevScene extends Scene {
       });
     }
     plant(buildTulips, 0, -5.0, {
-      radius: 9, count: 900, height: [0.72, 1.02], mask: behindLine(-5.0),
+      radius: 9, count: 800, height: [0.62, 1.24], clumping: 0.72,
+      mask: behindLine(-5.0),
     });
     plant(buildSeedGrass, 0, -6.0, {
       radius: 10.5, count: 640, height: [1.35, 1.90], mask: behindLine(-6.0),
+    });
+    /**
+     * The bed's right-hand wing, and the last hole the sharp background exposed.
+     *
+     * The mass above is a disc about the view axis, so its reach in `ndc` *falls*
+     * with depth: at z = −5.5 an 11 m radius covers the frame edge to edge, and
+     * at z = −13 the frame is 13.6 m of half-width and the same disc has stopped
+     * three metres short of it. What shows through the gap is the bank's own
+     * grassy crest and the sky over it — measured at (1560–1900, 150–280) it
+     * reads (69, 83, 101), hue 214° / V 0.40, against the plate's (31, 56, 52) at
+     * hue 170° / V 0.22. That is the only band of the upper third still reading
+     * as daylight rather than as mass; the frame's top 200 px as a whole now
+     * matches the plate to within two code points on every channel.
+     *
+     * A wing rather than a wider mass because the correction is directional: the
+     * left half of that depth is already closed by the cherry and the massif, and
+     * growing the central disc to reach 13 m would plant nine hundred spikes
+     * behind them to place four hundred here. It takes the deep tier's colder
+     * hue, since at 20 m it is read as the same drift receding rather than as a
+     * separate bed.
+     */
+    plant(buildLavender, 10.5, -11.5, {
+      radius: 5.5, count: 460, height: [1.05, 1.55], hueShift: -0.35,
+      falloff: 0.45, foliage: 0.5, mask: behindLine(-11.5),
     });
 
     // --- foreground framing --------------------------------------------------
@@ -1663,16 +2032,42 @@ export class LookdevScene extends Scene {
     // basal leaves were an absolute height regardless of the plant's — see the
     // note on `leafScale` there. Both had to go: shrinking the drift alone would
     // have left metre-tall leaves around 30 cm flowers.)
-    plant(buildLavender, 2.10, 4.55, {
-      radius: 1.25, count: 150, height: [0.26, 0.40], hueShift: +0.6, falloff: 0.2, foliage: 0.7,
+    //
+    // ## The frame-left drift is gone, and it was the worst object in the frame
+    //
+    // Three near drifts shipped here: a violet band under the HUD at frame right,
+    // and a tulip stand with its own lavender skirt at frame left, put there on
+    // the argument that "the tulips' job is to be the frame's one readable
+    // flower". Measured on the shipped capture, that stand covered x 0 → 700 of
+    // 1920 and y 590 → 1080 — **a sixth of the whole image**, with single tulip
+    // heads 150 px across, larger than any character's head in the line and the
+    // first thing the eye lands on.
+    //
+    // The plate has nothing of the kind. Its bottom-left quadrant is open worn
+    // ground and its *only* foreground flora is a strip of lavender hard against
+    // the right edge, x 1770 → 1920, i.e. the last 8% of the width and entirely
+    // behind the HUD column. The reasoning that put the tulips at frame left is
+    // sound about depth and wrong about the reference: the plate buys its
+    // foreground depth from the track and the value falloff across the lawn, not
+    // from a flower in front of the lens, and a bed crossing in front of the
+    // party is a thing it does at frame *right* and behind the archer's knee.
+    //
+    // So both left-hand drifts go, and the remaining band is trimmed to the
+    // plate's own extent. At (2.35, 4.55) with a 0.85 m radius it spans `ndc`
+    // 0.76 → 1.0 — the right eighth, under the stack — against the 0.43 → 1.0 it
+    // covered before, which had it standing between the lens and Kite.
+    plant(buildLavender, 2.35, 4.55, {
+      radius: 0.85, count: 110, height: [0.26, 0.40], hueShift: +0.6, falloff: 0.2, foliage: 0.7,
     });
-    plant(buildTulips, 1.95, 4.40, { radius: 1.25, count: 60, height: [0.22, 0.34] });
 
     // --- trees --------------------------------------------------------------
-    // 1200 clusters, not 420. The plate's cherry is an opaque mass of blossom
-    // with the branch structure only glimpsed inside it; at 420 the armature is
-    // the read and the tree looks dead. Clusters are instanced off the branch
-    // segments they grew on, so the extra density is one draw call either way.
+    // **520 puffs and 520 loose rosettes, not 1 200 rosettes.** See
+    // `Flora.buildBlossomTree`: the canopy is now built of soft blossom clumps
+    // with a value gradient through each and the pink arriving per clump, and
+    // the petal rosettes are demoted to a fringe on their outer shells. The old
+    // count was chosen to make an *opaque* mass out of objects 4 px across,
+    // which is a way of paying 146 k triangles for a pink fog; the puffs deliver
+    // the mass and the clumped silhouette the plate has for half of that.
     //
     // Moved out to (−5.9, −6.4) and grown to 4.4 m, which is the plate's own
     // placement rather than a compromise around the encounter. Measured there,
@@ -1682,7 +2077,7 @@ export class LookdevScene extends Scene {
     // its crown past the top edge, and the creature — dark hide, 6 m nearer —
     // stands against it in the strongest value contrast in the frame.
     plant(buildBlossomTree, CHERRY.x, CHERRY.z, {
-      height: CHERRY.height, spread: CHERRY.spread, clusters: 1200,
+      height: CHERRY.height, spread: CHERRY.spread, clusters: 520, petalFringe: 520,
     });
     // The broadleaf, camera-right and behind the bed. The plate has **two** tree
     // species and we shipped one twenty-two times; this is the other, and its
@@ -1690,7 +2085,7 @@ export class LookdevScene extends Scene {
     // depth cue available in the upper third of frame. `fringe` is on because
     // this one is close enough for a leaf to be several pixels.
     plant(buildBroadleafTree, 3.6, -8.5, {
-      count: 1, height: 5.4, spread: 1.16, lobes: 6, fringe: 220,
+      count: 1, height: 5.4, spread: 1.16, lobes: 16, fringe: 220,
     });
     // Frame right used to carry a lone conifer here, and it was the least
     // plate-like object in the capture: a hard-edged 4.6 m cone of notched tiers
@@ -1702,7 +2097,30 @@ export class LookdevScene extends Scene {
     // below, at a distance where a notched silhouette reads as variety rather
     // than as a Christmas tree.
     plant(buildBroadleafTree, 6.9, -7.4, {
-      count: 1, height: 5.0, spread: 1.10, lobes: 6, fringe: 160,
+      count: 1, height: 5.0, spread: 1.10, lobes: 15, fringe: 160,
+    });
+    /**
+     * The tree that closes the top right, and the hole it closes only became
+     * visible once the background stopped being defocused.
+     *
+     * Measured on the sharp capture, the band at (1560–1900, 150–280) reads
+     * (50, 64, 95) — hue 221°, V 0.37, i.e. *sky* — where the plate's same band
+     * reads (31, 56, 52) at hue 170° and V 0.22, i.e. dense shaded foliage. The
+     * cause is geometric rather than a missing layer: the belt below scatters
+     * over a 16–17 m radius about z = −30, and at that depth the battle frustum
+     * is 24.3 m of half-width, so past `ndc` 0.7 there is no belt at all and the
+     * bank's own grassy crest and the sky above it show through. Every earlier
+     * round of belt tuning was measuring the top 200 px as one number, which
+     * averages that corner away.
+     *
+     * A tree rather than more lavender because of where the hole is: at 20 m out
+     * the band sits 2.6–4.0 m above the ground, and the bed's tallest raceme is
+     * 1.6. Only a crown reaches it. One at (11.0, −13.5) spans `ndc` 0.62 → 1.05
+     * with its canopy from y 120 to y 330, which covers the measured gap and
+     * runs off the right edge as the plate's own right-hand foliage does.
+     */
+    plant(buildBroadleafTree, 11.0, -13.5, {
+      count: 1, height: 5.6, spread: 1.22, lobes: 14, fringe: 120,
     });
     // The belt. A 34 m scatter about z = −27 reached forward to z = +7, i.e.
     // to within a metre of the lens, and the first capture duly shipped conifers
@@ -1739,9 +2157,18 @@ export class LookdevScene extends Scene {
     // of the most expensive geometry on the stage given back toward the lawn
     // density below. (8 + 8 was tried first and went too far the other way; the
     // sky fraction of the top 200 px came back at 25% against the plate's 11%.)
-    plant(buildConiferTree, 0, -30, { count: 10, radius: 16, height: 7.0 });
+    //
+    // The radii come out to 20 and 22 from 16 and 17, and the broadleaf count
+    // with them, for the reason recorded on the mid-right tree above: at z = −30
+    // the frame is 24.3 m of half-width and a 16 m scatter simply does not reach
+    // the frame's outer sixth on either side. Widening rather than adding is
+    // what keeps this affordable — the same 10 conifers over a 57% larger disc
+    // are the same geometry and the same three draw calls, and the belt's job is
+    // to be a lid rather than a wood, so the density it loses in the middle is
+    // density the bank and the massif were already covering.
+    plant(buildConiferTree, 0, -30, { count: 10, radius: 20, height: 7.0 });
     plant(buildBroadleafTree, 1.5, -29, {
-      count: 10, radius: 17, height: 6.4, spread: 1.20, lobes: 5, fringe: 0,
+      count: 13, radius: 22, height: 6.4, spread: 1.20, lobes: 12, fringe: 0,
     });
 
     // --- rock ---------------------------------------------------------------
@@ -1799,14 +2226,14 @@ export class LookdevScene extends Scene {
     // 200 px measured 25% against the plate's 11%. A massif has to be wide enough
     // to be the lid as well as dense enough to be a pile.
     plant(buildBoulderCluster, -1.8, -17.4, {
-      count: 9, radius: 6.2, size: 7.4, chips: 22, tint: ROCK_TINT,
+      count: 9, radius: 6.2, size: 7.4, chips: 22, tint: ROCK_TINT, crease: 0.050,
     });
     // The right-hand outcrop, same treatment: 4 interlocking blocks rather than
     // 5 loose ones. It sits behind the broadleaf and only its shoulder is ever
     // in frame, so it is sized to read as *more of the same formation* seen past
     // a tree rather than as a second, smaller, separate pile.
     plant(buildBoulderCluster, 9.5, -16, {
-      count: 4, radius: 3.0, size: 6.0, chips: 12, tint: ROCK_TINT,
+      count: 4, radius: 3.0, size: 6.0, chips: 12, tint: ROCK_TINT, crease: 0.050,
     });
     // Mid-ground rock, half-buried in the bed either side of the line.
     //
@@ -1819,20 +2246,116 @@ export class LookdevScene extends Scene {
     // spends most of its time in. `size` 2.4 measures ~1.4 m of block, i.e. a
     // head over the lavender it sits in and a head under the party's own
     // silhouettes at that depth.
-    plant(buildBoulderCluster, -2.8, -4.9, {
-      count: 4, radius: 2.2, size: 2.4, chips: 10, tint: ROCK_TINT,
-    });
-    plant(buildBoulderCluster, 5.1, -5.6, {
-      count: 3, radius: 1.8, size: 2.0, chips: 8, tint: ROCK_TINT,
-    });
-    // The plate keeps a few loose stones on the mown grass in the near corners.
-    // Small enough to be scale cues rather than props.
-    plant(buildBoulderCluster, 4.2, 5.0, {
-      count: 3, radius: 1.1, size: 0.42, chips: 10, tint: ROCK_TINT,
-    });
-    plant(buildBoulderCluster, -5.0, 4.2, {
-      count: 2, radius: 0.9, size: 0.36, chips: 8, tint: ROCK_TINT,
-    });
+    //
+    // **Five stations, not two, and every one of them mossed.** Two clusters at
+    // one depth read as a matched pair of props; the plate's mid-ground rock is
+    // a *scatter* — blocks at four or five different depths and sizes with
+    // flowers growing between them, so the eye is given a stepped run of scale
+    // references from the party's own depth back to the wall. The moss is what
+    // ties them to the meadow: every one of these has grass growing at its foot
+    // and a green wash on its crown, which is the relationship
+    // `Flora.creaseFacets` was written for and the reason grey rock at 5 m no
+    // longer reads as dropped-in card.
+    //
+    // **Sized to crest the bed, and stationed in the gaps between figures.**
+    // `size: 2.4` measures ~1.4 m of block and the lavender standing around it
+    // runs to 1.6, so the first pass buried every mid-ground boulder it planted:
+    // the capture has flowers where the rock is and no rock anywhere. 3.2–3.6
+    // measures 1.9–2.1 m, a head clear of the tallest raceme and still a head
+    // under the party's own silhouettes at that depth, which is the relationship
+    // the plate shows.
+    //
+    // The stations are solved in `ndc` rather than in metres. At the bed's depth
+    // the frame is 8.2 m of half-width, and the four figures centre at −0.52,
+    // −0.18, +0.15 and +0.49 — so the gaps the eye can actually see through are
+    // at −0.35 and +0.32, which is where the two near clusters go. A boulder
+    // directly behind a figure is a boulder nobody will ever know was built.
+    for (const r of [
+      { x: -2.90, z: -4.9, n: 4, radius: 2.2, size: 2.9, chips: 10 },
+      { x: 2.70, z: -5.6, n: 3, radius: 1.9, size: 2.6, chips: 8 },
+      // Deeper, and in the one gap the left of the frame has: the creature's
+      // silhouette ends at `ndc` −0.64 and Auren's begins at −0.63, and this
+      // lands at −0.65 and 20 m out, so it fills the seam between them with a
+      // mass at a third station rather than standing behind either.
+      { x: -8.50, z: -12.5, n: 3, radius: 2.4, size: 4.0, chips: 8 },
+      { x: 6.60, z: -9.0, n: 2, radius: 1.6, size: 2.6, chips: 6 },
+    ]) {
+      plant(buildBoulderCluster, r.x, r.z, {
+        count: r.n, radius: r.radius, size: r.size, chips: r.chips, tint: MID_ROCK_TINT,
+        // Chips stay inside their own cluster's footprint. `buildBoulderCluster`
+        // defaults `chipRadius` to `radius * 3`, which is right for a massif
+        // standing alone on open ground and wrong for a boulder half-buried in a
+        // flower bed 5 m behind a party: at 3 × the (−2.9, −4.9) cluster throws
+        // slivers forward to z = +1.7, i.e. out of the bed and onto the mown
+        // lawn between the figures. Measured on the capture, two of them landed
+        // at (−1.67, −0.23) and (1.29, −0.23) and rendered as 70 px blue slabs
+        // lying on grass between Auren and Emrys and between Seren and Kite —
+        // the same near-level-facet sky reflection the near stones were cut for,
+        // arriving by a different route. Inside the bed the lavender covers them
+        // and they do what they are for: breaking the block's foot into rubble.
+        chipRadius: r.radius * 1.2,
+        // Deeper creasing than the far massif's default. Crease depth is a
+        // fraction of the block, so a 2 m mid-ground boulder gets 8 cm of relief
+        // at the default against the massif's 22 cm — and it sits at a third of
+        // the distance, where the eye is actually reading the surface rather
+        // than the mass. 0.045 puts both at roughly the same number of pixels
+        // of step, which is what "the same rock, nearer" has to mean.
+        crease: 0.045,
+      });
+    }
+    /**
+     * Loose stones on the mown grass, as the plate keeps them — small enough to
+     * be scale cues rather than props.
+     *
+     * They take {@link NEAR_STONE_TINT} rather than {@link ROCK_TINT} and a
+     * quarter of the moss, and both are the same correction. `ROCK_TINT` is
+     * solved for a massif standing 18 m out in its own aerial haze: it is a
+     * *cool blue-grey*, and that is right there and wrong at four metres, where
+     * the same stone is in direct sun with a green lawn bouncing into its
+     * undersides. Measured on the capture, a 20 cm block at (−2.9, 3.2) came
+     * back as a 67 px lozenge at hue 213° sitting on grass at hue 92° — the only
+     * blue object below the horizon, and the first thing the eye finds in the
+     * near lawn.
+     *
+     * They also shrink by a quarter. A scale cue works by being *unremarkable*;
+     * at 0.42 the largest of them was reading as a boulder that had rolled into
+     * the foreground.
+     */
+    // The corners and the party's own depth, and *not* the bottom centre. A
+    // 17 cm block at (0.8, 4.9) sits 2.4 m from the lens on the frame's vertical
+    // axis, where it is 60 px of flat blue-grey lozenge in the middle of the
+    // bottom edge — measured on the capture, the single most conspicuous object
+    // in the near lawn and the only thing in it that is not green. A scale cue
+    // belongs where the eye is already travelling, not where it lands first.
+    //
+    // ## Two stations, and no chips inside four metres
+    //
+    // The station at (−2.9, 3.2) shipped the same defect the paragraph above
+    // moved a stone out of the bottom centre to avoid, and moving it was not
+    // enough. Measured on the capture it renders a 170 × 55 px lozenge centred
+    // at `ndc` −0.80 reading **(64, 99, 168)** — a saturated cornflower blue on
+    // a lawn at hue 131°, and *bluer and brighter than the tint it was given*.
+    // `NEAR_STONE_TINT` is a warm grey and it cannot produce that, so the colour
+    // is not albedo: a near-level facet four metres from the lens returns the
+    // zenith straight down the barrel, and at this scene's probe intensity that
+    // reflection out-runs the diffuse. No albedo correction reaches it.
+    //
+    // The two mid-frame stations are therefore dropped, and `chips` with them —
+    // `createStoneChipGeometry` builds a slab a quarter as tall as it is long,
+    // which is the shape most likely to present exactly that facet. What is left
+    // is the plate's own arrangement: a couple of small pale stones out at the
+    // frame's lower corners, the largest 0.24 m, far enough off axis that the
+    // reflected direction is meadow rather than sky, and small enough that the
+    // eye reads them as ground litter rather than as props.
+    for (const s of [
+      { x: 4.2, z: 5.0, n: 3, radius: 1.1, size: 0.24 },
+      { x: -5.0, z: 4.2, n: 2, radius: 0.9, size: 0.21 },
+    ]) {
+      plant(buildBoulderCluster, s.x, s.z, {
+        count: s.n, radius: s.radius, size: s.size, chips: 0,
+        tint: NEAR_STONE_TINT, moss: 0.25,
+      });
+    }
 
     this.scene.add(group);
     this.meadow = group;
@@ -1858,8 +2381,9 @@ export class LookdevScene extends Scene {
    */
   _floraMask(x, z) {
     if (z > FLORA_FRONT_EDGE && z < STAGE.camZ + 1.0) {
-      // In front of the bed line: only the lawn lives here, and only off-path.
-      return 1 - this._pathness(x, z);
+      // In front of the bed line: only the lawn lives here, and it thins over
+      // the track rather than stopping at it — see {@link PATH_GRASS_SURVIVAL}.
+      return 1 - this._pathness(x, z) * (1 - PATH_GRASS_SURVIVAL);
     }
     if (z >= STAGE.camZ + 1.0) return 0; // behind the lens
     return 1;
@@ -1868,11 +2392,12 @@ export class LookdevScene extends Scene {
   /**
    * How much of the dirt path covers `(x, z)`, 0 → 1.
    *
-   * A half-plane in the ground with a 1.2 m feather, oriented to enter the
-   * bottom-left corner of the battle frame and leave at the left edge — which
-   * is where the plate's path runs and, not coincidentally, the one part of the
-   * floor no figure stands on. Shared by the ground's vertex colour and by the
-   * grass mask so the bare patch and the painted patch are the same patch.
+   * A feathered band in the ground (not a half-plane — see {@link PATH}, which
+   * owns both edges), oriented to enter the bottom-left corner of the battle
+   * frame and leave at the left edge, which is where the plate's track runs and,
+   * not coincidentally, the one part of the floor no figure stands on. Shared by
+   * the ground's fragment colour and by the grass mask, so the worn patch and
+   * the painted patch are the same patch.
    */
   _pathness(x, z) {
     const t = (z - PATH.z0) * PATH.dz - (x - PATH.x0) * PATH.dx;
@@ -2220,7 +2745,34 @@ export class LookdevScene extends Scene {
       // deliberately untouched, so the value the paragraph above solved for does
       // not move. Saturation lands at 0.44 — the plate's own, measured.
       uLawnColor: { value: new THREE.Color(0x939855) },
-      uPathColor: { value: new THREE.Color(0xd8c096) },
+      /**
+       * The track, brought down to **1.23 × the lawn's luminance** from 1.39 ×.
+       *
+       * The measurement this was authored from — the plate's track at p90
+       * `#ae9d79` — is still the target and is unchanged; what was wrong is that
+       * a p90 was being used as the albedo for a surface whose *whole* visible
+       * area sits in the frame's brightest, most open region. Against a lawn
+       * albedo of `#939855` the old value put the track two thirds of a stop
+       * up, so the corner it occupies was the lightest thing below the horizon
+       * and the eye read it as the frame's subject. On the plate the same
+       * relationship is barely a third of a stop: its path is *warmer* than the
+       * grass, and only marginally brighter.
+       *
+       * The hue is untouched — the warm/cool split between track and lawn is
+       * the read, and it is the one this stage got right first time.
+       *
+       * **`0xd8b489`, and the paragraph above was tuning against a track that
+       * was not on screen.** It reasons entirely from a comparison with the lawn
+       * *albedo*, which is the wrong comparison: what the eye judges is the
+       * rendered corner, and until {@link PATH} was re-solved onto the plate's
+       * own boundary no capture had one. With the band in frame the corner reads
+       * (123, 134, 105) — hue 83°, V 0.53, green still the dominant channel —
+       * against the plate's (167, 148, 112) at hue 39° and V 0.65. The lift is
+       * spent almost entirely on red (1.14 ×) with a touch on green (1.07 ×) and
+       * none on blue, which is what turns a pale green-grey into bleached earth
+       * rather than simply making it brighter.
+       */
+      uPathColor: { value: new THREE.Color(0xd8b489) },
       // Nominal 0.32 and swing 0.55, down from 0.35 / 0.85.
       //
       // The swing is what the eye was reading as *blotches*: at 0.85 the fBm
@@ -2648,17 +3200,20 @@ ${shader.fragmentShader}`
       // hand-off has to follow it. A station pose leaves the target cleared,
       // which is correct — its focal plane is a place in the world, not a face.
       //
-      // `bokeh` is the third argument and closing the aperture is not a
-      // substitute for it. `DofPass` carries a *far-field floor* — a guaranteed
-      // 9.2 px of background defocus that ramps in over three depth doublings
-      // past the focal plane, independent of the f-number — so an f/22 stage
-      // still ships a soft cherry tree at 12 m, which is exactly what the first
-      // capture of this staging showed. Passing 0 zeroes both the physical CoC
-      // and that floor, which `PostFX` documents as the way a scene that wants
-      // a genuinely sharp stage asks for one. The plate is sharp from the
-      // near boots to the far boulders, so the meadow poses ask for it and the
-      // portrait — the one frame that wants its background gone — does not.
+      // `bokeh` is the third argument and it is only half the lens now. It
+      // scales the *physical* CoC — the near field, the highlight discs, the
+      // softening of anything at subject depth — and `PostFX` has split the
+      // far-field floor off it into `setBackgroundDefocus`, because the two
+      // answer different questions and every pose in this table wants a
+      // different pair of answers. `bokeh: 0` alone therefore no longer buys a
+      // sharp background, and until `defocus` existed every meadow pose here
+      // was silently shipping the full authored 10.3 px of it.
+      //
+      // Undefined means 1 — the authored atmosphere — so a pose that has not
+      // thought about its background gets PostFX's own composition rather than
+      // an accidental sharp horizon.
       postfx.setDof(solved.focus, pose.aperture, pose.bokeh);
+      postfx.setBackgroundDefocus(pose.defocus ?? 1);
       if (solved.focusTarget) postfx.focusOn(solved.focusTarget);
       postfx.setGrade(pose.grade ?? 'battle', 0);
     }

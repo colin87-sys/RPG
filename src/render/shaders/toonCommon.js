@@ -708,14 +708,29 @@ float awToonStreakShape( const in float lobe ) {
  * Fed 'nonPerturbedNormal' rather than 'normal', so a normal map on a prop can
  * never be read as a crease; the character classes carry none by construction.
  */
-float awToonCreaseAmount( const in vec3 n, const in vec3 viewPos,
+/**
+ * The two screen-space gradients both tests are read from, computed **once**.
+ *
+ * 'x' is the normal's turn across one quad and 'y' the surface's travel across
+ * the same quad. Split out from the test below because metal asks the question
+ * twice — once for the edge wear and once for the ink line, at different
+ * thresholds — and six 'dFdx'/'dFdy' pairs per fragment is not a thing to pay
+ * twice on a CPU rasteriser.
+ *
+ * Must be evaluated in uniform control flow, which is why it is called once at
+ * the top of the composite rather than inside either '#ifdef' that uses it.
+ */
+vec2 awToonCreaseGradients( const in vec3 n, const in vec3 viewPos ) {
+
+  return vec2( length( fwidth( n ) ), max( length( fwidth( viewPos ) ), 1e-5 ) );
+
+}
+
+float awToonCreaseAmount( const in vec2 gradients,
                           const in vec2 angleWindow, const in vec2 curveWindow ) {
 
-  float turn = length( fwidth( n ) );
-  float travel = max( length( fwidth( viewPos ) ), 1e-5 );
-
-  return smoothstep( angleWindow.x, angleWindow.y, turn )
-    * smoothstep( curveWindow.x, curveWindow.y, turn / travel );
+  return smoothstep( angleWindow.x, angleWindow.y, gradients.x )
+    * smoothstep( curveWindow.x, curveWindow.y, gradients.x / gradients.y );
 
 }
 
@@ -780,10 +795,9 @@ float awToonCavity( const in float ndl ) {
 const vec2 WEAR_ANGLE = vec2( 0.52, 0.68 );
 const vec2 WEAR_CURVE = vec2( 60.0, 160.0 );
 
-float awToonEdgeWear( const in vec3 n, const in vec3 v,
-                      const in vec3 geoNormal, const in vec3 viewPos ) {
+float awToonEdgeWear( const in vec3 n, const in vec3 v, const in vec2 gradients ) {
 
-  float worn = awToonCreaseAmount( geoNormal, viewPos, WEAR_ANGLE, WEAR_CURVE );
+  float worn = awToonCreaseAmount( gradients, WEAR_ANGLE, WEAR_CURVE );
   float fresnel = pow( 1.0 - saturate( dot( n, v ) ), 2.0 );
 
   return worn * mix( 0.35, 1.0, fresnel );
@@ -845,9 +859,9 @@ float awToonClothTurn( const in vec3 n, const in vec3 v ) {
  * punching a black hole through the shadow side, where a fixed ink value would
  * be darker than the surface it is drawn on.
  */
-float awToonCreaseInk( const in vec3 n, const in vec3 viewPos ) {
+float awToonCreaseInk( const in vec2 gradients ) {
 
-  return awToonCreaseAmount( n, viewPos, uToonCreaseRange, uToonCreaseCurve );
+  return awToonCreaseAmount( gradients, uToonCreaseRange, uToonCreaseCurve );
 
 }
 
@@ -871,9 +885,15 @@ float awToonCreaseInk( const in vec3 n, const in vec3 viewPos ) {
  * '(1.17, 0.94, 0.70)' and tints the garment underneath rather than replacing
  * it, which is how a print sits on cloth.
  *
- * 'uToonDetailStrength' fades the whole thing toward 1.0, so a caller states how
- * loud the print is in one number and the canvas is authored once at full
- * contrast.
+ * 'uToonDetailStrength' scales the canvas's authored contrast about that
+ * neutral, so a caller states how loud the print is in one number and the canvas
+ * is drawn once at a fixed contrast. It is allowed **past 1**, up to 2, and that
+ * is not a knob left open by accident: this cast wears very dark garments (a
+ * navy panel is a linear albedo near 0.03) and a multiply is powerless on black
+ * — the same ±38% that is an obvious print on the plate's mid-valued cloth moves
+ * a navy skirt by seven code values. Extrapolating the mix widens the multiply's
+ * *range* while leaving it a multiply, so the print still tints rather than
+ * paints and a light garment is unaffected by the change.
  */
 vec3 awToonDetail() {
 
@@ -885,7 +905,9 @@ vec3 awToonDetail() {
   vec3 print = mix( texture2D( uToonDetailMap, uvFront ).rgb,
                     texture2D( uToonDetailMap, uvSide ).rgb, side );
 
-  return mix( vec3( 1.0 ), print * 2.0, clamp( uToonDetailStrength, 0.0, 1.0 ) );
+  // Clamped below at zero so an over-driven print can never invert the albedo.
+  return max( vec3( 0.0 ),
+              mix( vec3( 1.0 ), print * 2.0, clamp( uToonDetailStrength, 0.0, 2.0 ) ) );
 
 }
 
