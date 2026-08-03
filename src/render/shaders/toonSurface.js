@@ -176,16 +176,19 @@ void RE_Direct_Toon( const in IncidentLight directLight, const in vec3 geometryP
 
     #elif defined( TOON_SPEC_METAL )
 
-      // The steel glint: a Blinn lobe at a roughness clamped to 0.25 inside
-      // 'awToonMetalLobe', graded from its threshold to the mirror direction and
-      // exactly zero below it. A few pixels across on a chibi pauldron, which is
-      // the size the mark is on the plate.
+      // The steel **streak**: a Blinn lobe at a stated exponent of 120, cut by a
+      // hard threshold so the mark has a flat interior and a drawn edge. On a
+      // plate whose normal sweeps slowly along the piece and quickly across it
+      // that is a band running with the curvature — which is what every plate,
+      // greave and blade on 'bravely01.jpg' and 'bravely02.jpg' carries, and
+      // what the 510-exponent glint it replaces was too narrow to ever draw.
       //
       // It is half of what carries metal. The other half is the environment
       // reflection in 'RE_IndirectSpecular_Toon', which on the reference plates
-      // is the stronger of the two.
-      float awLobe = awToonGlintShape( awToonMetalLobe( geometryNormal, directLight.direction,
-                                                        geometryViewDir, material.roughness ) );
+      // is the stronger of the two, plus the cavity and edge-wear terms the
+      // composite applies once.
+      float awLobe = awToonStreakShape( awToonMetalLobe( geometryNormal, directLight.direction,
+                                                         geometryViewDir ) );
 
       reflectedLight.directSpecular += directLight.color * uToonSpecColor
         * ( uToonSpecGain * awLobe * awGate );
@@ -344,6 +347,67 @@ void RE_IndirectSpecular_Toon( const in vec3 radiance, const in vec3 irradiance,
 // ---- end character surface model ------------------------------------------
 `;
 
+/**
+ * Vertex-stage declarations for the hand-painted detail channel.
+ *
+ * Prepended ahead of three's own vertex source, i.e. after the renderer's define
+ * prefix, so `TOON_DETAIL_MAP` is already resolved. Only the two varyings live
+ * here: the sampler and its controls are fragment-side, and declaring an unused
+ * uniform in the vertex stage would make the two stages' uniform blocks differ
+ * for no reason.
+ */
+export const TOON_SURFACE_VERTEX_PARS = /* glsl */ `
+#ifdef TOON_DETAIL_MAP
+  varying vec3 vToonDetailPos;
+  varying vec3 vToonDetailNormal;
+#endif
+`;
+
+/**
+ * Appended after `<begin_vertex>`, which is where `position` is still the
+ * **bind-pose** object-space vertex — before `<skinning_vertex>` deforms
+ * `transformed` and before any instance or batching matrix is applied.
+ *
+ * That is the whole point of taking it here. A print projected from the *posed*
+ * position swims across the cloth as the character moves, which is the single
+ * most obvious way a procedurally projected texture gives itself away; taken
+ * from the bind pose it is welded to the garment and travels with it exactly as
+ * a UV would.
+ */
+export const TOON_SURFACE_VERTEX_POSITION = /* glsl */ `
+#ifdef TOON_DETAIL_MAP
+  vToonDetailPos = position;
+#endif
+`;
+
+/** Appended after `<beginnormal_vertex>`, for the same reason: `objectNormal`
+ *  is the bind-pose normal there, and it is only ever used to choose between the
+ *  two planar projections, which is a decision about the garment and not about
+ *  the pose. */
+export const TOON_SURFACE_VERTEX_NORMAL = /* glsl */ `
+#ifdef TOON_DETAIL_MAP
+  vToonDetailNormal = objectNormal;
+#endif
+`;
+
+/**
+ * Appended after `<color_fragment>`, i.e. the instant `diffuseColor` holds
+ * `material.color × map × vColor` and before anything reads it.
+ *
+ * Here rather than later because everything downstream is derived from
+ * `diffuseColor`: `<lights_physical_fragment>` builds `material.diffuseColor`,
+ * `material.diffuseContribution` and — the one that matters on armour —
+ * `material.specularColorBlended`, which is what tints a metal's environment
+ * reflection. A print multiplied in after that point would sit on the diffuse
+ * and be missing from the reflection, so a worn pauldron would reflect the sky
+ * as though it were clean.
+ */
+export const TOON_SURFACE_ALBEDO = /* glsl */ `
+#ifdef TOON_DETAIL_MAP
+  diffuseColor.rgb *= awToonDetail();
+#endif
+`;
+
 /** Injection 2: per-fragment reset, immediately before the lighting loop. */
 export const TOON_SURFACE_INIT = /* glsl */ `
 awToonNdl = 0.0;
@@ -488,9 +552,45 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
   // would let '<aomap_fragment>' occlude one half of a value the placement above
   // just balanced.
   vec3 awSurface = mix( awShadeOut, awLitOut, awShape );
+
+  #ifdef TOON_METAL_SURFACE
+
+    // The recesses between plates, taken near black where the surface grazes the
+    // key. Applied to the composited surface rather than to either level, so it
+    // reads as a cavity on both sides of the terminator — the far wall of a
+    // recess is as dark as the near one. See 'awToonCavity'.
+    awSurface *= awToonCavity( awNdl );
+
+  #endif
+
+  #ifdef TOON_CLOTH_TURN
+
+    // The fold turn: a twentieth of a stop of fresnel, spent as a multiply on
+    // the garment's own colour so it can never read as the white grazing sheen
+    // the previous revision removed. See 'awToonClothTurn'.
+    awSurface *= awToonClothTurn( normal, geometryViewDir );
+
+  #endif
+
   reflectedLight.directDiffuse += awSurface;
 
-  #if defined( TOON_SPECULAR ) || defined( TOON_SHEEN )
+  #ifdef TOON_METAL_SURFACE
+
+    // Edge wear, added *before* the highlight bounds below so the two marks on a
+    // plate are budgeted together: a rolled edge that also happens to catch the
+    // streak must not sum past the ceiling and blow a hole in the armour.
+    // Weighted by the key's own radiance so worn metal goes out with the sun
+    // rather than glowing at dusk, and tinted rather than white — exposed steel
+    // under this world's sky is a cool grey, and a pure white edge on a chibi
+    // pauldron reads as a chrome rim.
+    float awWear = awToonEdgeWear( normal, geometryViewDir,
+                                   nonPerturbedNormal, geometryPosition );
+    reflectedLight.directSpecular += awToonKey * uToonWearColor
+      * ( awWear * uToonEdgeWear * RECIPROCAL_PI );
+
+  #endif
+
+  #if defined( TOON_SPECULAR ) || defined( TOON_SHEEN ) || defined( TOON_METAL_SURFACE )
 
     // ---- highlight bounds, absolute then relative --------------------------
     // The highlight is accumulated per light inside 'RE_Direct_Toon', which
@@ -617,5 +717,31 @@ export const TOON_SURFACE_COMPOSITE = /* glsl */ `
   // at rest: 'uToonPulse' defaults to black and the whole term collapses.
   vec3 awPulse = uToonPulse * ( 0.5 + 0.5 * sin( uToonTime * uToonPulseRate ) );
   reflectedLight.directSpecular += awPulse * ( 0.35 + 0.65 * awRim );
+
+  #ifdef TOON_CREASE_INK
+
+    // ---- interior line work, last ------------------------------------------
+    // Ink along a plate border, a belt edge, a boot top or a fold ridge — every
+    // place two faces of the costume meet at more than 55°, which
+    // 'awToonCurvature' finds as a value an order of magnitude above anything a
+    // chibi's own roundness produces. `render/Outline.js` draws the *silhouette*
+    // as an inverted hull and owns this line's constants; it does not own its
+    // geometry, because the ribbon-per-edge version of the same pass costs about
+    // twenty thousand triangles per character and the capture harness renders on
+    // CPU SwiftShader. See 'awToonCreaseInk'.
+    //
+    // Applied to every accumulator rather than to the diffuse alone, and applied
+    // after the rim and the pulse: a line that the specular streak or the back
+    // light could draw over would break exactly where a plate's border catches
+    // the sun, which is the one border a viewer is looking at.
+    float awInk = mix( 1.0, clamp( uToonCreaseInk, 0.0, 1.0 ),
+                       awToonCreaseInk( awToonCurvature( nonPerturbedNormal, geometryPosition ) ) );
+
+    reflectedLight.directDiffuse *= awInk;
+    reflectedLight.indirectDiffuse *= awInk;
+    reflectedLight.directSpecular *= awInk;
+    reflectedLight.indirectSpecular *= awInk;
+
+  #endif
 }
 `;

@@ -130,16 +130,22 @@
  * OWNED BY: render/ToonMaterial.js.
  */
 import * as THREE from 'three';
+import { Rng } from '../core/GameState.js';
 import { LIGHT, SURFACE_TINT, MIN_SHADOW_SATURATION, luminance } from '../art/Palette.js';
 import {
   TOON_SURFACE_PARS,
   TOON_SURFACE_INIT,
+  TOON_SURFACE_ALBEDO,
   TOON_SURFACE_COMPOSITE,
+  TOON_SURFACE_VERTEX_PARS,
+  TOON_SURFACE_VERTEX_NORMAL,
+  TOON_SURFACE_VERTEX_POSITION,
 } from './shaders/toonSurface.js';
 import {
   OUTLINE_DEFAULTS,
   buildOutline,
   createOutlineMaterial,
+  creaseInk,
   disposeOutline,
   outlineColorFor,
 } from './Outline.js';
@@ -204,6 +210,420 @@ function toVec2(v, fallback) {
   if (Array.isArray(v)) return new THREE.Vector2(v[0], v[1]);
   if (v && typeof v === 'object') return new THREE.Vector2(v.x ?? fallback.x, v.y ?? fallback.y);
   return fallback.clone();
+}
+
+/* -------------------------------------------------------------------------- */
+/* Hand-painted detail maps                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The paint department for character surfaces.
+ *
+ * ## Why this exists at all, given the rule
+ *
+ * ANIME_PIPELINE forbids procedural detail on a character and the ban is right:
+ * every `normalMap` / `roughnessMap` / `aoMap` in this project comes from
+ * `AssetForge`'s fBm generators, and fBm on a costume reads as dirt. But the
+ * review's second root cause is that the ban was written as "no texture maps on
+ * characters", and that is a different and much larger claim — one the plates
+ * contradict on nearly every figure they contain:
+ *
+ * | plate | surface | what is painted into it |
+ * |---|---|---|
+ * | `bravely01.jpg` | Gloria's skirt | a full-colour printed plaid, magenta / teal / ochre, motifs 15–30 px across |
+ * | `bravely01.jpg` | Elvis's wine coat | a rose damask embroidered down the front panel and the skirt, one value above the ground |
+ * | `bravely01.jpg` | Adelle's dress | an iridescent print under a drawn net overlay |
+ * | `bravely01.jpg` | Seth's plate | mottled worn albedo — the lit faces are not one value, they are a rubbed grey |
+ * | `bravely05.jpg` | the ninja's straps | painted wear along every leather edge |
+ *
+ * Ours carry one flat vertex colour per zone, which is what "felt-doll costumes"
+ * names. So the ban is kept where it was earned and narrowed to what it was
+ * actually about: **no procedural noise touches a character**, and the fBm slots
+ * stay dropped on every `flat` class. Authored canvases — drawn shapes, painted
+ * by this module, with no noise function anywhere in them — arrive through a
+ * channel of their own and are permitted.
+ *
+ * ## What is drawn
+ *
+ * Everything here is canvas 2D drawing calls: stripes, lattices, rosettes,
+ * strokes, nicks. There is deliberately no value-noise, no fBm and no per-texel
+ * hash in the file, which is what makes the distinction above enforceable by
+ * reading rather than by trusting a comment.
+ *
+ * ## The encoding, and why it is not sRGB
+ *
+ * The map is a **multiplier on albedo**, not an albedo, so it is written linear
+ * and centred on 128: `awToonDetail` doubles the sample, so mid grey is exactly
+ * 1.0 and changes nothing. That is what lets one channel both darken (a woven
+ * ground) and lighten (a highlight thread) around a neutral, and carry hue while
+ * it does — a warm ochre motif returns roughly `(1.17, 0.94, 0.70)` and tints
+ * the garment underneath instead of replacing it, which is how a print sits on
+ * cloth. Tagging it sRGB would decode 128 to 0.216 and the neutral would go
+ * dark; `THREE.NoColorSpace` is not a shortcut here, it is the correct tag for a
+ * texture holding numbers rather than colour.
+ */
+const DETAIL_SIZE = 256;
+
+/** The byte that multiplies a surface by exactly 1. Everything is drawn around
+ *  it, so an unpainted texel is invisible rather than merely subtle. */
+const DETAIL_NEUTRAL = 128;
+
+/**
+ * One texture per style, shared by every material that asks for it.
+ *
+ * Sharing is safe because these are immutable and identical by construction, and
+ * it is what keeps the cost of the whole feature at three canvases for the game
+ * rather than one per garment piece per character. Released by
+ * {@link disposeToonDetailMaps}.
+ */
+const _detailTextures = new Map();
+
+/** OffscreenCanvas keeps generation off the DOM; the fallback exists only for
+ *  environments that predate it. Same idiom as `art/Textures.js`. */
+function detailCanvas() {
+  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(DETAIL_SIZE, DETAIL_SIZE);
+  const c = document.createElement('canvas');
+  c.width = DETAIL_SIZE;
+  c.height = DETAIL_SIZE;
+  return c;
+}
+
+/** A neutral-relative grey, as a CSS colour. `d` is signed: negative darkens the
+ *  surface, positive lightens it. */
+function detailGrey(d) {
+  const v = Math.round(THREE.MathUtils.clamp(DETAIL_NEUTRAL + d, 0, 255));
+  return `rgb(${v},${v},${v})`;
+}
+
+/** A tinted multiplier, stated as a signed offset per channel from neutral. */
+function detailTint(dr, dg, db) {
+  const c = (d) => Math.round(THREE.MathUtils.clamp(DETAIL_NEUTRAL + d, 0, 255));
+  return `rgb(${c(dr)},${c(dg)},${c(db)})`;
+}
+
+/**
+ * Draw one motif at all nine wrapped positions so the canvas tiles seamlessly.
+ *
+ * Every mark this module stamps is drawn with a *solid* colour and no alpha,
+ * which makes the eight redundant copies idempotent — the alternative,
+ * clipping each motif against the canvas edge and redrawing the remainder, is
+ * far more code for a texture that is built three times per session.
+ */
+function stampWrapped(ctx, x, y, draw) {
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      ctx.save();
+      ctx.translate(x + dx * DETAIL_SIZE, y + dy * DETAIL_SIZE);
+      draw(ctx);
+      ctx.restore();
+    }
+  }
+}
+
+/**
+ * The woven ground every cloth print sits on.
+ *
+ * A twill: two diagonal passes an offset apart, one below neutral and one above,
+ * so the fabric has a direction. The period divides 256 exactly and the diagonal
+ * has slope 1, so the pattern wraps in both axes with no seam.
+ *
+ * It is the quietest thing in the file on purpose — at `±contrast` of five or
+ * six byte values it survives as a texture on a garment and disappears entirely
+ * as a pattern, which is what separates woven cloth from a printed one.
+ */
+function paintTwill(ctx, contrast) {
+  ctx.lineWidth = 1;
+  for (let i = -DETAIL_SIZE; i < DETAIL_SIZE * 2; i += 8) {
+    ctx.strokeStyle = detailGrey(-contrast);
+    ctx.beginPath();
+    ctx.moveTo(i, -DETAIL_SIZE);
+    ctx.lineTo(i + DETAIL_SIZE * 2, DETAIL_SIZE);
+    ctx.stroke();
+    ctx.strokeStyle = detailGrey(contrast);
+    ctx.beginPath();
+    ctx.moveTo(i + 3, -DETAIL_SIZE);
+    ctx.lineTo(i + 3 + DETAIL_SIZE * 2, DETAIL_SIZE);
+    ctx.stroke();
+  }
+}
+
+/**
+ * A woven plaid — the read Gloria's skirt carries on `bravely01.jpg`.
+ *
+ * Warp stripes are drawn opaque, weft stripes over them at half alpha, so the
+ * crossings come out darker than either band alone. That is what a real weave
+ * does and it is the difference between a plaid and a grid of coloured lines.
+ * The band widths sum to exactly 256 so the sequence wraps.
+ */
+const PLAID_BANDS = Object.freeze([
+  [34, [-40, -48, -26]], [10, [40, 22, -8]], [52, [0, 0, 0]], [8, [48, -8, 4]],
+  [40, [-26, -18, 0]], [14, [22, 16, -18]], [98, [0, 0, 0]],
+]);
+
+function paintPlaid(ctx) {
+  paintTwill(ctx, 5);
+
+  const run = (horizontal) => {
+    let at = 0;
+    for (const [w, tint] of PLAID_BANDS) {
+      if (tint[0] || tint[1] || tint[2]) {
+        ctx.fillStyle = detailTint(tint[0], tint[1], tint[2]);
+        if (horizontal) ctx.fillRect(0, at, DETAIL_SIZE, w);
+        else ctx.fillRect(at, 0, w, DETAIL_SIZE);
+      }
+      at += w;
+    }
+  };
+
+  run(false);
+  ctx.globalAlpha = 0.5;
+  run(true);
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * A damask lattice with a rosette at each node — Elvis's coat.
+ *
+ * Drawn one value above and one below the ground rather than in a contrasting
+ * colour, because that is what embroidery on a dark coat measures as on the
+ * plate: the roses are legible as *shape* at battle distance and as *colour*
+ * only in a closeup, which is exactly the behaviour a thread-on-cloth print has
+ * and a printed one does not.
+ */
+function paintDamask(ctx) {
+  paintTwill(ctx, 4);
+
+  const cell = 64;
+  const rosette = (c) => {
+    c.strokeStyle = detailTint(-30, -34, -22);
+    c.lineWidth = 3;
+    for (let k = 0; k < 4; k++) {
+      c.save();
+      c.rotate((k * Math.PI) / 2);
+      c.beginPath();
+      c.arc(9, 0, 8, Math.PI * 0.55, Math.PI * 1.45);
+      c.stroke();
+      c.restore();
+    }
+    c.fillStyle = detailTint(26, 20, 6);
+    c.beginPath();
+    c.arc(0, 0, 3.2, 0, Math.PI * 2);
+    c.fill();
+  };
+
+  // The lattice: a diagonal grid through the node centres, drawn before the
+  // rosettes so the flowers sit on top of the stems rather than under them.
+  ctx.strokeStyle = detailGrey(-16);
+  ctx.lineWidth = 2;
+  for (let i = -DETAIL_SIZE; i < DETAIL_SIZE * 2; i += cell) {
+    ctx.beginPath();
+    ctx.moveTo(i, -DETAIL_SIZE);
+    ctx.lineTo(i + DETAIL_SIZE * 2, DETAIL_SIZE);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(i, DETAIL_SIZE);
+    ctx.lineTo(i + DETAIL_SIZE * 2, -DETAIL_SIZE);
+    ctx.stroke();
+  }
+
+  for (let x = 0; x < DETAIL_SIZE; x += cell) {
+    for (let y = 0; y < DETAIL_SIZE; y += cell) {
+      stampWrapped(ctx, x, y, rosette);
+      stampWrapped(ctx, x + cell / 2, y + cell / 2, rosette);
+    }
+  }
+}
+
+/**
+ * Scattered floral sprigs on a half-drop grid — the printed cottons on the
+ * plate's lighter garments.
+ *
+ * The jitter comes from a `Rng` seeded from the style name, the same pattern
+ * `art/Textures.js` uses and for the same reason: a shared global stream would
+ * make the print depend on how many other things happened to be built first,
+ * and a capture has to reproduce exactly.
+ */
+function paintSprig(ctx) {
+  paintTwill(ctx, 4);
+
+  const rng = new Rng(0x5f1a33);
+  const cell = 64;
+  const sprig = (angle) => (c) => {
+    c.rotate(angle);
+    c.strokeStyle = detailTint(-22, -12, -26);
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(0, 12);
+    c.lineTo(0, -6);
+    c.stroke();
+    c.fillStyle = detailTint(34, -14, -4);
+    for (let k = 0; k < 5; k++) {
+      const a = (k * Math.PI * 2) / 5;
+      c.beginPath();
+      c.arc(Math.cos(a) * 6, Math.sin(a) * 6 - 8, 4.2, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.fillStyle = detailTint(30, 24, -18);
+    c.beginPath();
+    c.arc(0, -8, 3, 0, Math.PI * 2);
+    c.fill();
+    // Two leaves, so the motif has a direction and the grid stops reading as a
+    // grid the moment the jitter rotates it.
+    c.fillStyle = detailTint(-18, 6, -22);
+    for (const side of [-1, 1]) {
+      c.beginPath();
+      c.ellipse(side * 6, 6, 6, 2.6, side * 0.6, 0, Math.PI * 2);
+      c.fill();
+    }
+  };
+
+  for (let gx = 0; gx < DETAIL_SIZE; gx += cell) {
+    for (let gy = 0; gy < DETAIL_SIZE; gy += cell) {
+      const drop = (gx / cell) % 2 ? cell / 2 : 0;
+      stampWrapped(ctx, gx + rng.jitter(9) + 32, gy + drop + rng.jitter(9) + 32,
+        sprig(rng.range(-0.7, 0.7)));
+    }
+  }
+}
+
+/**
+ * Worn metal: the mottled albedo under a pauldron's reflection.
+ *
+ * Seth's plate on `bravely01.jpg` is not one value with a highlight on it. The
+ * lit faces run a rubbed, blotchy grey with darker weathering pooled toward the
+ * lower edge of each lame and lighter rubbed passes along the rolled ones, and
+ * that variation is *in the paint* — it survives into the shadow side, where a
+ * lighting term would not.
+ *
+ * Painted as three families of drawn marks and no noise: broad tonal bands for
+ * the weathering, long rubbed strokes across them, and small nicks. The bands
+ * are full-width and drawn once per wrapped row rather than stamped, so their
+ * solid fill cannot double up.
+ */
+function paintWear(ctx) {
+  const rng = new Rng(0x2c9b71);
+
+  for (let i = 0; i < 7; i++) {
+    const y = rng.range(0, DETAIL_SIZE);
+    const h = rng.range(10, 34);
+    ctx.fillStyle = detailGrey(-rng.range(10, 26));
+    ctx.fillRect(-4, y, DETAIL_SIZE + 8, h);
+    if (y + h > DETAIL_SIZE) ctx.fillRect(-4, y - DETAIL_SIZE, DETAIL_SIZE + 8, h);
+  }
+
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 46; i++) {
+    const x = rng.range(0, DETAIL_SIZE);
+    const y = rng.range(0, DETAIL_SIZE);
+    const len = rng.range(14, 52);
+    const angle = rng.range(-0.35, 0.35);
+    const level = rng.next() < 0.6 ? rng.range(12, 28) : -rng.range(12, 30);
+    // Every parameter is drawn from the stream *before* the stamp, never inside
+    // it: the nine wrapped copies have to be identical or the texture does not
+    // tile, and a draw inside the callback would advance the stream nine times.
+    const weight = rng.range(1.2, 3.4);
+    stampWrapped(ctx, x, y, (c) => {
+      c.rotate(angle);
+      c.strokeStyle = detailGrey(level);
+      c.lineWidth = weight;
+      c.beginPath();
+      c.moveTo(-len / 2, 0);
+      c.lineTo(len / 2, 0);
+      c.stroke();
+    });
+  }
+
+  for (let i = 0; i < 70; i++) {
+    const x = rng.range(0, DETAIL_SIZE);
+    const y = rng.range(0, DETAIL_SIZE);
+    const r = rng.range(0.8, 2.4);
+    const level = rng.next() < 0.7 ? -rng.range(16, 34) : rng.range(14, 26);
+    stampWrapped(ctx, x, y, (c) => {
+      c.fillStyle = detailGrey(level);
+      c.beginPath();
+      c.arc(0, 0, r, 0, Math.PI * 2);
+      c.fill();
+    });
+  }
+}
+
+/** Style name → painter. Adding an entry is all a new print costs. */
+const DETAIL_PAINTERS = Object.freeze({
+  twill: (ctx) => paintTwill(ctx, 6),
+  plaid: paintPlaid,
+  damask: paintDamask,
+  sprig: paintSprig,
+  wear: paintWear,
+});
+
+/**
+ * The cloth styles the `'auto'` spelling draws from, and their weights come from
+ * the plate: of the four figures on `bravely01.jpg`, one carries a loud printed
+ * plaid, one an embroidered damask, one a subtler print and one is plain woven
+ * cloth. Repeating `twill` is that ratio — a party where every garment carries a
+ * motif is as wrong as one where none does.
+ */
+const CLOTH_DETAIL_STYLES = Object.freeze(['plaid', 'damask', 'twill', 'sprig', 'twill']);
+
+/**
+ * FNV-1a over the material's name.
+ *
+ * A hash rather than a draw from `GameState`'s shared `rng`, deliberately: which
+ * print a garment carries has to be a property of *that garment*, stable across
+ * runs and independent of how many other materials happened to be built before
+ * it. A shared stream would repaint the whole cast the day someone reorders
+ * character construction, and a capture would stop reproducing.
+ */
+function hashName(name) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/**
+ * A painted detail map, built once per style and cached.
+ *
+ * @param {string} style key into `DETAIL_PAINTERS`.
+ * @returns {THREE.CanvasTexture|null} null for an unknown style, so a typo
+ *   costs a plain garment rather than a crash on the first frame.
+ */
+export function toonDetailTexture(style) {
+  const painter = DETAIL_PAINTERS[style];
+  if (!painter) return null;
+
+  const hit = _detailTextures.get(style);
+  if (hit) return hit;
+
+  const canvas = detailCanvas();
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = detailGrey(0);
+  ctx.fillRect(0, 0, DETAIL_SIZE, DETAIL_SIZE);
+  painter(ctx);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  // Numbers, not colour: see the section header. An sRGB tag would decode the
+  // neutral 128 to 0.216 and darken every surface that carries a print.
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = true;
+  texture.name = `toon:detail:${style}`;
+  texture.needsUpdate = true;
+
+  _detailTextures.set(style, texture);
+  return texture;
+}
+
+/** Release every cached detail map. Safe to call at scene teardown; the next
+ *  request rebuilds. */
+export function disposeToonDetailMaps() {
+  for (const texture of _detailTextures.values()) texture.dispose();
+  _detailTextures.clear();
 }
 
 /* -------------------------------------------------------------------------- */

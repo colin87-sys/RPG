@@ -1805,6 +1805,72 @@ function hairSeed(id) {
 }
 
 /**
+ * The silhouette flare: how far past the skull a style throws its outer clumps,
+ * and which way its flow field combs them.
+ *
+ * ### Why every style gets one
+ *
+ * The style branches in `buildHair` put a character's *mass* in six different
+ * places, and the pair check proves they do not collide. What none of them
+ * produced was an **edge**: every clump was bedded onto the shell within a few
+ * per cent of a head radius, so the outermost surface on every head was the
+ * revolved scalp cover, and the outline of six different hairdos was the same
+ * smooth dome. The plates are unambiguous that this is the wrong construction —
+ * `bravely05.jpg`'s ninja is nothing but overlapping tapered wedges whose points
+ * stand a third to two thirds of a head radius clear of the skull, with daylight
+ * between them, and `bravely01.jpg`'s four heads all break their own dome the
+ * same way at the temples and the nape. A cap with a highlight on it is a
+ * swimming cap however the highlight is shaded.
+ *
+ * So the flare is a layer over the style rather than a property of one: ten to
+ * fourteen wedges rooted just above the hairline, combed along the style's own
+ * flow direction, and ending in a genuine point outside the skull. `reach` is in
+ * head radii and is what breaks the outline; `drop` hangs the tips so they read
+ * as hair falling rather than as a starburst; `rake` is the azimuthal comb, the
+ * flow field's one parameter, and it is what makes a flare *directional* — the
+ * difference between a hairstyle and a sea urchin.
+ *
+ * The numbers keep each style's existing read. `swept` rakes hard backwards and
+ * reaches furthest at the nape; `bob` flicks its ends out at the jaw; `spike`
+ * lifts rather than drops; `beard` stays a crop; `twintail` and `topknot` are
+ * short, because their silhouette is already carried by a tail and a column and
+ * a long flare would bury both.
+ *
+ * Vertical reach is deliberately the smallest term everywhere. `auditCharacter`
+ * measures the party against the plates' 3.2–3.7 heads-tall band on the
+ * *silhouette* head, and our styles already spend most of the crown budget, so
+ * the flare buys its edge sideways and backwards — which is where the plates put
+ * it anyway.
+ */
+const HAIR_FLARE = Object.freeze({
+  swept: { count: 9, reach: 0.86, drop: 0.46, rake: -0.46, rise: 0.26, span: 2.45 },
+  twintail: { count: 10, reach: 0.80, drop: 0.62, rake: -0.12, rise: 0.20, span: 2.10 },
+  beard: { count: 10, reach: 0.74, drop: 0.42, rake: -0.26, rise: 0.22, span: 2.30 },
+  bob: { count: 9, reach: 0.70, drop: 0.72, rake: 0.18, rise: 0.14, span: 2.55 },
+  spike: { count: 10, reach: 0.98, drop: -0.16, rake: 0.32, rise: 0.42, span: 2.55 },
+  topknot: { count: 8, reach: 0.56, drop: 0.34, rake: -0.36, rise: 0.30, span: 2.20 },
+  braid: { count: 8, reach: 0.56, drop: 0.34, rake: -0.36, rise: 0.30, span: 2.20 },
+});
+
+/**
+ * The two flare layers, as multipliers on the style's own numbers.
+ *
+ * One ring of wedges is a crown, not a hairdo: rooted at one latitude and
+ * combed one way they come out as an even palisade, which at battle distance
+ * reads as a braid running round the head — a *different* wrong answer from the
+ * cap, but still one shape rather than a mass. Two rings, offset half a step in
+ * azimuth and rooted a third of a radian apart, put every outer wedge over the
+ * gap between two inner ones. That overlap is the whole point: it is what makes
+ * the negative space between tips read as depth instead of as a notch, and it
+ * is what `bravely05.jpg`'s ninja is made of — a short bedded layer against the
+ * skull with a longer, sparser layer thrown over it.
+ */
+const FLARE_LAYERS = Object.freeze([
+  { root: 0.10, spread: 0.22, reach: 0.62, width: 1.00, phase: 0.0, share: 1.0 },
+  { root: 0.36, spread: 0.30, reach: 1.10, width: 0.86, phase: 0.5, share: 0.7 },
+]);
+
+/**
  * Sweep one hair clump along its spine, framed by the **skull** rather than by
  * parallel transport.
  *
@@ -2292,7 +2358,7 @@ function buildHair(parts, m, def, pal) {
     const spine = bandSpine(smoothPath(pts, o.seg ?? 13), o.band?.[0] ?? 2, o.band?.[1] ?? 2);
     clumpSweep(
       target, h, spine.path, comb(o.theta + (o.runTheta ?? 0) * 0.5),
-      (i) => w * prof(spine.t[i]), (i) => th * prof(spine.t[i]), SECTIONS.clump(14),
+      (i) => w * prof(spine.t[i]), (i) => th * prof(spine.t[i]), SECTIONS.clump(o.cols ?? 14),
       (i) => target.ink(spine.lit[i] ? hairLit : hairBase),
     );
   };
@@ -2841,6 +2907,125 @@ function buildHair(parts, m, def, pal) {
       { capStart: false, capEnd: false });
   }
 
+  // ---- the silhouette flare, over every style -----------------------------
+  //
+  // See {@link HAIR_FLARE}. The construction is one loop because the failure it
+  // fixes is one failure: whatever a style does with its mass, the outermost
+  // surface on the head was the revolved shell, and a revolved shell is a cap.
+  //
+  // Each wedge roots a fifth of a radian above its own local hairline — above,
+  // so a flare can never be the thing that puts hair on a cheek — combs up and
+  // along the flow field for a third of a radian while bedded on the skull, and
+  // then leaves: the free tip is pushed out along the skull's own radial by
+  // `reach` head-radii and dropped by `drop`, with a mid control biased a little
+  // further out so the wedge bows rather than spiking straight. That bow is what
+  // makes the overlap read as layered hair instead of as a crown of thorns.
+  {
+    const fl = HAIR_FLARE[style] ?? HAIR_FLARE.swept;
+    const outward = new THREE.Vector3();
+    /**
+     * The flare may not raise the head, and the ceiling is measured rather than
+     * tuned.
+     *
+     * `auditCharacter` holds the party inside the plates' 3.2–3.7 heads-tall
+     * band on the **silhouette** head, and our styles already spend most of the
+     * crown budget — the starburst alone puts 0.33 of a skull height above the
+     * scalp. An unconstrained flare took the lead to 3.01 heads and the caster
+     * to 2.66: not "slightly tall", a different proportion, and the sort of
+     * regression that is invisible in a close-up and obvious in a lineup.
+     *
+     * So the ceiling is whatever the style itself already reached, scanned off
+     * the geometry that has been emitted so far. The flare buys its outline
+     * sideways and backwards — which is where the plates put it — and can no
+     * longer buy any of it upward, at any style, proportion or roster tuning.
+     */
+    let crownCap = h.crownY + h.ry * 0.06;
+    // A floor as well, on the same principle rather than on the same rule: the
+    // audit measures crown to chin, so the bottom is not policed, but a flare
+    // hanging below the style's own lowest hair is a spike dangling off a jaw
+    // and there is no style here that wants one.
+    let hairFloor = h.chinY - h.ry * 0.06;
+    // The shell is scanned too: it is the surface the styles with a low mass —
+    // the crop, the bob — actually silhouette against, so leaving it out held
+    // their flare below their own hairdo for no reason.
+    for (const src of [cap.pos, clumps.pos, mass.pos, facial.pos]) {
+      for (let i = 1; i < src.length; i += 3) {
+        if (src[i] > crownCap) crownCap = src[i];
+        if (src[i] < hairFloor) hairFloor = src[i];
+      }
+    }
+    for (const layer of FLARE_LAYERS) {
+      const n = Math.max(3, Math.round(fl.count * layer.share));
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5 + layer.phase) / n;
+        // Centred on the nape and stopping short of the face on both sides: the
+        // front belongs to the fringe, which has its own eye guard.
+        const theta = -Math.PI * 0.5 + (t - 0.5) * 2 * fl.span;
+        // Two decorrelated draws per wedge. Hair is not a comb: identical
+        // wedges at even spacing alias into a scallop at battle distance, and
+        // the reach jitter is what turns the outline into a ragged edge instead
+        // of a crenellation.
+        const jr = rand.next();
+        const jl = rand.next();
+        // 1.05 rad is the ceiling on where a flare may root and where its
+        // bedded run may end: past it the wedge is climbing the crown, and a
+        // wedge on the crown carries half its own thickness above the shell —
+        // which is a raised head silhouette bought by geometry that is not even
+        // visible from the battle camera. The fringe and the style mass own the
+        // pole; the flare owns the sides.
+        const RUN_TOP = 1.05;
+        const root = Math.min(
+          hairlinePhi(theta, frontPhi, backPhi, peak) + layer.root + jr * layer.spread,
+          RUN_TOP,
+        );
+        const runTheta = fl.rake * (0.6 + 0.8 * jl);
+        const runPhi = fl.rise * (0.7 + 0.6 * jr);
+        const w = h.rx * (0.15 + 0.08 * jl) * layer.width;
+        const th = w * 0.68;
+        const endTheta = theta + runTheta;
+        const endPhi = Math.min(root + runPhi, RUN_TOP);
+        const onHead = P(endTheta, endPhi, seat(endTheta, endPhi, th));
+        // The radial the tip travels along. The `y` term is damped so the flare
+        // opens outward rather than straight up — vertical extent is the one
+        // budget a chibi head does not have (see {@link HAIR_FLARE}).
+        outward.set(onHead.x / h.rx, (onHead.y - h.center.y) / h.ry * 0.42, onHead.z / h.rz);
+        if (outward.lengthSq() < 1e-8) outward.set(0, 0, -1);
+        outward.normalize();
+        const reach = h.rx * fl.reach * layer.reach * (0.70 + 0.60 * jr);
+        const tip = onHead.clone()
+          .addScaledVector(outward, reach)
+          .add(new THREE.Vector3(0, -h.ry * fl.drop * (0.7 + 0.6 * jl), 0));
+        // The mid control is pushed further out than the straight line, which
+        // bows the wedge away from the skull. A straight one is a spine on a
+        // hedgehog; a bowed one is a lock of hair lifting and falling.
+        const mid = onHead.clone().lerp(tip, 0.46).addScaledVector(outward, h.rx * 0.14);
+        // The bound is on the wedge's *surface*, not on its spine: the sweep
+        // carries half a thickness above whatever the spine does, and the
+        // spline bows a little past its own controls besides. Holding the
+        // controls a thickness and a sixth clear of the ceiling is what makes
+        // the measured crown actually land under it — clamping the spine alone
+        // still took the forgemaster to 3.17 heads.
+        const yCeil = crownCap - th * 1.15;
+        const yFloor = hairFloor + th * 1.15;
+        tip.y = THREE.MathUtils.clamp(tip.y, yFloor, yCeil);
+        mid.y = THREE.MathUtils.clamp(mid.y, yFloor, yCeil);
+        clump({
+          theta, phi: root, runTheta, runPhi: endPhi - root, lift: 0.05,
+          via: [mid, tip],
+          w, thick: th, tipRatio: 0.05, pointed: true, hold: 0.30,
+          // Ten columns and eleven spine samples: a flare wedge is at most a
+          // third of a head radius across, so its section is under ten pixels
+          // wide at battle framing and the extra four columns the mass clumps
+          // carry buy nothing. Sixteen wedges cost about 2 700 triangles a head,
+          // which is what the density has to stay inside to keep the cast
+          // capturable on the software rasteriser the harness uses.
+          cols: 10, seg: 11,
+          band: HIGHLIGHT_BAND,
+        });
+      }
+    }
+  }
+
   // ---- the two invariants -------------------------------------------------
   //
   // Applied here, once, on finished surfaces, rather than defended inside each
@@ -2966,7 +3151,7 @@ function buildHairChain(parts, m, def, pal, rig) {
  */
 function buildWeapon(parts, m, def, pal, rig) {
   const w = def.weapon;
-  if (!w || !rig.bones.weapon) return;
+  if (!w || !rig.bones.weapon) return null;
   const H = m.height;
   const idx = rig.order.indexOf('weapon');
   const bindWorld = rig.rest.weapon.world;
@@ -2975,6 +3160,25 @@ function buildWeapon(parts, m, def, pal, rig) {
   const xf = new THREE.Matrix4()
     .makeRotationFromEuler(carry)
     .premultiply(new THREE.Matrix4().makeTranslation(bindWorld.x, bindWorld.y, bindWorld.z));
+
+  /**
+   * The weapon's long axis, in the frame of the bone it is socketed to.
+   *
+   * Every weapon below is authored running along **+Y from the grip**, so the
+   * carry rotation applied to `+Y` *is* the axis, and it is the one number the
+   * animator needs in order to aim a held weapon (`Animation._aimWeapon`).
+   * Deriving it there from `def.weapon.tilt/roll` would work today and would be
+   * a second copy of this file's authoring convention living in a module that
+   * does not own it — so it is computed once, here, and handed over.
+   *
+   * Only a *held* weapon gets one. A chakram slung across the back and a piston
+   * strapped to a forearm are carried by the fitting, not by a wrist, and there
+   * is no joint that could aim them.
+   */
+  const mount = w.mount ?? 'handR';
+  const heldAxis = (mount === 'handL' || mount === 'handR')
+    ? new THREE.Vector3(0, 1, 0).applyEuler(carry).normalize()
+    : null;
 
   const primary = new Surface();
   const secondary = new Surface();
@@ -3155,6 +3359,7 @@ function buildWeapon(parts, m, def, pal, rig) {
     default:
       break;
   }
+  return heldAxis && { axis: heldAxis, mount };
 }
 
 // ============================================================ accessories
@@ -3765,10 +3970,18 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     // clenching for no reason. But 0.34 was an *open* hand with the fingers
     // splayed, and at battle distance four splayed fingers alias into a comb
     // while a loose fist keeps one clean silhouette with grooves in it — which
-    // is also the hand every plate figure's free arm is carrying. 0.55 is that
-    // loose fist, and a character with no held weapon at all (a back-slung
-    // chakram, a forearm piston) gets it on both hands.
-    buildHand(hand, metrics, side, radii.arm.tip, heldIn === `hand${sfx}` ? 1 : 0.55);
+    // is also the hand every plate figure's free arm is carrying. A character
+    // with no held weapon at all (a back-slung chakram, a forearm piston) gets
+    // the loose fist on both hands.
+    //
+    // 0.72, not 0.55. At 0.55 the four digits stop a third of the way round
+    // their arc, which from the battle camera is a flat open palm presented
+    // edge-on — the "waiter carrying a tray" read the whole cast shared. No
+    // plate figure holds a free hand open: the knight's off hand is on the
+    // hilt, the archer's is closed on the string, the hat-mage's is a loose
+    // fist at her sternum. 0.72 curls the fingers most of the way to the palm
+    // while leaving the grooves between them open, which is that fist.
+    buildHand(hand, metrics, side, radii.arm.tip, heldIn === `hand${sfx}` ? 1 : 0.72);
     parts.push({
       surface: hand,
       cls: def.accessories?.prosthetic === sfx ? 'metal' : 'skin',
@@ -3815,7 +4028,7 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
 
   buildHair(parts, metrics, def, pal);
   if (metrics.chains.hair.length > 1) buildHairChain(parts, metrics, def, pal, rig);
-  buildWeapon(parts, metrics, def, pal, rig);
+  const held = buildWeapon(parts, metrics, def, pal, rig);
   buildAccessories(parts, metrics, def, pal);
 
   // Built before the class buckets are assembled so a garment failure cannot
@@ -4079,6 +4292,10 @@ export function buildCharacter(defOrId, forge = null, opts = {}) {
     // therefore currently inert — see the note on `setExpression`.
     irises: null,
     lids: null,
+    // Where the haft points inside the fist, so the idle can aim it. See
+    // `buildWeapon`'s `heldAxis` and `Animation._aimWeapon`.
+    weaponAxis: held?.axis ?? null,
+    weaponMount: held?.mount ?? null,
   });
   animator.play('idle', { fade: 0 });
 

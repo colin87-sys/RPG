@@ -225,6 +225,33 @@ const CLIPS = {};
  * | `present` | ( 0.13, 0.42, −0.02)    | near vertical, trailing |
  * | `channel` | ( 0.10, 0.51, 0.13)     | vertical                |
  *
+ * ### `aim`, and why the weapon direction stopped being one of the angles
+ *
+ * The seven-angle solve above places the *hand*. It cannot reliably place the
+ * *weapon*, because where the weapon points is the hand's orientation composed
+ * with the haft's own carry rotation — a per-character number authored in
+ * `roster.js` and baked into the mesh by `CharacterFactory.buildWeapon` — and
+ * the two were solved independently. The result was measurable in a lineup:
+ * `guard` and `carry` differ by 0.3 rad at the shoulder and nothing else, yet
+ * the lance rose across its owner's head on a clean diagonal while the sword
+ * raked backward and down out of the fist at hip height, because the two
+ * weapons carry at −0.34/+0.15 and +0.20/+0.45. Every plate figure's weapon
+ * breaks its own head silhouette; three of our four did not, and no amount of
+ * shoulder tuning was going to fix a term the shoulder does not contain.
+ *
+ * So the direction is stated rather than emerging: `aim` is where the haft
+ * points in **character space** (+X the character's left, +Y up, +Z toward the
+ * threat), and `_aimWeapon` solves the wrist for it every frame against the
+ * pose the arm actually ended up in. The arm angles below therefore only have
+ * to put the fist somewhere plausible; the haft's direction is a property of
+ * the stance, is the same on every character standing in it, and survives a
+ * retune of the roster's carry angles.
+ *
+ * The correction is spent across the forearm and the wrist and capped at each
+ * ({@link FOREARM_AIM_LIMIT}, {@link AIM_LIMIT}), so it can bend an arm and can
+ * never break one — a goal the arm cannot reach comes out partly satisfied and
+ * still anatomical, which is the right failure.
+ *
  * Retuning a stance means changing the goal and re-solving, not nudging the
  * angles: nudge one and the weapon swings somewhere nobody asked for.
  */
@@ -235,9 +262,16 @@ const STANCES = {
    * has to read as *braced*.
    */
   guard: {
-    yaw: 0.50, lean: 0.10, crouch: 0.30, open: 0.235, stagger: 0.17, breath: 0.9,
-    lead: { pitch: -0.41, yaw: 0.31, roll: -0.40, elbow: -1.56, wrist: [0.60, -0.03, 0.55] },
-    off: { pitch: -0.95, yaw: 0.11, roll: -0.11, elbow: -0.47, wrist: [-0.08, 0, 0.12] },
+    yaw: 0.50, lean: 0.10, crouch: 0.32, open: 0.245, stagger: 0.19, breath: 0.9,
+    // Blade up and back across the weapon shoulder, so it crosses the head from
+    // the near side — `bravely01.jpg`'s knight, whose sword climbs out of frame
+    // past his own ear.
+    aim: [-0.30, 0.90, -0.31],
+    lead: { pitch: -0.72, yaw: 0.34, roll: -0.30, elbow: -1.62, wrist: [0.55, -0.03, 0.50] },
+    // The off hand comes across onto the hilt below the lead one: the plate's
+    // knight has both hands on the sword and that is most of what makes the
+    // stance read as braced rather than as posed.
+    off: { pitch: -0.86, yaw: 0.62, roll: -0.34, elbow: -1.36, wrist: [0.24, 0, 0.30] },
   },
   /**
    * The staff-mage. Upright, weight back, a two-handed haft on a long diagonal:
@@ -245,8 +279,12 @@ const STANCES = {
    */
   carry: {
     yaw: 0.44, lean: 0.05, crouch: 0.13, open: 0.175, stagger: 0.13, breath: 1.0,
-    lead: { pitch: -0.11, yaw: 0.04, roll: -0.40, elbow: -1.61, wrist: [0.60, -0.08, 0.55] },
-    off: { pitch: -0.68, yaw: 0.36, roll: -0.40, elbow: -0.42, wrist: [-0.06, 0, 0.08] },
+    // The long forward diagonal: haft low behind the hip, head of the weapon up
+    // past the far shoulder. This is the one stance whose weapon already read,
+    // and the aim is that read stated explicitly so it survives a retune.
+    aim: [0.16, 0.66, 0.74],
+    lead: { pitch: -0.34, yaw: 0.04, roll: -0.34, elbow: -1.44, wrist: [0.62, -0.08, 0.52] },
+    off: { pitch: -0.52, yaw: 0.58, roll: -0.34, elbow: -1.24, wrist: [0.10, 0, 0.14] },
   },
   /**
    * The hat-mage. Nearly straight-legged, feet close, weapon low and trailing
@@ -255,8 +293,12 @@ const STANCES = {
    * lineup read as a party.
    */
   present: {
-    yaw: 0.42, lean: 0.02, crouch: 0.07, open: 0.125, stagger: 0.10, breath: 1.15,
-    lead: { pitch: 0.37, yaw: 0.31, roll: 0.04, elbow: -0.79, wrist: [0.05, 0, -0.11] },
+    yaw: 0.42, lean: 0.02, crouch: 0.06, open: 0.115, stagger: 0.09, breath: 1.15,
+    // Near vertical and trailing a few degrees, so the staff head stands clear
+    // above the hat and the shaft runs down past the hip — the hat-mage's
+    // silhouette, which is a vertical line broken by a head.
+    aim: [0.02, 0.96, 0.28],
+    lead: { pitch: 0.16, yaw: 0.26, roll: 0.10, elbow: -0.86, wrist: [0.05, 0, -0.11] },
     off: { pitch: -0.63, yaw: -0.04, roll: 0.04, elbow: -1.65, wrist: [-0.22, 0, 0.16] },
   },
   /**
@@ -265,9 +307,13 @@ const STANCES = {
    * way off the pelvis and the whole figure reads as loaded.
    */
   ready: {
-    yaw: 0.58, lean: 0.07, crouch: 0.22, open: 0.200, stagger: 0.19, breath: 1.0,
-    lead: { pitch: -0.59, yaw: -0.15, roll: 0.21, elbow: -0.44, wrist: [-0.12, 0, 0.10] },
-    off: { pitch: 0.43, yaw: 0.01, roll: -0.02, elbow: -0.45, wrist: [0.08, 0, -0.10] },
+    yaw: 0.62, lean: 0.07, crouch: 0.24, open: 0.205, stagger: 0.21, breath: 1.0,
+    // No `aim`: this stance belongs to a character whose weapon is slung across
+    // the back, and a fitting on the chest has no wrist to aim it with. Its
+    // silhouette read is bought in `Rig.buildChainMetrics`, which now carries a
+    // back mount at the shoulder line instead of at the ribs.
+    lead: { pitch: -0.72, yaw: -0.22, roll: 0.34, elbow: -0.62, wrist: [-0.12, 0, 0.10] },
+    off: { pitch: 0.52, yaw: 0.05, roll: -0.02, elbow: -0.72, wrist: [0.08, 0, -0.10] },
   },
   /**
    * No plate figure — the forge-hand archetype, for a character whose weapon is
@@ -276,9 +322,13 @@ const STANCES = {
    * leans *into* the threat rather than sitting back off it.
    */
   brawl: {
-    yaw: 0.40, lean: 0.15, crouch: 0.26, open: 0.255, stagger: 0.14, breath: 0.85,
-    lead: { pitch: -0.71, yaw: 0.07, roll: -0.07, elbow: -1.42, wrist: [-0.14, 0, 0.10] },
-    off: { pitch: -0.60, yaw: 0.26, roll: -0.27, elbow: -1.06, wrist: [-0.12, 0, 0.10] },
+    yaw: 0.40, lean: 0.15, crouch: 0.28, open: 0.265, stagger: 0.14, breath: 0.85,
+    // No `aim` — the weapon is bolted to a forearm. Its read is bought by the
+    // guard height instead: the lead forearm comes up to the cheek so the
+    // piston stands beside the head, which is a boxer's guard and the only way
+    // a forearm fitting can break a head silhouette.
+    lead: { pitch: -1.66, yaw: -0.10, roll: 0.28, elbow: -1.90, wrist: [-0.20, 0, 0.16] },
+    off: { pitch: -0.86, yaw: 0.34, roll: -0.20, elbow: -1.44, wrist: [-0.12, 0, 0.10] },
   },
   /**
    * The caster. The hat-mage's raised hand pushed all the way: book or focus
@@ -286,11 +336,41 @@ const STANCES = {
    * the head. Reads at a hundred pixels, which is the test.
    */
   channel: {
-    yaw: 0.46, lean: -0.03, crouch: 0.09, open: 0.145, stagger: 0.09, breath: 1.2,
-    lead: { pitch: -0.38, yaw: 0.60, roll: 0.15, elbow: -0.42, wrist: [0.60, -0.40, -0.55] },
-    off: { pitch: -1.13, yaw: -0.49, roll: 0.32, elbow: -1.83, wrist: [-0.30, 0, 0.20] },
+    yaw: 0.46, lean: -0.06, crouch: 0.09, open: 0.145, stagger: 0.09, breath: 1.2,
+    // A tome has a spine, and a spine held upright and canted toward the reader
+    // is what "casting from a book" looks like. Raised to the jaw by the arm
+    // pose below, it breaks the head silhouette on the near side.
+    aim: [0.30, 0.90, 0.31],
+    lead: { pitch: -1.02, yaw: 0.52, roll: 0.28, elbow: -1.10, wrist: [0.34, -0.20, -0.30] },
+    off: { pitch: -1.28, yaw: -0.42, roll: 0.44, elbow: -1.62, wrist: [-0.30, 0, 0.20] },
   },
 };
+
+/**
+ * How far `_aimWeapon` may turn a wrist to satisfy a stance's `aim`.
+ *
+ * A cap rather than a solve because the alternative failure is worse than the
+ * one it prevents. Without it a goal the shoulder cannot support is reached by
+ * folding the hand back on the forearm, which at battle distance reads as a
+ * broken wrist — and unlike a weapon pointing slightly wrong, a broken wrist is
+ * not something the eye forgives. 1.25 rad is about the limit of a real wrist's
+ * combined flexion and deviation, so a pose that needs more is a pose whose arm
+ * angles are wrong, and it comes out visibly under-rotated rather than
+ * dislocated.
+ */
+const AIM_LIMIT = 1.25;
+
+/**
+ * The forearm's share of the same correction — see `_aimWeapon`.
+ *
+ * Held to a third of a radian because the elbow is the joint the eye checks. A
+ * wrist bent past its neutral reads as effort; a forearm rolled the same amount
+ * reads as a broken arm, because the upper arm beside it did not move. Nineteen
+ * degrees is enough to take the worst residual in the table (0.60 rad on the
+ * caster) down to something a wrist can finish, and small enough that the elbow
+ * still folds where the stance put it.
+ */
+const FOREARM_AIM_LIMIT = 0.34;
 
 /**
  * Which stance a character stands in.
@@ -337,18 +417,31 @@ function stanceFor(def) {
  *   mutually irrational periods so the loop never visibly repeats — a
  *   single-period idle is the most recognisable tell of procedural animation
  *   there is.
+ * - **A two-second sway** on top of all of it. The other three periods are slow
+ *   enough that a two-second glance at the frame — which is what a player
+ *   actually gives a battle line between commands — sees no motion at all, and
+ *   a still figure among grass that moves reads as a paused game. The sway is
+ *   the fast term: a small lateral drift of the pelvis with the shoulders and
+ *   head counter-rolling a beat behind it, which is a body keeping its balance
+ *   rather than a body being animated. It is deliberately the *smallest*
+ *   amplitude of the four, because at this rate anything larger is a fidget.
  */
 CLIPS.idle = {
   duration: 0,
   loop: true,
   plant: true,
   spring: 11,
+  aimWeapon: true,
   fn(p, c) {
     const t = c.t;
     const st = c.stance;
     const breath = Math.sin(t * TAU / 3.6) * st.breath;
     const shift = Math.sin(t * TAU / 11.0);
     const drift = noise1(t * 0.42, c.seed);
+    // The 2 s sway, and its lagged partner. A quarter-period of lag is what
+    // makes the shoulders trail the hips instead of moving as one board.
+    const sway = Math.sin(t * TAU / 2.0);
+    const swayLag = Math.sin(t * TAU / 2.0 - 0.55);
     const w = c.bias.weight;
     const lead = c.leadSide;
 
@@ -356,14 +449,18 @@ CLIPS.idle = {
     // the shoulders — a third of it backwards at the hips, the rest forwards up
     // the spine — which is the diagonal the plate stands on. The roll and the
     // pelvis drop follow the loaded leg, which is what "standing" actually is.
-    p.rot('hips', st.lean * 0.25 + 0.012 * breath, -st.yaw * 0.30 + shift * 0.045, shift * 0.070 * w);
-    p.pos('hips', shift * 0.007 * c.H, 0, 0);
-    p.rot('spine', st.lean * 0.40 + 0.014 * breath, st.yaw * 0.40 + shift * -0.025, shift * -0.042);
-    p.rot('chest', st.lean * 0.35 + 0.038 * breath, st.yaw * 0.60 + shift * -0.022, shift * -0.028);
+    p.rot('hips', st.lean * 0.25 + 0.012 * breath, -st.yaw * 0.30 + shift * 0.045,
+      shift * 0.070 * w + sway * 0.018 * w);
+    p.pos('hips', shift * 0.007 * c.H + sway * 0.0032 * c.H, 0, 0);
+    p.rot('spine', st.lean * 0.40 + 0.014 * breath, st.yaw * 0.40 + shift * -0.025,
+      shift * -0.042 - swayLag * 0.012);
+    p.rot('chest', st.lean * 0.35 + 0.038 * breath, st.yaw * 0.60 + shift * -0.022,
+      shift * -0.028 - swayLag * 0.010);
     // The neck gives a little of the yaw back so the head does not lead the
     // chest round; `lookAt` layers the actual gaze on top of this.
     p.rot('neck', -0.030 - breath * 0.012, -st.yaw * 0.10 + drift * 0.05, shift * 0.020);
-    p.rot('head', -0.045 - breath * 0.010, -st.yaw * 0.12 + drift * 0.10, shift * 0.028 + drift * 0.03);
+    p.rot('head', -0.045 - breath * 0.010, -st.yaw * 0.12 + drift * 0.10,
+      shift * 0.028 + drift * 0.03 + swayLag * 0.014);
 
     p.pair((side, s) => {
       const isLead = side === lead;
@@ -813,8 +910,14 @@ export class Animator {
    * @param {Set<string>} [opts.skip] bones driven by another system (cloth)
    * @param {THREE.Object3D} [opts.irises] iris/pupil group parented to the head bone
    * @param {THREE.Object3D} [opts.lids] blink lids parented to the head bone
+   * @param {THREE.Vector3} [opts.weaponAxis] the held weapon's long axis in the
+   *        holding hand's frame, from `CharacterFactory.buildWeapon`
+   * @param {string} [opts.weaponMount] `handL`/`handR` when the weapon is held
    */
-  constructor({ bones, order, rest, metrics, def, skip = null, irises = null, lids = null }) {
+  constructor({
+    bones, order, rest, metrics, def, skip = null, irises = null, lids = null,
+    weaponAxis = null, weaponMount = null,
+  }) {
     this.bones = bones;
     this.order = order;
     this.rest = rest;
@@ -863,6 +966,24 @@ export class Animator {
     /** This character's standing stance — see {@link STANCES}. */
     this.stance = stanceFor(def);
 
+    // ---- weapon aiming (see `_aimWeapon`) --------------------------------
+    //
+    // The chain is walked off the live bones rather than read from a table of
+    // parent names: `Rig` owns the hierarchy, and a second copy of it here
+    // would be a silent source of wrong answers the first time a shoulder stub
+    // is added or removed.
+    const held = weaponMount === 'handL' || weaponMount === 'handR' ? weaponMount : null;
+    this._aimHand = held && bones[held] ? bones[held] : null;
+    this._aimChain = [];
+    if (this._aimHand) {
+      for (let b = this._aimHand.parent; b && b.isBone; b = b.parent) this._aimChain.push(b);
+      this._aimChain.reverse();
+    }
+    this._aimAxis = weaponAxis ? new THREE.Vector3().copy(weaponAxis).normalize() : null;
+    this._aimGoal = this.stance.aim
+      ? new THREE.Vector3(this.stance.aim[0], this.stance.aim[1], this.stance.aim[2]).normalize()
+      : null;
+
     this._ctx = {
       t: 0, u: 0, H: metrics.height, seed: this.seed, bias: this.bias,
       leadSide: this.leadSide, hasWeapon: this.hasWeapon, speedScale: 1,
@@ -903,10 +1024,13 @@ export class Animator {
     this.time = 0;
     this._disposed = false;
     this._q = new THREE.Quaternion();
-    // Scratch for `_groundSolve`'s three-bone chain: pelvis, thigh, shin.
+    // Scratch for `_groundSolve`'s three-bone chain: pelvis, thigh, shin, and
+    // reused by `_aimWeapon`, which runs after it in the same frame.
     this._qh = new THREE.Quaternion();
     this._q1 = new THREE.Quaternion();
     this._q2 = new THREE.Quaternion();
+    this._qi = new THREE.Quaternion();
+    this._va = new THREE.Vector3();
     this._e = new THREE.Euler();
     this._v = new THREE.Vector3();
     this._m = new THREE.Matrix4();
@@ -1069,7 +1193,118 @@ export class Animator {
     for (let i = 0; i < n; i++) springStep(this._spring, i, out[i], omega, d);
 
     this._writeBones();
+    // After the bones, because it is solved against the pose that shipped —
+    // spring smoothing included — rather than against the pose that was asked
+    // for. Weighted by how much of the frame belongs to a clip that wants it,
+    // so a cross-fade into an attack releases the aim on the same curve the
+    // rest of the body changes on.
+    const wantCur = this._cur.clip.aimWeapon ? 1 : 0;
+    const wantPrev = this._prev ? (this._prev.clip.aimWeapon ? 1 : 0) : wantCur;
+    this._aimWeapon(wantPrev + (wantCur - wantPrev) * w);
     this._blink(d);
+  }
+
+  /**
+   * Point a held weapon where the stance says it points.
+   *
+   * Seven arm angles place a fist; they do not place a haft, because the haft's
+   * direction is the fist's orientation composed with a carry rotation baked
+   * into the weapon mesh from `roster.js` (see {@link STANCES}'s note on `aim`).
+   * Those two were authored independently, and the cast showed it: identical
+   * arm poses carried a lance across the head and a sword backwards into the
+   * ground. This closes the loop.
+   *
+   * ### The solve
+   *
+   * `Rig` guarantees every bind rotation is identity, so the rotation of any
+   * bone in character space is just the product of its ancestors' local
+   * quaternions — no bind orientations to unwind, no world matrices to be up to
+   * date. With `Qc` that product for the hand's parent and `Qh` the hand's own
+   * local rotation, the haft currently points along `Qc·Qh·axis`; the swing
+   * `Qf` that takes it to the goal is the minimal rotation between the two, and
+   * the hand rotation that realises it is
+   *
+   * ```
+   * Qh' = Qc⁻¹ · Qf · Qc · Qh
+   * ```
+   *
+   * because `Qc·Qh' = Qf·Qc·Qh` by construction. Rotating the **hand** and not
+   * the `weapon` bone is deliberate and is the same argument the idle's wrist
+   * channel carries: the fist is modelled closed around the haft at a fixed
+   * bore, so turning the weapon inside the hand slides it out through the
+   * fingers, while turning the hand takes the grip with it.
+   *
+   * ### Why it is two joints and not one
+   *
+   * A wrist alone cannot carry it. Measured on the settled idle, the authored
+   * arm poses left the sword 0.36 rad short of its goal, the tome 0.60 and the
+   * lance 0.57 — all past {@link AIM_LIMIT}, so all three shipped truncated and
+   * the lance in particular stood up vertical when the stance asked for a
+   * diagonal. Spending the first part of the swing at the **forearm** and the
+   * rest at the wrist is both anatomically what an arm does when it presents
+   * something and enough authority to land every goal in the table, at half the
+   * wrist deflection. The forearm's own share is capped harder, because an
+   * elbow that rolls too far reads as a broken arm from any angle where the
+   * upper arm is visible.
+   *
+   * The swing is capped at each joint and scaled by `weight`, so this stays a
+   * correction rather than an override: it cannot reach a pose the arm did not
+   * nearly reach on its own, and it cannot snap.
+   */
+  _aimWeapon(weight) {
+    const hand = this._aimHand;
+    const goal = this._aimGoal;
+    const axis = this._aimAxis;
+    if (!hand || !goal || !axis || weight <= 1e-3) return;
+    const chain = this._aimChain;
+
+    // Pass one at the forearm, pass two at the wrist. Each pass re-measures
+    // where the haft actually points, so the second is solving the residual of
+    // the first rather than a share of a stale total. A hand with no bone
+    // ancestors cannot happen on a rig this file would be handed, and skipping
+    // the first pass rather than indexing past the end is what keeps that true
+    // of a rig it would not.
+    if (chain.length > 0) {
+      this._aimJoint(chain.length - 1, chain[chain.length - 1], FOREARM_AIM_LIMIT, weight);
+    }
+    this._aimJoint(chain.length, hand, AIM_LIMIT, weight);
+  }
+
+  /**
+   * One pass of the aim solve, absorbed at `bone`, whose own ancestors are the
+   * first `n` links of the hand chain.
+   *
+   * The *measurement* is always the full chain through the hand — that is where
+   * the weapon hangs — while the *application* is at whichever joint is
+   * spending this pass. Split out of `_aimWeapon` because the algebra is
+   * identical at both joints and writing it twice is how the two would drift
+   * apart.
+   */
+  _aimJoint(n, bone, limit, weight) {
+    const chain = this._aimChain;
+    const qFull = this._qh.identity();
+    for (const b of chain) qFull.multiply(b.quaternion);
+    qFull.multiply(this._aimHand.quaternion);
+    const cur = this._v.copy(this._aimAxis).applyQuaternion(qFull);
+
+    const goal = this._aimGoal;
+    const angle = Math.acos(THREE.MathUtils.clamp(cur.dot(goal), -1, 1));
+    if (angle < 1e-3) return;
+    const swing = this._va.crossVectors(cur, goal);
+    // Exactly opposed vectors have no unique swing axis. It cannot happen from
+    // any authored stance — the goals are all within a right angle of the pose
+    // the arm reaches — and leaving the frame alone is the only answer that
+    // does not pick an arbitrary plane.
+    if (swing.lengthSq() < 1e-12) return;
+    swing.normalize();
+
+    const qAnc = this._q1.identity();
+    for (let i = 0; i < n; i++) qAnc.multiply(chain[i].quaternion);
+    this._q2.setFromAxisAngle(swing, Math.min(angle, limit) * weight);
+    this._qi.copy(qAnc).invert();
+    // q' = Qa⁻¹ · Qfix · Qa · q, so that Qa·q' = Qfix·Qa·q — the bone's own
+    // rotation in character space gains exactly the corrective swing.
+    bone.quaternion.premultiply(qAnc).premultiply(this._q2).premultiply(this._qi);
   }
 
   _advance(state, dt) {

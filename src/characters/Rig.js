@@ -867,7 +867,37 @@ function buildChainMetrics(def, { head, joints, girth, grip, H }) {
       return { parent: `hand${sfx}`, position: v3(g.center.x - w.x, g.center.y - w.y, g.center.z - w.z) };
     };
     if (mount === 'back') {
-      chains.weapon = { parent: 'chest', position: v3(0, girth.chestZ * 0.6, -girth.chestZ * 1.25) };
+      /**
+       * A back-slung weapon is carried **at the shoulder line**, not at the
+       * ribs.
+       *
+       * It used to sit a little above the chest joint, which on our proportions
+       * put a 0.20 H chakram's top edge at 0.85 H — below the chin, entirely
+       * behind the torso, and invisible from the battle camera except as a
+       * blade poking out past a hip. Every plate figure's weapon crosses its own
+       * head silhouette; `bravely01.jpg`'s knight carries his sword slung so the
+       * hilt clears his hair, which is what makes "swordsman" readable at eighty
+       * pixels without him drawing it.
+       *
+       * Anchored off the **neck** rather than off a girth multiple so it tracks
+       * the figure rather than the barrel: the mount lands just under the
+       * shoulder line on every character in the roster, and the weapon's own
+       * `tilt`/`roll` rake it across the head from there.
+       */
+      // Offset onto the *weapon-side* shoulder rather than onto the spine. A
+      // back mount on the centreline hides behind the head from the front,
+      // which is the one camera the game has: the weapon reads as a bar
+      // appearing from under the hips and nothing else. Slung over the right
+      // shoulder it crosses the head's outline on the near side, which is how
+      // `bravely01.jpg` carries its knight's sword.
+      chains.weapon = {
+        parent: 'chest',
+        position: v3(
+          -girth.chestX * 0.85,
+          joints.neck.y - joints.chest.y + girth.chestZ * 1.15,
+          -girth.chestZ * 1.45,
+        ),
+      };
     } else if (mount === 'handL' || mount === 'handR') {
       chains.weapon = held(mount.endsWith('L') ? 'L' : 'R');
     } else if (joints[mount]) {

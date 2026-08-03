@@ -69,8 +69,8 @@
  * | class | direct lobe | environment | notes |
  * |---|---|---|---|
  * | `cloth`, `skin`, `fur`, `generic` | none | none | the whole chain leaves the program |
- * | `metal` | `awToonMetalLobe` + `awToonGlintShape` | continuous PMREM | roughness clamped ≤ 0.25 inside the lobe |
- * | `hair` | `awToonAnisoLobe` + `awToonArcShape` | none | one crisp arc, bounded at 1.4× the surface |
+ * | `metal` | `awToonMetalLobe` + `awToonStreakShape` | continuous PMREM | one hard-edged streak at exponent 120, plus cavity and edge wear |
+ * | `hair` | `awToonAnisoLobe` + `awToonArcShape` | none | one bright anisotropic ribbon, bounded at 1.75× the surface |
  * | `leather`, `crystal`, `eye` | `awToonGlossLobe` + `awToonGlossShape` | small | the old shape, kept where it was right |
  *
  * The pieces, in the order the composite uses them:
@@ -91,10 +91,23 @@
  *  4. `awToonShadowAlbedo` — the dark side is a hue rotation with rising
  *     saturation, never a multiply. Unchanged: this is the one part of the model
  *     every document and the plates agree on.
- *  5. `awToonMetalLobe` + `awToonGlintShape` — the steel glint. Roughness clamped
- *     to 0.25 inside the lobe (exponent 510, half-peak 1.8° off the mirror), and
- *     a shape with **no core floor**, so the mark is bright only where the
- *     surface faces the mirror direction and is exactly zero elsewhere.
+ *  5. `awToonMetalLobe` + `awToonStreakShape` — the steel **streak**. A stated
+ *     Blinn exponent of 120 (half-peak 6.1° off the mirror) quantised by a hard
+ *     threshold at 0.70, so the mark has a flat interior and a drawn edge and
+ *     runs as a band along the curvature of a plate. It arrives with
+ *     `awToonCavity`, which takes the recesses between plates near black where
+ *     the surface grazes the key, and `awToonEdgeWear`, a light rim along rolled
+ *     edges driven by fresnel × curvature. Those three together are what
+ *     separates plate from painted board.
+ *  5b. `awToonCreaseAmount` + `awToonCreaseInk` — interior line work: ink wherever
+ *     two faces meet at more than 55°, found by an angle test and a curvature
+ *     test that have to agree (neither survives both cameras alone). And
+ *     `awToonClothTurn`, the 0.05 fresnel lift that turns a fold. The crease
+ *     line's constants belong to `render/Outline.js`, which owns every ink mark
+ *     in the frame; only its geometry lives here, and only because a ribbon per
+ *     edge does not fit the capture budget.
+ *  5c. `awToonDetail` — the hand-painted albedo multiply. Authored canvases only;
+ *     the ban on procedural noise touching a character is unchanged.
  *  6. `awToonAnisoLobe` + `awToonArcShape` — Kajiya-Kay narrowed into one crisp
  *     arc with a defined inner and outer edge and a flat interior.
  *  7. `awToonSpecRelBound` — the bound that makes a hair band read as hair: the
@@ -201,6 +214,65 @@ uniform float uToonAmbientGain;
 uniform float uToonAmbientFlatness;
 uniform float uToonEnvLevels;
 uniform float uToonMetalAlbedo;
+
+// ---- the hand-painted detail map -------------------------------------------
+//
+// A second albedo channel, multiplied into 'diffuseColor' before three builds
+// its 'PhysicalMaterial' from it, so a fabric print or a worn-metal mottle
+// reaches the diffuse response, the metal reflection tint and the ink line
+// together rather than being a decal laid over the top of a finished shade.
+//
+// It is deliberately *not* one of three's map slots. The character classes drop
+// 'normalMap' / 'roughnessMap' / 'aoMap' because in this project those arrive
+// from 'AssetForge''s fBm generators and read as dirt on a costume; that ban is
+// on **procedural noise**, and it stands. What the plates show everywhere is the
+// opposite thing — 'bravely01.jpg' gives Gloria a printed skirt, Elvis a rose
+// damask embroidered down a wine coat, Seth's plate a mottled worn albedo — and
+// none of it is noise: it is drawn shapes. So authored canvases arrive through a
+// channel of their own, which is what makes "no noise on a character" a property
+// of the ban rather than a property of every texture slot.
+//
+// Projected from object space rather than from UVs. The cast is assembled from
+// swept lofts and merged part-by-part in 'CharacterFactory'; a garment carries a
+// usable parameterisation and a pauldron does not, and a print that vanishes on
+// half the cast because of that is worse than no print. Object space is stable
+// under skinning (the attribute is the bind pose) so the print travels with the
+// cloth instead of swimming across it.
+#ifdef TOON_DETAIL_MAP
+  uniform sampler2D uToonDetailMap;
+  uniform float uToonDetailScale;
+  uniform float uToonDetailStrength;
+  varying vec3 vToonDetailPos;
+  varying vec3 vToonDetailNormal;
+#endif
+
+// ---- interior crease ink ---------------------------------------------------
+// 'uToonCreaseRange' is the face-angle window as a chord ('2·sin(θ/2)'),
+// 'uToonCreaseCurve' the inverse-metres curvature window that keeps a smooth
+// surface out of it at any camera distance, and 'uToonCreaseInk' the level the
+// surface is multiplied down to inside the line. 'render/Outline.js' owns all
+// three; see 'CREASE_DEFAULTS' there for why the interior line lives in this
+// shader while the silhouette stays an inverted hull.
+#ifdef TOON_CREASE_INK
+  uniform vec2  uToonCreaseRange;
+  uniform vec2  uToonCreaseCurve;
+  uniform float uToonCreaseInk;
+#endif
+
+// The fresnel lift that turns a fold. Cloth only, and tiny — see
+// 'awToonClothTurn'.
+#ifdef TOON_CLOTH_TURN
+  uniform float uToonClothFresnel;
+#endif
+
+// The two terms that separate plate from painted board: a darkened cavity where
+// the surface grazes the key, and a light wear rim along rolled edges.
+#ifdef TOON_METAL_SURFACE
+  uniform float uToonCavityDepth;
+  uniform float uToonCavityWidth;
+  uniform float uToonEdgeWear;
+  uniform vec3  uToonWearColor;
+#endif
 
 // The environment reflection is a *specular* response and is gated with the
 // rest of them. A matte class does not merely scale it to zero — the Fresnel
@@ -534,72 +606,286 @@ float awToonSpecRelBound( const in float specPeak, const in float basePeak ) {
 #ifdef TOON_SPEC_METAL
 
 /**
- * The steel glint's maximum roughness.
+ * The streak's Blinn exponent, stated rather than derived from roughness.
  *
- * Armour is the only class on a character that carries a direct highlight with
- * any width to it, and the brief for this revision states the bound: a GGX
- * roughness of 0.25 or tighter. Clamping *inside* the lobe rather than trusting
- * the preset is what makes that a property of the class — 'Garments' builds
- * plate, trim and blades through the same preset with per-recipe overrides, and
- * one of them raising 'roughness' for a scuffed look must not be able to spread
- * the glint back into the sheen this revision exists to remove.
+ * The previous revision clamped roughness to 0.25 inside the lobe, which is a
+ * Beckmann-equivalent exponent of 510 and falls to half its peak **1.8° off the
+ * mirror direction**. On a chibi pauldron that mark is two or three pixels wide,
+ * and in `shots/now/cast-stage.png` it is not present in the frame at all: the
+ * surface of every plate on the cast is one flat panel of colour, which is what
+ * the review means by "one uniform matte material family for everything".
  *
- * At 0.25 the Beckmann-equivalent exponent is 510, so the lobe falls to half its
- * peak 1.8° off the mirror direction. That is a *glint*: on a chibi pauldron at
- * battle-camera distance it is a few pixels across, which is what the plate
- * shows — Seth's plate carries a scatter of small bright marks along its rolled
- * edges and is otherwise valued entirely by the form ramp.
+ * The plate's armour is not marked with dots. Seth's breastplate and cuisses on
+ * `bravely01.jpg` each carry one long bright *streak* running with the curvature
+ * of the piece — 120 sRGB against a 56 median, a defined edge on both sides and
+ * a flat interior — and the same read is on every buckle, greave and blade in
+ * `bravely02.jpg`. That is a wide lobe with a hard threshold on it, not a narrow
+ * lobe left to grade.
+ *
+ * 120 puts the half-power point 6.1° off the mirror in the half-vector, and the
+ * threshold below cuts the streak's edge at 4.4°. Across a cylindrical greave
+ * whose normal sweeps slowly along its length and quickly across it, that is
+ * exactly the anisotropic-looking band the plate shows — the shape comes from
+ * the *geometry's* curvature rather than from a tangent frame, which is why a
+ * plain Blinn lobe is the right primitive here and a Kajiya-Kay one is not.
+ *
+ * Stated as a constant rather than read from `roughness` so that no per-recipe
+ * override in `Garments` can widen it back into the sheen it replaced;
+ * `roughness` still means what it means everywhere else, and still drives the
+ * environment reflection, which is metal's other half.
  */
-const float METAL_MAX_ROUGHNESS = 0.25;
+const float METAL_SPEC_EXPONENT = 120.0;
 
-/**
- * The metal lobe: Blinn-Phong at a bounded roughness.
- *
- * Blinn rather than a normalised microfacet BRDF because it is *boundable* — the
- * lobe lives in 0..1, so 'uToonSpecThreshold' means the same thing on every
- * surface and the shape can be stated as two numbers. A normalised GGX lobe
- * peaks anywhere from 1 to 100 depending on roughness and cannot be shaped by a
- * stated number at all. The exponent is the standard '2 / α² - 2' mapping with
- * 'α = roughness²', so the clamp above is expressed in the units the rest of the
- * engine uses for roughness.
- */
-float awToonMetalLobe( const in vec3 n, const in vec3 l, const in vec3 v, const in float roughness ) {
+/** The Blinn lobe the streak is cut out of. Bounded in 0..1 by construction, so
+ *  `uToonSpecThreshold` states an angle rather than a radiance. */
+float awToonMetalLobe( const in vec3 n, const in vec3 l, const in vec3 v ) {
 
   vec3 h = normalize( l + v );
-  float ndh = saturate( dot( n, h ) );
 
-  float a = max( min( roughness, METAL_MAX_ROUGHNESS ), 0.02 );
-  a = a * a;
-  float exponent = clamp( 2.0 / ( a * a ) - 2.0, 1.0, 8192.0 );
-
-  return pow( ndh, exponent );
+  return pow( saturate( dot( n, h ) ), METAL_SPEC_EXPONENT );
 
 }
 
 /**
- * The glint's shape: graded from the threshold up to the mirror direction, and
- * **exactly zero below it**.
+ * The streak's shape: **quantised**, with a flat interior and a hard edge.
  *
- * This is the function the "wet vinyl" defect actually lived in. Its predecessor
- * shaped every class with 'smoothstep( t - w, t + w, lobe ) * mix( 0.45, 1, lobe )'
- * — a *floor* of 45% of full gain across the whole shoulder. With metal's
- * threshold at 0.30 and shoulder at 0.22 the mark began at lobe 0.08, which at
- * exponent 300 is 7° of half-angle, and 45% of the gain was already being paid
- * there. The result was a broad plateau of near-constant sheen with a small
- * brighter core: a plastic surface, on every class that carried any gloss at all.
+ * A symmetric `smoothstep` a few hundredths wide over the threshold, which on a
+ * lobe this broad is a drawn boundary: inside it the mark is at full strength
+ * everywhere, outside it there is nothing. Its predecessor graded from the
+ * threshold all the way to the mirror direction, so the mark's brightest point
+ * was a single fragment and everything around it was a fade — the shape of an
+ * airbrushed blob, and unreadable once the whole thing is four pixels across.
  *
- * There is no core floor here. A single 'smoothstep' from the threshold to the
- * lobe's peak means the mark's *extent* and its *gradation* are the same curve —
- * it is bright only where the surface genuinely faces the mirror direction and
- * falls continuously to nothing over a stated width, which is what a small
- * distinct glint is. 'awToonEdge' keeps it from crawling once it goes sub-pixel.
+ * `awToonEdge` is the antialias floor and does the only softening that survives:
+ * the transition is narrower than a pixel at battle-camera distance, and an
+ * unfiltered one there crawls along the plate as the character breathes.
  */
-float awToonGlintShape( const in float lobe ) {
+float awToonStreakShape( const in float lobe ) {
 
   float t = clamp( uToonSpecThreshold, 0.001, 0.999 );
-  float hi = min( t + max( uToonSpecSoftness, 1e-3 ), 1.0 );
+  float w = max( uToonSpecSoftness, 1e-3 );
 
-  return awToonEdge( smoothstep( t, hi, lobe ) );
+  return awToonEdge( smoothstep( t - w, t + w, lobe ) );
+
+}
+
+#endif
+
+#if defined( TOON_CREASE_INK ) || defined( TOON_METAL_SURFACE )
+
+/**
+ * How strongly this fragment sits on a **crease**, from two independent tests
+ * that have to agree.
+ *
+ * Finding a crease from `fwidth( normal )` alone is the obvious implementation
+ * and it is wrong twice over, in opposite directions, which is why both tests
+ * are here.
+ *
+ * **The angle test** — `length( fwidth( n ) )` is the chord of the angle the
+ * geometric normal turns through across one 2×2 quad, `2·sin(θ/2)`: 0.845 at
+ * 50°, 1.0 at 60°. On the faceted geometry `CharacterFactory` ships the normal
+ * is constant inside a facet and jumps at its boundary, so this is a direct
+ * reading of the face-to-face angle and `uToonCreaseRange` states the brief's
+ * 55° threshold as the chord window straddling it. A 30° loft joint reads 0.52
+ * and is rejected **at any zoom**, which the curvature test alone would not do:
+ * pull the camera into a closeup and every facet on the cast is separated by
+ * more surface-metres per pixel, so a pure curvature threshold starts inking the
+ * low-poly construction lines.
+ *
+ * **The curvature test** — `turn / travel`, where travel is
+ * `length( fwidth( viewPos ) )`, the metres of surface one pixel covers. The
+ * pixel cancels and what is left is radians per metre, i.e. genuine curvature,
+ * identical at any distance or resolution. It exists because the angle test
+ * alone fires on *smooth* geometry the moment the camera pulls back far enough
+ * that a whole cranium turns 55° inside one quad — which is exactly the
+ * far-end-of-the-battle-stage case, where it would ink the entire character.
+ * On this cast a chibi cranium (r ≈ 0.12 m) reads 8, a hair clump 33 and a
+ * forearm 20, against hundreds for a genuine crease, so the window is nowhere
+ * near either family's tail.
+ *
+ * Neither test alone survives both cameras. Their product does.
+ *
+ * Fed `nonPerturbedNormal` rather than `normal`, so a normal map on a prop can
+ * never be read as a crease; the character classes carry none by construction.
+ */
+float awToonCreaseAmount( const in vec3 n, const in vec3 viewPos,
+                          const in vec2 angleWindow, const in vec2 curveWindow ) {
+
+  float turn = length( fwidth( n ) );
+  float travel = max( length( fwidth( viewPos ) ), 1e-5 );
+
+  return smoothstep( angleWindow.x, angleWindow.y, turn )
+    * smoothstep( curveWindow.x, curveWindow.y, turn / travel );
+
+}
+
+#endif
+
+#ifdef TOON_METAL_SURFACE
+
+/**
+ * The **cavity band**: armour goes dark where it grazes the key.
+ *
+ * The measurement this exists for. A 42 px patch of Seth's left pauldron on
+ * `bravely01.jpg` runs p2 2.6 / p50 53.5 / p98 145 sRGB — the recesses between
+ * plates are within three code values of black while the lit faces hold a mid
+ * grey, a range of six stops inside one small piece of armour. Ours ran p2 9.6 /
+ * p50 116.6, i.e. the whole plate sat in the top two stops with nothing dark in
+ * it anywhere, and no shadow *ramp* can produce that difference: the ramp's dark
+ * end is a stated fraction of its light end, so it moves the whole piece
+ * together.
+ *
+ * What produces it on the plate is geometry we do not have — recessed borders
+ * between separately sculpted plates, which are surfaces standing nearly
+ * perpendicular to the key and therefore lit by almost nothing. This is that,
+ * expressed as a shading term: a fragment whose N·L is near zero is a wall of a
+ * recess whatever the model it sits on, so it is taken down toward the cavity
+ * level. It is symmetric about zero deliberately — the far wall of a recess
+ * faces away from the key and is just as dark as the near one.
+ *
+ * Only on metal. The same term on cloth would draw a dark line down the middle
+ * of every garment's terminator, which is a fold that is not there.
+ */
+float awToonCavity( const in float ndl ) {
+
+  float band = smoothstep( 0.0, max( uToonCavityWidth, 1e-3 ), abs( ndl ) );
+
+  return mix( 1.0 - clamp( uToonCavityDepth, 0.0, 0.95 ), 1.0, band );
+
+}
+
+/**
+ * **Edge wear**: a light rim along rolled and chipped edges, from fresnel ×
+ * curvature.
+ *
+ * Every piece of plate on `bravely01.jpg` and `bravely05.jpg` is lighter along
+ * its own borders than across its faces — the paint is rubbed off a rolled edge
+ * before it wears anywhere else, and the exposed metal there catches light at
+ * every angle. It is the single strongest cue that a shape is *layered plate*
+ * rather than one moulded shell, and it costs no geometry to state.
+ *
+ * The edge is found by `awToonCreaseAmount`, at its own thresholds: wear starts
+ * at a **35°** rolled edge where the ink line does not begin until 55°, because
+ * paint rubs off long before a border is sharp enough to draw. `WEAR_ANGLE` is
+ * the chord window straddling 35° (`2·sin(θ/2)` = 0.52 at 30°, 0.68 at 40°) and
+ * `WEAR_CURVE` is the same inverse-metres guard the ink line uses, one step
+ * lower.
+ *
+ * The fresnel factor is a *modulation* rather than a gate — `mix(0.35, 1, f)`,
+ * not `f`. A plate border square to the camera has almost no fresnel and is
+ * exactly where the wear has to read; multiplying by fresnel outright would
+ * delete the term across the front of the breastplate and leave it only on the
+ * silhouette, where the rim already lives.
+ */
+const vec2 WEAR_ANGLE = vec2( 0.52, 0.68 );
+const vec2 WEAR_CURVE = vec2( 60.0, 160.0 );
+
+float awToonEdgeWear( const in vec3 n, const in vec3 v,
+                      const in vec3 geoNormal, const in vec3 viewPos ) {
+
+  float worn = awToonCreaseAmount( geoNormal, viewPos, WEAR_ANGLE, WEAR_CURVE );
+  float fresnel = pow( 1.0 - saturate( dot( n, v ) ), 2.0 );
+
+  return worn * mix( 0.35, 1.0, fresnel );
+
+}
+
+#endif
+
+#ifdef TOON_CLOTH_TURN
+
+/**
+ * The fold turn: a **0.05 fresnel lift, spent as a multiply**.
+ *
+ * Cloth catches a little more light where it turns away from the eye — a fold's
+ * flank is brighter than its face, which is how a fold reads at all once the
+ * terminator has decided which side of the garment it is on. Every previous
+ * attempt at this in the project spent it as an *additive white* term, which is
+ * the grazing environment fresnel the last revision removed by name: brightest
+ * exactly along the edge of each panel, hue-free, and indistinguishable from wet
+ * plastic.
+ *
+ * A multiply on the surface's own radiance cannot do that. It has no colour of
+ * its own to add, so a wine coat's fold flank is a lighter wine and a navy
+ * coat's a lighter navy; and at 0.05 the whole effect is a twentieth of a stop,
+ * which is a turn rather than a sheen. The exponent keeps it off the facing side
+ * entirely.
+ */
+float awToonClothTurn( const in vec3 n, const in vec3 v ) {
+
+  float grazing = 1.0 - saturate( dot( n, v ) );
+
+  return 1.0 + max( uToonClothFresnel, 0.0 ) * pow( grazing, 3.0 );
+
+}
+
+#endif
+
+#ifdef TOON_CREASE_INK
+
+/**
+ * The **interior crease line** — ink on a fold ridge or a plate border, drawn by
+ * the surface rather than by a shell.
+ *
+ * `render/Outline.js` draws the silhouette as an inverted hull and owns this
+ * line's constants too (`CREASE_DEFAULTS`), but not its geometry, and the reason
+ * is a budget one worth stating plainly: the geometric form of an interior
+ * crease pass is a view-facing ribbon per qualifying edge, which on this cast
+ * measures out at roughly twenty thousand extra triangles per character across
+ * its half-dozen shading classes, all of them skinned. The capture harness
+ * renders on CPU SwiftShader and has already failed a screenshot timeout once.
+ * The fragment test draws the same line for two `fwidth` pairs and no geometry
+ * at all, and — unlike the ribbon — it cannot tear at a skin seam, cannot
+ * z-fight against the surface it lies on, and needs no second skinned draw.
+ *
+ * The line is a **multiply on the shaded surface**, not a flat ink colour, and
+ * that is deliberate. An interior line in an inked drawing is lighter than the
+ * contour — it describes a form rather than closing a silhouette — and one that
+ * responds to the light keeps a plate border legible on the lit side without
+ * punching a black hole through the shadow side, where a fixed ink value would
+ * be darker than the surface it is drawn on.
+ */
+float awToonCreaseInk( const in vec3 n, const in vec3 viewPos ) {
+
+  return awToonCreaseAmount( n, viewPos, uToonCreaseRange, uToonCreaseCurve );
+
+}
+
+#endif
+
+#ifdef TOON_DETAIL_MAP
+
+/**
+ * The hand-painted detail multiplier, projected from object space.
+ *
+ * Two planar samples, not three. A costume's dominant axis is vertical, so the
+ * front (XY) and side (ZY) planes between them cover every panel a garment has;
+ * the third plane of a full triplanar blend would only serve the top of a
+ * shoulder, which on a chibi is a few dozen pixels, and it costs a third more
+ * texture bandwidth on every character fragment in the frame.
+ *
+ * The map is authored **linear and centred on 128**, so a texel of exactly mid
+ * grey doubles to 1.0 and changes nothing. That is what lets one channel carry a
+ * print that both darkens (a woven ground) and lightens (a highlight thread),
+ * and carry hue while it does — a warm ochre motif returns roughly
+ * `(1.17, 0.94, 0.70)` and tints the garment underneath rather than replacing
+ * it, which is how a print sits on cloth.
+ *
+ * `uToonDetailStrength` fades the whole thing toward 1.0, so a caller states how
+ * loud the print is in one number and the canvas is authored once at full
+ * contrast.
+ */
+vec3 awToonDetail() {
+
+  vec3 axis = abs( normalize( vToonDetailNormal ) );
+  vec2 uvFront = vToonDetailPos.xy * uToonDetailScale;
+  vec2 uvSide = vToonDetailPos.zy * uToonDetailScale;
+
+  float side = axis.x / max( axis.x + axis.z, 1e-4 );
+  vec3 print = mix( texture2D( uToonDetailMap, uvFront ).rgb,
+                    texture2D( uToonDetailMap, uvSide ).rgb, side );
+
+  return mix( vec3( 1.0 ), print * 2.0, clamp( uToonDetailStrength, 0.0, 1.0 ) );
 
 }
 

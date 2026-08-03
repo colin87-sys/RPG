@@ -104,6 +104,7 @@
  *
  *   setOutlineEnabled( on )                         // on by default
  *   isOutlineEnabled()                              -> boolean
+ *   creaseInk( opts )                               -> interior-line parameters
  *   buildOutline( mesh, opts )                      -> THREE.Mesh | null
  *   buildOutlines( root, opts )                     -> THREE.Mesh[]
  *   updateOutlineScale( mesh, camera, viewportHeight )
@@ -143,12 +144,20 @@ import {
  * way are in the module header.
  *
  * `width` is in **device pixels**, which is what "constant screen-space weight"
- * means. **1.5 px**, the bottom of §4's stated 1.5–2.5 range: a chibi character
- * occupies a small part of the battle frame, so the same weight that reads as a
- * contour on a hero closeup reads as a black jacket on a figure at the back of
- * the stage. At 1.8 the line was closing small features — the gap between a
- * finger and its neighbour, the notch between two hair clumps — by drawing over
- * them from both sides at once.
+ * means: `updateOutlineScale` re-derives the world offset from the camera's own
+ * projection every frame, so the mark is the same number of pixels on a hero
+ * closeup and on a figure at the back of the battle stage.
+ *
+ * **2.0 px**, the middle of §4's 1.5–2.5 range and up from 1.5. The note that
+ * lowered it recorded a real measurement — at 1.8 the line was closing small
+ * features, the gap between a finger and its neighbour, the notch between two
+ * hair clumps, by drawing over them from both sides at once — but it was made
+ * when this was the *only* ink in the frame, so the hull was being asked to
+ * carry both the silhouette and every interior mark and could be neither light
+ * enough for one nor heavy enough for the other. `CREASE_DEFAULTS` now draws the
+ * interior line work, which is where the fine weight was actually needed, and
+ * that frees the contour to be a contour. The closing risk is unchanged in kind
+ * and is the reason this does not go to 2.5.
  *
  * `darkness` and `saturation` are §4's colour rule: "not black — a heavily
  * darkened, saturated version of the underlying albedo, so hair gets a dark-warm
@@ -224,13 +233,106 @@ import {
  */
 export const OUTLINE_DEFAULTS = Object.freeze({
   enabled: true,
-  width: 1.5,
+  width: 2.0,
   darkness: 0.11,
   saturation: 1.35,
   floor: 0.014,
   fog: false,
   depthGuard: 0.5,
 });
+
+/**
+ * The **interior** ink line: creases, plate borders and fold ridges.
+ *
+ * A silhouette line alone is half of an inked frame and it is the half that
+ * shows least. On `bravely01.jpg` the contour around Seth is barely darker than
+ * the meadow behind him, while the *interior* is full of drawn line: every
+ * pauldron lame is bounded by a dark seam, the cuisse's plates are separated by
+ * one, the tassets are stacked with one between each, and the same treatment
+ * runs down Elvis's lapel and Gloria's bodice panels. Our capture has none of
+ * it — the review's "smooth primitive lofts wearing flat vertex-colour zones"
+ * is precisely a figure with a silhouette and no interior marks.
+ *
+ * **Where it is drawn from, and why it is not geometry.** The technique this
+ * module is built on cannot express it: an inverted hull is a silhouette
+ * device by construction and sees nothing inside the contour. The geometric
+ * answer is a second pass emitting a view-facing ribbon for every edge whose two
+ * faces meet past the threshold — and measured on this cast that is on the order
+ * of twenty thousand extra triangles per character, every one of them skinned,
+ * across the half-dozen shading classes `CharacterFactory` merges into. The
+ * capture harness renders on CPU SwiftShader and has already failed a screenshot
+ * timeout once, so that pass is not affordable and a line that never renders is
+ * worth nothing.
+ *
+ * The same line falls out of two screen-space derivatives in the surface shader
+ * for no geometry at all, and it is strictly better behaved: it cannot tear at a
+ * skin seam, cannot z-fight against the surface it lies on, and needs no second
+ * skinned draw call. So `render/ToonMaterial.js` compiles it into the character
+ * classes and reads its constants from here — this module stays the one place in
+ * the project where the weight, the colour and the existence of an ink mark are
+ * decided, which is the property that was worth keeping.
+ *
+ * **`angle` is the brief's 55°**, expressed for the shader as the chord
+ * `2·sin(θ/2)` of the angle the geometric normal turns through across one 2×2
+ * pixel quad, with `angleSpan` the smoothstep either side of it. On the faceted
+ * geometry `CharacterFactory` ships, the normal is constant inside a facet and
+ * jumps at its boundary, so that chord is a direct reading of the face-to-face
+ * angle: 0.52 at 30°, 0.92 at 55°, 1.0 at 60°. A 30° loft joint is rejected at
+ * any zoom, which is what keeps the low-poly construction lines out of the ink
+ * when the camera comes in for a closeup.
+ *
+ * **`curve` is the guard that survives the wide shot.** The angle test alone
+ * fires on *smooth* geometry once the camera is far enough back that a whole
+ * cranium turns 55° inside one quad, which would ink a distant character solid.
+ * Dividing the normal's turn by the surface's own travel per pixel gives radians
+ * per metre — a real curvature, identical at any distance — and this cast reads
+ * 8 on a cranium, 20 on a forearm and 33 on a hair clump against hundreds on a
+ * genuine crease. The window sits in the empty gap between those families.
+ *
+ * **`ink` is a multiply on the shaded surface, not a colour**, and it is lighter
+ * than the silhouette's 0.11 on purpose: an interior line describes a form where
+ * a contour closes a shape, and in every inked frame the second is the heavier
+ * of the two. Spending it as a multiply also means the line dims with the light
+ * instead of punching a fixed black value through a shadowed panel.
+ */
+export const CREASE_DEFAULTS = Object.freeze({
+  enabled: true,
+  angle: 55,
+  angleSpan: 5,
+  curve: Object.freeze([110, 260]),
+  ink: 0.30,
+});
+
+/** The chord `2·sin(θ/2)` of an angle in degrees — the quantity
+ *  `length( fwidth( normal ) )` actually measures across a facet boundary. */
+function normalChord(degrees) {
+  return 2 * Math.sin((degrees * Math.PI) / 360);
+}
+
+/**
+ * The interior crease line's parameters, resolved for a shader.
+ *
+ * `render/ToonMaterial.js` calls this once per material and uploads the result;
+ * returning plain numbers rather than uniform objects keeps the two modules
+ * decoupled, so a change of weight here cannot reach into a live material by
+ * surprise — it takes effect on the next one built, exactly like
+ * `setOutlineEnabled`.
+ *
+ * @param {Object} [opts] per-material overrides, same keys as `CREASE_DEFAULTS`.
+ * @returns {{enabled:boolean, range:[number,number], curve:[number,number], ink:number}}
+ */
+export function creaseInk(opts = {}) {
+  const angle = opts.angle ?? CREASE_DEFAULTS.angle;
+  const span = Math.max(opts.angleSpan ?? CREASE_DEFAULTS.angleSpan, 0.5);
+  const curve = opts.curve ?? CREASE_DEFAULTS.curve;
+
+  return {
+    enabled: (opts.enabled ?? CREASE_DEFAULTS.enabled) && _enabled,
+    range: [normalChord(Math.max(angle - span, 1)), normalChord(Math.min(angle + span, 179))],
+    curve: [curve[0], curve[1]],
+    ink: Math.min(Math.max(opts.ink ?? CREASE_DEFAULTS.ink, 0), 1),
+  };
+}
 
 /**
  * Whether {@link buildOutline} produces anything.
