@@ -1,6 +1,6 @@
 {
-  "utc": "2026-09-30T10:46:53Z",
-  "commit": "9ee415e",
+  "utc": "2026-09-30T10:48:50Z",
+  "commit": "ef83ace",
   "milestone": "M2",
   "goldpath": {
     "utc": "2026-09-30T10:43:43Z",
@@ -381,7 +381,7 @@
         "missing_refs": 0
       },
       "capture": {
-        "utc": "2026-09-30T10:46:53Z",
+        "utc": "2026-09-30T10:48:50Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -872,31 +872,40 @@
     "Docs/progress/violet/20260930T104525Z_combat.png",
     "Docs/progress/violet/20260930T104551Z_combat.png",
     "Docs/progress/violet/20260930T104617Z_combat.png",
-    "Docs/progress/violet/20260930T104645Z_combat.png"
+    "Docs/progress/violet/20260930T104645Z_combat.png",
+    "Docs/progress/m2/20260930T104725Z_combat.png",
+    "Docs/progress/m2/20260930T104725Z_hero.png",
+    "Docs/progress/m2/20260930T104725Z_vista.png",
+    "Docs/progress/m2/20260930T104725Z_hud.png",
+    "Docs/progress/m2/20260930T104801Z_combat.png",
+    "Docs/progress/m2/20260930T104801Z_hero.png",
+    "Docs/progress/m2/20260930T104818Z_combat.png",
+    "Docs/progress/m2/20260930T104818Z_vista.png",
+    "Docs/progress/m2/20260930T104844Z_title.png"
   ],
   "capture": {
-    "utc": "2026-09-30T10:46:53Z",
+    "utc": "2026-09-30T10:48:50Z",
     "passed": true,
     "cams": [
-      "combat"
+      "title"
     ],
     "seed": 1,
-    "t": 60,
-    "stage": "violetTide",
-    "w": 1280,
-    "h": 720,
-    "feature": "violet",
+    "t": 12,
+    "stage": "cloudgate",
+    "w": 1920,
+    "h": 1080,
+    "feature": "m2",
     "files": [
-      "Docs/progress/violet/20260930T104645Z_combat.png"
+      "Docs/progress/m2/20260930T104844Z_title.png"
     ],
     "stats": {
-      "combat": {
-        "state": "play",
-        "time": 61.05,
-        "luma_mean": 66.6,
-        "luma_std": 34.8,
-        "colors": 490,
-        "size": "1280x720"
+      "title": {
+        "state": "title",
+        "time": 0,
+        "luma_mean": 37.7,
+        "luma_std": 34.3,
+        "colors": 166,
+        "size": "1920x1080"
       }
     },
     "problems": []
