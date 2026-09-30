@@ -13,3 +13,4 @@
 | T009 | P0 | Look-Dev | Lab boards A/B/C: hero, enemies, vistas, HUD, VFX, post (W3) | open |
 | T010 | P1 | World | vista-wreck A: big near asteroid overlaps the planet (upper right); keep the planet disc clear of near debris | open |
 | T011 | P0 | Director | Game camera far plane >= 1600 m for Wreckfield asteroids; verify sky renderOrder under the post stack's HDR target | open |
+| T012 | P1 | VFX | vfx-smoke A over Cloudgate: trails merge with backdrop cumulus at 2.5-3.5 s; add slight cool shadow/contrast vs cloudCream | open |
