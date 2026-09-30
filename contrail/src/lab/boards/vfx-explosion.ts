@@ -12,6 +12,7 @@ import { Explosions, EXPLOSION_VARIANTS, type ExplosionKind } from '../../gen/vf
 import { HitPops } from '../../gen/vfx/particles-hit';
 import { LabBackdrop } from '../../gen/vfx/particles-backdrop';
 import { PostStack, POST_VARIANTS } from '../../gen/vfx/post';
+import { buildSkyVista, CLOUDGATE_VARIANTS } from '../../gen/world/sky';
 
 const FRAMES = [0.03, 0.1, 0.2, 0.3, 0.5, 0.9];
 const STEP = 1 / 240;
@@ -20,13 +21,15 @@ export default async function board(ctx: LabContext) {
   const v = (['A', 'B', 'C'].includes(ctx.variant) ? ctx.variant : 'A') as 'A' | 'B' | 'C';
   const params = EXPLOSION_VARIANTS[v];
   const post = new PostStack(ctx.renderer, { msaaSamples: 4, params: POST_VARIANTS.A });
-  const backdrops: Record<string, LabBackdrop> = {
-    wreckfield: new LabBackdrop('wreckfield'),
-    cloudgate: new LabBackdrop('cloudgate', { clouds: 60, seed: 9, cloudY: -30, cloudZ: [-40, -500] }),
+  const space = new LabBackdrop('wreckfield');
+  const vista = buildSkyVista(CLOUDGATE_VARIANTS.C, 1);
+  const backdrops: Record<string, { group: THREE.Object3D; prepare: () => void }> = {
+    wreckfield: { group: space.group, prepare: () => space.prepare(cam) },
+    cloudgate: { group: vista.group, prepare: () => vista.update(cam.position, 0) },
   };
   const scene = new THREE.Scene();
   for (const k of Object.keys(backdrops)) scene.add(backdrops[k].group);
-  const cam = new THREE.PerspectiveCamera(50, 1, 0.3, 3000);
+  const cam = new THREE.PerspectiveCamera(50, 1, 0.3, 20000);
   const vanish = new THREE.Vector2(0, 0);
 
   const renderCell = (stage: StageId, rect: Rect, label: string) => {
@@ -34,7 +37,7 @@ export default async function board(ctx: LabContext) {
     for (const k of Object.keys(backdrops)) backdrops[k].group.visible = k === stage;
     cam.aspect = rect.w / rect.h;
     cam.updateProjectionMatrix();
-    backdrops[stage].prepare(cam);
+    backdrops[stage].prepare();
     post.setSize(Math.round(rect.w), Math.round(rect.h), 1);
     post.render(scene, cam, { time: 1, chroma: postTok.chroma.base, speed01: 0, vanish, flash: 0, danger01: 0 });
     const w = Math.round(rect.w), h = Math.round(rect.h);
@@ -98,6 +101,6 @@ export default async function board(ctx: LabContext) {
   });
   ctx.clearAll(palette.spaceDeep);
   ctx.title('VFX strip: explosion', `variant ${params.name}; big 3.5 m @ ${bigDist} m; PostStack A (bloom)`);
-  ctx.exportParams({ board: 'vfx-explosion', variant: v, params, frames: FRAMES, step: STEP, post: 'POST_VARIANTS.A', big: { size: bigSize, dist: bigDist }, small: { size: 1, dist: 12, t: 0.2 }, boss: { size: 9, dist: 95, t: 0.4 }, seed: 1234 });
+  ctx.exportParams({ board: 'vfx-explosion', variant: v, params, frames: FRAMES, step: STEP, post: 'POST_VARIANTS.A', backdrop: { dark: 'LabBackdrop wreckfield', bright: 'buildSkyVista(CLOUDGATE_VARIANTS.C, 1)' }, big: { size: bigSize, dist: bigDist }, small: { size: 1, dist: 12, t: 0.2 }, boss: { size: 9, dist: 95, t: 0.4 }, seed: 1234 });
   ctx.ready();
 }

@@ -39,7 +39,7 @@ export default async function board(ctx: LabContext) {
   const scene = new THREE.Scene();
   const world = buildWreckfield(params, seed);
   scene.add(world.group);
-  const craft = placeholderDelta();
+  const craft = placeholderDelta(palette.armourSteel);
   craft.rotation.z = -0.18; // slight bank so the planet rim catches the wing
   scene.add(craft);
 

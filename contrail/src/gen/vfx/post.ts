@@ -100,7 +100,7 @@ const tokenPost: PostParams = {
 
 export const POST_VARIANTS: Record<'A' | 'B' | 'C', PostParams> = {
   /** A "broadcast": token numbers, shoulder-only tone map (token colours unchanged below 0.8 linear) */
-  A: { ...tokenPost },
+  A: { ...tokenPost, gradeAmount: 0.5, streaks: { ...STREAK_VARIANTS.A, opacity: 0.42 } },
   /** B "clean anime": lighter texture, a touch more bloom, sparser streaks */
   B: {
     ...tokenPost,
@@ -289,11 +289,12 @@ void main() {
   vec3 c = toSRGB(tm);
   if (uClean < 0.5) {
     // grade (display space): lift shadows cool, gain highlights warm, saturation
-    vec3 g = c * uGain + uLift * (1.0 - c);
+    vec3 sh3 = (1.0 - c) * (1.0 - c) * (1.0 - c);
+    vec3 g = c * mix(vec3(1.0), uGain, uGrade) + uLift * sh3;
     g = pow(max(g, 0.0), vec3(1.0 / uGamma));
     float l = dot(g, vec3(0.2126, 0.7152, 0.0722));
     g = mix(vec3(l), g, uSaturation);
-    c = mix(c, clamp(g, 0.0, 1.0), uGrade);
+    c = mix(c, clamp(g, 0.0, 1.0), min(uGrade * 2.0, 1.0));
     // vignette + danger edge tint
     float edge = smoothstep(0.35, 1.0, rC);
     c *= 1.0 - uVignette * edge * edge;

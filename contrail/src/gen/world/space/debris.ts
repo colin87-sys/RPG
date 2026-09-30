@@ -13,7 +13,7 @@
  * Draw calls: 3 asteroid + 3 slab + 1 fleck = 7.
  */
 import * as THREE from 'three';
-import { palette, shading } from '../../../style/tokens';
+import { palette, shading, stages } from '../../../style/tokens';
 import { mix, shade, tvec } from '../../../style/color';
 import { GLSL_LIGHTING, lightUniforms } from '../../common/lighting';
 import { Rng } from '../../../core/rng';
@@ -65,6 +65,8 @@ export interface DebrisParams {
   rimBoost: number;
   /** assumed camera velocity when update() has no history (m/s, world) */
   defaultVelocity: [number, number, number];
+  /** keep big pieces out of the wedge (radians, around the corridor axis) whose pass-by would cross the planet disc */
+  planetClearWedge: number;
 }
 
 export const DEBRIS_DEFAULTS: DebrisParams = {
@@ -100,6 +102,7 @@ export const DEBRIS_DEFAULTS: DebrisParams = {
   farMix: 0.9,
   rimBoost: 1.5,
   defaultVelocity: [0, 0, -45],
+  planetClearWedge: 0.34,
 };
 
 export interface DebrisField {
@@ -308,11 +311,20 @@ export function buildDebrisField(params: Partial<DebrisParams> = {}, seed = 1): 
   const alloc = (n: number) => ({ pos: new Float32Array(n * 4), axis: new Float32Array(n * 4), misc: new Float32Array(n * 4), box: new Float32Array(n * 4) });
 
   /** place a big piece outside the corridor; returns [x, y] */
+  const kd = stages.wreckfield.key.dir;
+  const planetAng = Math.atan2(kd[1], kd[0]);
   const placeRing = (rng: Rng, rMin: number, rMax: number, radius: number): [number, number] => {
     let ang: number;
     if (rng.chance(p.sideBias)) ang = (rng.chance(0.5) ? 0 : Math.PI) + rng.gauss(1.3);
     else ang = rng.next() * Math.PI * 2;
     const rho = rMin + (rMax - rMin) * Math.pow(rng.next(), 1.5);
+    // T010: a piece at polar angle ang sweeps across the screen along that angle as it
+    // approaches, so keep it out of the planet's wedge (seen from the chase camera height)
+    if (p.planetClearWedge > 0) {
+      const w = p.planetClearWedge + radius / Math.max(rho, 1);
+      let da = Math.atan2(Math.sin(ang - planetAng), Math.cos(ang - planetAng));
+      if (Math.abs(da) < w) ang = planetAng + Math.sign(da || 1) * (w + rng.next() * 0.1);
+    }
     let x = Math.cos(ang) * rho;
     let y = Math.sin(ang) * rho * p.verticalSquash;
     const lim = p.corridor + radius;

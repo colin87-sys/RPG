@@ -1,6 +1,6 @@
 {
-  "utc": "2026-09-30T08:51:57Z",
-  "commit": "30851ce",
+  "utc": "2026-09-30T08:53:07Z",
+  "commit": "d82d6db",
   "milestone": "P1",
   "goldpath": {
     "utc": "2026-09-30T08:51:57Z",
@@ -496,7 +496,7 @@
         "missing_refs": 0
       },
       "capture": {
-        "utc": "2026-09-30T05:41:39Z",
+        "utc": "2026-09-30T08:53:07Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -894,71 +894,54 @@
     "Docs/progress/goldpath/20260930T084708Z_p25.png",
     "Docs/progress/goldpath/20260930T084708Z_p50.png",
     "Docs/progress/goldpath/20260930T084708Z_p75.png",
-    "Docs/progress/goldpath/20260930T084708Z_results.png"
+    "Docs/progress/goldpath/20260930T084708Z_results.png",
+    "Docs/progress/integration/20260930T085250Z_combat.png",
+    "Docs/progress/integration/20260930T085250Z_hero.png",
+    "Docs/progress/integration/20260930T085250Z_title.png"
   ],
   "capture": {
-    "utc": "2026-09-30T05:41:39Z",
+    "utc": "2026-09-30T08:53:07Z",
     "passed": true,
     "cams": [
-      "hero",
-      "vista",
       "combat",
-      "hud",
+      "hero",
       "title"
     ],
     "seed": 1,
-    "t": 12,
+    "t": 20,
     "stage": "cloudgate",
-    "w": 1920,
-    "h": 1080,
-    "feature": "general",
+    "w": 1280,
+    "h": 720,
+    "feature": "integration",
     "files": [
-      "Docs/progress/general/20260930T054134Z_hero.png",
-      "Docs/progress/general/20260930T054134Z_vista.png",
-      "Docs/progress/general/20260930T054134Z_combat.png",
-      "Docs/progress/general/20260930T054134Z_hud.png",
-      "Docs/progress/general/20260930T054134Z_title.png"
+      "Docs/progress/integration/20260930T085250Z_combat.png",
+      "Docs/progress/integration/20260930T085250Z_hero.png",
+      "Docs/progress/integration/20260930T085250Z_title.png"
     ],
     "stats": {
-      "hero": {
-        "state": "play",
-        "time": 12.03,
-        "luma_mean": 212.4,
-        "luma_std": 59,
-        "colors": 73,
-        "size": "1920x1080"
-      },
-      "vista": {
-        "state": "play",
-        "time": 12.03,
-        "luma_mean": 181.4,
-        "luma_std": 70.1,
-        "colors": 67,
-        "size": "1920x1080"
-      },
       "combat": {
         "state": "play",
-        "time": 12.03,
-        "luma_mean": 185.1,
-        "luma_std": 68.1,
-        "colors": 151,
-        "size": "1920x1080"
+        "time": 20.03,
+        "luma_mean": 169.7,
+        "luma_std": 44,
+        "colors": 563,
+        "size": "1280x720"
       },
-      "hud": {
+      "hero": {
         "state": "play",
-        "time": 12.03,
-        "luma_mean": 188.3,
-        "luma_std": 68.4,
-        "colors": 147,
-        "size": "1920x1080"
+        "time": 20.03,
+        "luma_mean": 181.4,
+        "luma_std": 32.8,
+        "colors": 256,
+        "size": "1280x720"
       },
       "title": {
         "state": "title",
         "time": 0,
-        "luma_mean": 202.9,
-        "luma_std": 64,
-        "colors": 75,
-        "size": "1920x1080"
+        "luma_mean": 177.3,
+        "luma_std": 38.6,
+        "colors": 199,
+        "size": "1280x720"
       }
     },
     "problems": []

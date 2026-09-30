@@ -61,15 +61,15 @@ export const HULL_DEFAULTS: HullParams = {
   lipOut: 9,
   lightDensity: 1,
   greebleDensity: 1,
-  tone: 0.2,
+  tone: 0.08,
   capLength: 60,
 };
 
 /** A = balanced; B = tight ribs, dense lights, strong bow; C = wide ribs, sparse lights, boxy + frequent arches. */
 export const HULL_VARIANTS: Record<'A' | 'B' | 'C', HullParams> = {
   A: { ...HULL_DEFAULTS },
-  B: { ...HULL_DEFAULTS, ribSpacing: 12, modules: 14, lightDensity: 1.9, bow: 40, roundness: 2.2, archEvery: 5, tone: 0.14 },
-  C: { ...HULL_DEFAULTS, ribSpacing: 26, modules: 7, lightDensity: 0.5, bow: 5, roundness: 3.6, archEvery: 2, tone: 0.28 },
+  B: { ...HULL_DEFAULTS, ribSpacing: 12, modules: 14, lightDensity: 0.62, greebleDensity: 0.6, bow: 40, roundness: 2.2, archEvery: 5, tone: 0.04 },
+  C: { ...HULL_DEFAULTS, ribSpacing: 26, modules: 7, lightDensity: 0.5, bow: 5, roundness: 3.6, archEvery: 2, tone: 0.12 },
 };
 
 export interface HullMass {
@@ -123,6 +123,7 @@ uniform vec3 uDark;
 uniform vec3 uSteel;
 uniform vec3 uLight;
 uniform vec3 uSil;
+uniform vec3 uVent;
 uniform vec2 uPanel;
 uniform float uSeamW;
 uniform float uSeamDark;
@@ -161,6 +162,9 @@ void main() {
   // mass: darker toward the depths
   albedo *= mix(0.5, 1.0, smoothstep(-70.0, 25.0, vLocalY));
   vec3 c = shadeToon(albedo, n);
+  // accentOrange vent slits on a few panels (small, dim: never hostile-fire sized)
+  float vent = step(0.94, fract(h * 31.7)) * step(0.44, f.y) * step(f.y, 0.52) * step(0.18, f.x) * step(f.x, 0.62) * vis;
+  c += uVent * vent;
   c += rimTerm(n, v) * uRimMul;
   vec3 hv = normalize(normalize(uKeyDir) + v);
   float sp = pow(max(dot(n, hv), 0.0), uSpecPow);
@@ -546,6 +550,7 @@ export function buildHullMass(params: Partial<HullParams> = {}, seed = 1, opts: 
       uSteel: { value: tvec(palette.armourSteel) },
       uLight: { value: tvec(mix(palette.armourSteel, palette.armourLight, 0.5)) },
       uSil: { value: tvec(palette.emblemBlack) },
+      uVent: { value: tvec(palette.accentOrange, 0.55) },
       uPanel: { value: new THREE.Vector2(9.0, 4.6) },
       uSeamW: { value: 0.14 },
       uSeamDark: { value: shading.seamDarkness },

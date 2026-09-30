@@ -99,7 +99,7 @@ export const BEAM_VARIANTS: Record<'A' | 'B' | 'C', BeamParams> = {
   /** B: slimmer core, stronger halo, slower flicker (heavier threat read) */
   B: { ...baseBeam, coreFrac: 0.42, haloIntensity: 2.6, haloOcclusion: 0.8, flickerHz: [5, 14], telegraphOutlinePx: 2.5, bossScale: 3.4 },
   /** C: wider core, brighter flash, faster tip extension, livelier flow */
-  C: { ...baseBeam, coreFrac: 0.55, flashScale: 1.9, flashBoost: 1.6, extendS: 0.12, flowAmount: 0.3, telegraphWidth: 0.16, bossScale: 2.6 },
+  C: { ...baseBeam, coreFrac: 0.55, edgeFrac: 0.05, edgeMinPx: 2, haloIntensity: 2.8, haloOcclusion: 0.88, flashScale: 1.9, flashBoost: 1.6, extendS: 0.12, flowAmount: 0.3, telegraphWidth: 0.16, bossScale: 2.6 },
 };
 
 const VERT = /* glsl */ `
@@ -147,8 +147,8 @@ void main() {
     extA = max(aW.x * f * wa, uMinW * 0.5) * g + 2.0;
     extB = max(aW.x * f * wb, uMinW * 0.5) + 2.0;
   } else {
-    extA = max(aW.y * f * wa, uTeleMinPx * 0.5) + uTeleOutPx + 2.0;
-    extB = max(aW.y * f * wb, uTeleMinPx * 0.5) + uTeleOutPx + 2.0;
+    extA = max(aW.y * f * wa, uTeleMinPx * 0.5) + uTeleOutPx * 1.6 + 2.0;
+    extB = max(aW.y * f * wb, uTeleMinPx * 0.5) + uTeleOutPx * 1.6 + 2.0;
   }
   float s = position.x;
   float e = mix(extA, extB, s);
@@ -225,7 +225,8 @@ void main() {
   } else {
     float lp = max(vW.y * f * vInvW, uTeleMinPx * 0.5);
     float line = 1.0 - smoothstep(lp - 0.6, lp + 0.6, d);
-    float outer = 1.0 - smoothstep(lp + uTeleOutPx - 0.6, lp + uTeleOutPx + 0.6, d);
+    float op = uTeleOutPx * (1.0 + 0.6 * boss);
+    float outer = 1.0 - smoothstep(lp + op - 0.6, lp + op + 0.6, d);
     float hz = mix(uFlickHz.x, uFlickHz.y, vK.z);
     float fk = 1.0 - uFlickDepth * step(0.5, fract(uTime * hz));
     vec3 tc = mix(uTeleL, uTeleB, boss) * I * fk;
@@ -320,7 +321,7 @@ export class Beams {
         uHaloDarkL: { value: tvec(shade(red, 0.5)) },
         uHaloDarkB: { value: tvec(palette.fireOrange) },
         uTeleL: { value: tvec(mix(red, palette.burstWhite, 0.18)) },
-        uTeleB: { value: tvec(mix(yel, palette.burstWhite, 0.12)) },
+        uTeleB: { value: tvec(mix(yel, palette.fireOrange, 0.3)) },
         uOutline: { value: tvec(palette.hostileOutline) },
       },
     });
@@ -356,7 +357,7 @@ export class Beams {
     u.uFlowPeriod.value = p.flowPeriod;
     // the per-instance intensity (aW.z) scales the core; edge/halo are expressed relative to it
     (u.uCore.value as THREE.Vector3).copy(tvec(bt.core));
-    (u.uEdgeL.value as THREE.Vector3).copy(tvec(palette.burstYellow, p.edgeIntensity / p.coreIntensity));
+    (u.uEdgeL.value as THREE.Vector3).copy(tvec(mix(palette.burstYellow, palette.fireOrange, 0.4), p.edgeIntensity / p.coreIntensity));
     (u.uEdgeB.value as THREE.Vector3).copy(tvec(palette.exhaustCore, p.edgeIntensity / p.coreIntensity));
     (u.uHaloL.value as THREE.Vector3).copy(tvec(bt.haloEnemy, p.haloIntensity / p.coreIntensity));
     (u.uHaloB.value as THREE.Vector3).copy(tvec(bt.haloBoss, p.haloIntensity / p.coreIntensity));

@@ -819,7 +819,11 @@ export class Game implements Combat {
     this.stat(`enemyKilled:${weapon}`);
     this.stat(`killed:${e.kind}`);
     this.events.emit('enemyKilled', { id: e.id, kind: e.kind, pos: scratchV.set(e.x, e.y, e.u), value: pts, weapon, big: e.big });
-    if (this.chain >= 2) this.combatText.push({ text: `${this.chain} CHAIN`, kind: this.chain >= T.combo.refillThreshold ? 'good' : 'hot', age: 0 });
+    if (this.chain >= 2) {
+      // one live chain line: replace the previous one instead of stacking
+      this.combatText = this.combatText.filter((c) => !c.text.endsWith(' CHAIN'));
+      this.combatText.push({ text: `${this.chain} CHAIN`, kind: this.chain >= T.combo.refillThreshold ? 'good' : 'hot', age: 0 });
+    }
   }
 
   hurtPlayer(dmg: number, source: string, _b: Bullet | null, continuous = false): void {

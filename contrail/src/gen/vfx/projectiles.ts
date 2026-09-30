@@ -137,7 +137,7 @@ export const HOSTILE_VARIANTS: Record<'A' | 'B' | 'C', HostileBulletParams> = {
   /** A: token spec, balanced core/halo */
   A: { radius: 0.9, minFrameHeightFrac: hb.minFrameHeightFrac, coreFrac: 0.5, outlineFrac: 0.12, minOutlinePx: 2.0, outlineAlpha: 0.9, coreIntensity: 2.6, haloIntensity: 1.1, glow: 0.3, glowExtent: 1.6, pulse: 0.1, pulseHz: 7 },
   /** B: bigger floor, heavier outline (max bright-sky separation) */
-  B: { radius: 0.95, minFrameHeightFrac: 0.02, coreFrac: 0.46, outlineFrac: 0.15, minOutlinePx: 2.4, outlineAlpha: 0.95, coreIntensity: 2.6, haloIntensity: 1.0, glow: 0.25, glowExtent: 1.5, pulse: 0.08, pulseHz: 6 },
+  B: { radius: 0.95, minFrameHeightFrac: 0.02, coreFrac: 0.52, outlineFrac: 0.17, minOutlinePx: 2.6, outlineAlpha: 1.0, coreIntensity: 2.6, haloIntensity: 1.0, glow: 0.1, glowExtent: 1.5, pulse: 0.08, pulseHz: 6 },
   /** C: hotter core, thinner outline, stronger glow (dark-stage bias) */
   C: { radius: 0.85, minFrameHeightFrac: hb.minFrameHeightFrac, coreFrac: 0.55, outlineFrac: 0.1, minOutlinePx: 1.6, outlineAlpha: 0.85, coreIntensity: 3.4, haloIntensity: 1.3, glow: 0.45, glowExtent: 1.8, pulse: 0.12, pulseHz: 8 },
 };

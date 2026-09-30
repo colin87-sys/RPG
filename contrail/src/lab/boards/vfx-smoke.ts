@@ -12,6 +12,7 @@ import { SmokeTrails, SMOKE_VARIANTS } from '../../gen/vfx/smoke';
 import { Explosions, EXPLOSION_VARIANTS } from '../../gen/vfx/explosions';
 import { ParticleBatch, SHAPE, linearRGB } from '../../gen/vfx/particles';
 import { LabBackdrop } from '../../gen/vfx/particles-backdrop';
+import { buildSkyVista, CLOUDGATE_VARIANTS } from '../../gen/world/sky';
 
 const FRAMES = [0.5, 1.5, 2.5, 3.5, 4.8];
 const STEP = 1 / 120;
@@ -20,7 +21,7 @@ export default async function board(ctx: LabContext) {
   const v = (['A', 'B', 'C'].includes(ctx.variant) ? ctx.variant : 'A') as 'A' | 'B' | 'C';
   const params = SMOKE_VARIANTS[v];
   const scene = new THREE.Scene();
-  const cam = new THREE.PerspectiveCamera(68, 1, 0.3, 3000);
+  const cam = new THREE.PerspectiveCamera(68, 1, 0.3, 20000);
 
   const smoke = new SmokeTrails(3000, params, 1);
   smoke.wind.set(0, 0, 2);
@@ -31,11 +32,14 @@ export default async function board(ctx: LabContext) {
   scene.add(heads.mesh);
   const headIn = linearRGB(palette.exhaustCore, 4), headOut = linearRGB(palette.accentOrange, 2);
 
-  const rows: { stage: StageId; bd: LabBackdrop }[] = [
-    { stage: 'wreckfield', bd: new LabBackdrop('wreckfield') },
-    { stage: 'cloudgate', bd: new LabBackdrop('cloudgate', { clouds: 70, seed: 3 }) },
+  // dark row: lab space backdrop; bright row: the real Cloudgate vista (world lane, variant C)
+  const space = new LabBackdrop('wreckfield');
+  const vista = buildSkyVista(CLOUDGATE_VARIANTS.C, 1);
+  const rows: { stage: StageId; group: THREE.Object3D; prepare: () => void }[] = [
+    { stage: 'wreckfield', group: space.group, prepare: () => space.prepare(cam) },
+    { stage: 'cloudgate', group: vista.group, prepare: () => vista.update(cam.position, 0) },
   ];
-  for (const r of rows) scene.add(r.bd.group);
+  for (const r of rows) scene.add(r.group);
 
   // missiles (rail frame: craft at origin flying -Z; target ahead, up-right)
   const target = new THREE.Vector3(4, 10, -100);
@@ -102,8 +106,8 @@ export default async function board(ctx: LabContext) {
     heads.finish(cam);
     rows.forEach((row, ri) => {
       applyStageLook(row.stage);
-      rows.forEach((o) => (o.bd.group.visible = o === row));
-      row.bd.prepare(cam);
+      rows.forEach((o) => (o.group.visible = o === row));
+      row.prepare();
       const rect = cells[ri * FRAMES.length + f];
       ctx.renderCells([{ scene, camera: cam, rect }], null);
       ctx.label(`t=${FRAMES[f].toFixed(1)}s ${row.stage === 'wreckfield' ? 'Wreckfield' : 'Cloudgate'}`, rect.x + 6, rect.y + 6);
@@ -122,6 +126,7 @@ export default async function board(ctx: LabContext) {
     target: target.toArray(),
     impactS: impact,
     drawCalls: { smoke: 1, explosion: 2 },
+    backdrop: { dark: 'LabBackdrop wreckfield', bright: 'buildSkyVista(CLOUDGATE_VARIANTS.C, 1)' },
   };
   ctx.exportParams(out);
   ctx.ready();

@@ -9,6 +9,7 @@ import { sampleHudState } from '../../gen/ui/hudSamples';
 import { drawBackdrop, drawEnemyStandIn } from '../../gen/ui/backdrop';
 import { fontStats, resetFontStats } from '../../gen/ui/font';
 import { hud } from '../../style/tokens';
+import { luminance, rgbToHex } from '../../style/color';
 
 /** rows (top-down) where the HUD layer has ink in a column band */
 export function measureBands(c: HTMLCanvasElement, x0: number, x1: number) {
@@ -32,7 +33,7 @@ export default async function board(ctx: LabContext) {
   const id = (['A', 'B', 'C'].includes(ctx.variant) ? ctx.variant : 'A') as HudVariantId;
   const g = ctx.overlay;
   ctx.clearAll();
-  drawBackdrop(g, W, H, 'cloudgate', { seed: 3, cloud: 0.7 });
+  drawBackdrop(g, W, H, 'cloudgate', { seed: 3, cloud: 0.7, brightBands: ctx.q.get('bright') !== '0' });
   const s = sampleHudState('normal', W, H);
   const kinds = ['caltrop', 'caltrop', 'dart', 'caltrop', 'dart'] as const;
   s.targets.forEach((t, i) => drawEnemyStandIn(g, t.x, t.y, t.size, kinds[i]));
@@ -48,6 +49,17 @@ export default async function board(ctx: LabContext) {
   const m = measureBands(layer, Math.round(W * 0.2), Math.round(W * 0.2) + 4);
   g.drawImage(layer, 0, 0);
   const lay = h.layout(W, H);
+  // contrast of value text (hudValue) against the composited band background at text rows
+  const gd = g.getImageData(0, 0, W, H).data;
+  const L = (x: number, y: number) => {
+    const i = (Math.round(y) * W + Math.round(x)) * 4;
+    return luminance(rgbToHex(gd[i] / 255, gd[i + 1] / 255, gd[i + 2] / 255));
+  };
+  const probes: [number, number][] = [
+    [W * 0.2, H * 0.03], [W * 0.84, H * 0.047], [W * 0.29, H * 0.943], [W * 0.475, H * 0.943], [W * 0.8, H * 0.943], [W * 0.1, H * 0.99],
+  ];
+  const bgL = Math.max(...probes.map(([x, y]) => L(x, y)));
+  const contrast = (luminance(hud.colors.value) + 0.05) / (bgL + 0.05);
   const params = {
     board: 'hud',
     variant: HUD_VARIANTS[id],
@@ -57,6 +69,9 @@ export default async function board(ctx: LabContext) {
       bottomBandPct: +m.bottomPct.toFixed(2),
       smallestTextCapPx: +fontStats.minSize.toFixed(1),
       textCalls: fontStats.calls,
+      worstBandBgLuminance: +bgL.toFixed(3),
+      probeLuminance: probes.map(([x, y]) => +L(x, y).toFixed(3)),
+      valueTextContrast: +contrast.toFixed(2),
     },
     layout: lay,
     state: { score: s.score, locks: s.locks, chain: s.combo.chain, refill: s.combo.refill, shield: s.shield },
