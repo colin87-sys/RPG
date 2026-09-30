@@ -960,7 +960,10 @@ export class Game implements Combat {
     p.hitFlash = 1;
     this.cam.shake = Math.max(this.cam.shake, T.camera.shakeMax * 0.8);
     this.events.emit('playerHit', { damage: d, source, pos: scratchV.set(p.x, p.y, 0) });
-    this.combatText.push({ text: `HULL -${Math.round(d)}`, kind: 'hot', age: 0 });
+    // one live hull line: continuous damage (lasers) accumulates instead of stacking lines
+    const prev = this.combatText.find((c) => c.text.startsWith('HULL -') && c.age < 0.8);
+    if (prev) { prev.text = `HULL -${Math.round(Number(prev.text.slice(6)) + d)}`; prev.age = 0; }
+    else this.combatText.push({ text: `HULL -${Math.round(d)}`, kind: 'hot', age: 0 });
     if (p.shield <= 0) {
       p.shield = 0;
       p.alive = false;

@@ -1,6 +1,6 @@
 {
-  "utc": "2026-09-30T11:09:49Z",
-  "commit": "9fb50cd",
+  "utc": "2026-09-30T11:11:38Z",
+  "commit": "32346ec",
   "milestone": "M2",
   "goldpath": {
     "utc": "2026-09-30T11:09:12Z",
@@ -494,7 +494,7 @@
         "missing_refs": 0
       },
       "capture": {
-        "utc": "2026-09-30T10:48:50Z",
+        "utc": "2026-09-30T11:11:38Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -900,11 +900,6 @@
     ]
   },
   "captures": [
-    "Docs/progress/general/20260930T054134Z_hero.png",
-    "Docs/progress/general/20260930T054134Z_vista.png",
-    "Docs/progress/general/20260930T054134Z_combat.png",
-    "Docs/progress/general/20260930T054134Z_hud.png",
-    "Docs/progress/general/20260930T054134Z_title.png",
     "Docs/progress/goldpath/20260930T054149Z_p25.png",
     "Docs/progress/goldpath/20260930T054149Z_p50.png",
     "Docs/progress/goldpath/20260930T054149Z_p75.png",
@@ -999,30 +994,35 @@
     "Docs/progress/goldpath/20260930T105207Z_results.png",
     "Docs/progress/goldpath/20260930T110437Z_p25.png",
     "Docs/progress/goldpath/20260930T110437Z_p50.png",
-    "Docs/progress/goldpath/20260930T110437Z_results.png"
+    "Docs/progress/goldpath/20260930T110437Z_results.png",
+    "Docs/progress/m2/20260930T111044Z_combat.png",
+    "Docs/progress/m2/20260930T111044Z_hero.png",
+    "Docs/progress/m2/20260930T111044Z_hud.png",
+    "Docs/progress/m2/20260930T111114Z_combat.png",
+    "Docs/progress/m2/20260930T111124Z_combat.png"
   ],
   "capture": {
-    "utc": "2026-09-30T10:48:50Z",
+    "utc": "2026-09-30T11:11:38Z",
     "passed": true,
     "cams": [
-      "title"
+      "combat"
     ],
     "seed": 1,
-    "t": 12,
-    "stage": "cloudgate",
+    "t": 150,
+    "stage": "wreckfield",
     "w": 1920,
     "h": 1080,
     "feature": "m2",
     "files": [
-      "Docs/progress/m2/20260930T104844Z_title.png"
+      "Docs/progress/m2/20260930T111124Z_combat.png"
     ],
     "stats": {
-      "title": {
-        "state": "title",
-        "time": 0,
-        "luma_mean": 37.7,
-        "luma_std": 34.3,
-        "colors": 166,
+      "combat": {
+        "state": "play",
+        "time": 152.54,
+        "luma_mean": 55.8,
+        "luma_std": 46.4,
+        "colors": 635,
         "size": "1920x1080"
       }
     },
