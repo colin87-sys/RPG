@@ -1,15 +1,15 @@
 {
-  "utc": "2026-09-30T14:21:18Z",
-  "commit": "38ed7b5",
+  "utc": "2026-09-30T14:33:00Z",
+  "commit": "0b2f281",
   "milestone": "M2",
   "goldpath": {
-    "utc": "2026-09-30T14:17:40Z",
+    "utc": "2026-09-30T14:33:00Z",
     "passed": true,
     "status": "pass",
     "stage": "cloudgate",
     "seed": 1,
     "duration_s": 186,
-    "wall_s": 397.7,
+    "wall_s": 701.3,
     "final": {
       "state": "results",
       "results": {
@@ -80,10 +80,10 @@
     },
     "failures": [],
     "captures": [
-      "Docs/progress/goldpath/20260930T141100Z_p25.png",
-      "Docs/progress/goldpath/20260930T141100Z_p50.png",
-      "Docs/progress/goldpath/20260930T141100Z_p75.png",
-      "Docs/progress/goldpath/20260930T141100Z_results.png"
+      "Docs/progress/goldpath/20260930T142118Z_p25.png",
+      "Docs/progress/goldpath/20260930T142118Z_p50.png",
+      "Docs/progress/goldpath/20260930T142118Z_p75.png",
+      "Docs/progress/goldpath/20260930T142118Z_results.png"
     ],
     "steps": [
       {
@@ -502,7 +502,7 @@
         "missing_refs": 0
       },
       "goldpath": {
-        "utc": "2026-09-30T14:17:40Z",
+        "utc": "2026-09-30T14:33:00Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -903,10 +903,6 @@
     ]
   },
   "captures": [
-    "Docs/progress/goldpath/20260930T113305Z_p50.png",
-    "Docs/progress/goldpath/20260930T113305Z_p75.png",
-    "Docs/progress/goldpath/20260930T113305Z_results.png",
-    "Docs/progress/goldpath/20260930T113923Z_p25.png",
     "Docs/progress/goldpath/20260930T113923Z_p50.png",
     "Docs/progress/goldpath/20260930T113923Z_p75.png",
     "Docs/progress/goldpath/20260930T113923Z_results.png",
@@ -1002,7 +998,11 @@
     "Docs/progress/goldpath/20260930T141100Z_p25.png",
     "Docs/progress/goldpath/20260930T141100Z_p50.png",
     "Docs/progress/goldpath/20260930T141100Z_p75.png",
-    "Docs/progress/goldpath/20260930T141100Z_results.png"
+    "Docs/progress/goldpath/20260930T141100Z_results.png",
+    "Docs/progress/goldpath/20260930T142118Z_p25.png",
+    "Docs/progress/goldpath/20260930T142118Z_p50.png",
+    "Docs/progress/goldpath/20260930T142118Z_p75.png",
+    "Docs/progress/goldpath/20260930T142118Z_results.png"
   ],
   "capture": {
     "utc": "2026-09-30T13:44:06Z",
