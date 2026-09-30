@@ -33,9 +33,9 @@
 | T029 | P1 | Harness | refcheck: perceptual hash for resized/cropped reference frames; audio files banned in dist; run before push | done |
 | T030 | P1 | Harness | goldpath --gameover: force shield 0, confirm retry, measure time to flying (A13) | done |
 | T031 | P1 | Director | Move ENEMY_DEFS and behaviour numbers into src/data/tuning.ts (single source) | open |
-| T032 | P1 | Director | Specify + build Violet Tide and Wreckfield stage scripts, new enemy mixes (M3) | open |
-| T033 | P1 | Director | BULWARK boss phases 1-3 script + goldpath (M4) | open |
-| T034 | P1 | Director | Caravan mode (120 s) (A11) | open |
+| T032 | P1 | Director | Specify + build Violet Tide and Wreckfield stage scripts, new enemy mixes (M3) | done (Violet Tide + Wreckfield scripts; goldpath --stage passes) |
+| T033 | P1 | Director | BULWARK boss phases 1-3 script + goldpath (M4) | done (3-phase BULWARK; goldpath --stage wreckfield kills it) |
+| T034 | P1 | Director | Caravan mode (120 s) (A11) | done (goldpath --mode caravan passes) |
 | T035 | P1 | VFX/Director | Readability cloudgate t=150: dE00 median 25.3 (barely passes), p10 20.7; low cases are overlapping bullet clusters; raise contrast margin. 2026-09-30T14:35Z after the graphics pass: median 24.7 (FAIL by 0.3), p10 9.6 - the red boxes are orbs overlapping other orbs in a strider cluster, not orbs on cloud | open |
 | T036 | P1 | Director | Wreckfield boss frames cost ~1.5x Cloudgate in software GL (overdraw: big beams + bloom); a 1080p goldpath screenshot timed out once; measure on a real GPU / cap beam overdraw | open |
 | T037 | P1 | Gameplay | Violet Tide and Wreckfield too easy for the bot (shield 100 at the end); tune like Cloudgate (A15) | open |
@@ -43,7 +43,7 @@
 | T039 | P1 | Director/Gameplay | Cloudgate strider partly buried by its own stream at chase distance; vary strider height/offset from the reticle line | open |
 | T040 | P1 | UI/Director | Lock language in play: show lockable hints more strongly and hold brackets briefly after release | open |
 | T041 | P2 | World | Cloudgate hero frames in the hull section show a flat sea; add cumulus towers beyond the hull on the open side | done (graphics pass 1: displaced sea + 13 towers/km) |
-| T042 | P1 | Gameplay | BULWARK vent volley reads as a rigid 11x2 wall; stagger/arc it | open |
+| T042 | P1 | Gameplay | BULWARK vent volley reads as a rigid 11x2 wall; stagger/arc it | done (chevron wave: bowed rows, half-slot stagger, faster outer orbs) |
 | T043 | P2 | Harness | readability: skip mask discs occluded by geometry (depth test) and sample several times per stage | open |
 | T044 | P1 | Director | Graphics pass 1-2 raised software-GL frame cost ~3x (displaced sea fragment shader, tower overdraw); adaptive 3D resolution added (floor 60%). Measure on a real GPU; if < 60 fps at 1080p, drop the sea self-shadow and fine octave first | open |
 | T045 | P2 | World | Violet Tide horizon towers read as mushrooms/bushes at distance; widen the base banks or flatten the crowns | open |
