@@ -399,6 +399,13 @@ void main() {
     float sp = smoothstep(0.3, 0.6, pow(ndh, uSpecPower)) * uSpecStrength;
     col += uKeyColor * sp * (1.0 - seam) * 0.6;
     col += rimTerm(N, V) * uRimMul;
+    // clear coat: fresnel reflection of sky above / lit cloud or haze below, plus a
+    // thin horizon-line glint (stylised car-paint read; stays under the toon shading)
+    vec3 Rc = reflect(-V, N);
+    float fresC = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 4.0);
+    vec3 envC = mix(uAmbGround * 1.2 + uFogColor * 0.25, uAmbSky * 1.25, smoothstep(0.38, 0.62, Rc.y * 0.5 + 0.5));
+    col = mix(col, envC, fresC * 0.32 * (1.0 - seam));
+    col += uFogFar * (1.0 - smoothstep(0.0, 0.05, abs(Rc.y))) * 0.1 * (1.0 - seam) * (0.3 + fresC);
     if (kind > 4.5) col += albedo * vMat.x * uGlow;
   } else if (kind < 1.5) {
     // canopy glass: deep-to-blue body, sky reflection by reflected up, sharp key streak

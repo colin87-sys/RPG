@@ -379,11 +379,15 @@ function updateBulwark(e: Enemy, dt: number, c: Combat): boolean {
       const alt = (b.p[6] = 1 - b.p[6]);
       for (let r = 0; r < B.ventRows; r++) {
         for (let i = 0; i < B.ventPerRow; i++) {
-          const along = (i - (B.ventPerRow - 1) / 2) * B.ventSpreadX;
-          const across = (r === 0 ? -1 : 1) * B.ventRowDY;
+          // chevron wave, not a rigid wall (T042): rows offset by half a slot, each row
+          // bowed into an arc, and outer orbs fly faster so the volley bends in depth
+          const half = (B.ventPerRow - 1) / 2;
+          const along = (i - half + (r === 1 ? 0.5 : 0)) * B.ventSpreadX;
+          const k = along / (half * B.ventSpreadX);
+          const across = (r === 0 ? -1 : 1) * B.ventRowDY + B.ventBow * k * k * (r === 0 ? -1 : 1);
           // A: two rows above/below the player; B: two columns left/right
           const sx = alt ? along : across * 1.2, sy = alt ? across : along * 0.55;
-          const v = aimAt(c, ou, ox, oy, B.ventSpeed, sx, sy, 0);
+          const v = aimAt(c, ou, ox, oy, B.ventSpeed * (1 + B.ventSweep * k * k), sx, sy, 0);
           c.fireBullet(ou, ox, oy, v.vu, v.vx, v.vy, B.ventRadius);
         }
       }

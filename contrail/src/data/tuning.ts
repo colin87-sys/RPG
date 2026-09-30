@@ -202,7 +202,7 @@ export const T = {
       beamLead: 0.5, // s of player lateral velocity the aimed beams anticipate (alternate beams only)
       // phase 2: fewer beams + vent barrages + drone waves
       p2Beams: 2, p2Recover: 2.4,
-      ventRows: 2, ventPerRow: 11, ventSpreadX: 5.0, ventRowDY: 3.4, ventSpeed: 40, ventRadius: 0.55, ventInterval: 4.2,
+      ventRows: 2, ventPerRow: 11, ventSpreadX: 5.0, ventRowDY: 3.4, ventSpeed: 40, ventRadius: 0.55, ventInterval: 4.2, ventBow: 4.0, ventSweep: 0.18,
       waveInterval: 9, waveSize: 8,
       // phase 3: sweeping wall of beams with one gap
       p3Beams: 6, p3Spacing: 7.5, p3Gap: 15, p3Sweep: 26, p3Fire: 2.2, p3Telegraph: 1.2, p3Recover: 2.6,

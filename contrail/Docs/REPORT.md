@@ -20,6 +20,11 @@ An original, fully procedural arcade rail shooter in the browser (Three.js + Vit
 | Look-Dev Lab (every board renders with the game's own builders) and frozen approved boards | implemented | `lab/`, `src/lab/boards/`, `look/approved/`, `look/selection.json` |
 | Test harness: capture, contact sheets, goldpath (+ stage/mode/gameover variants), perf, netcheck, refcheck (hash + perceptual), audiocheck, readability (CIEDE2000 with object-ID masks), timelapse, acceptance, prepush | implemented, agent-verified | `tools/`, `Docs/harness.md` |
 
+## Owner feedback round (2026-09-30, after the first chunk)
+Owner: "the plane feels slow and unresponsive and doesn't feel like it moves all over the screen" and "the graphics need an overhaul and upgrade".
+- **Controls** (implemented, agent-verified; feel pending owner review): input now drives the craft directly (was: input moved a reticle the craft trailed at 0.18 s). Lateral speed 22 -> 44 m/s, 0.07 s acceleration, flight window 16x9 -> 19x10 m, camera follows 0.72 -> 0.45 of the craft offset so the craft really travels across the screen (x = 19 m in 0.67 s). Details: `Docs/DECISIONS.md` 13:10Z.
+- **Graphics** (implemented, pending owner review): displaced 3D cloud sea with rounded cumulus lumps, self-shadow and sky bounce (was a flat noise plane); cauliflower cumulus towers filling Cloudgate and rim-lit towers on the Violet Tide horizon; smooth asteroids with procedural rock relief and a nebula fill light; wingtip vapour trails that brighten with manoeuvres; clear-coat reflections on the Kestrel; larger caltrop drones with brighter eyes; BULWARK vent volley as a chevron wave instead of a wall. Live play scales the 3D resolution down on slow GPUs. Details: `Docs/DECISIONS.md` 13:40Z onward.
+
 ## How to run
 ```
 cd contrail
@@ -59,7 +64,7 @@ Calibration passed (art-directed > planted-defect > naive; both planted defects 
 
 ## Known issues
 - A7 look gate open (see above). Violet Tide and Wreckfield are easier than Cloudgate for the bot (T037).
-- Frame rate is unmeasured on real hardware; boss frames cost ~1.5x Cloudgate in software GL (overdraw; T036).
+- Frame rate is unmeasured on real hardware; the graphics pass raised software-GL frame cost ~3x (T044, adaptive resolution mitigates); boss frames cost ~1.5x Cloudgate (T036).
 - Font digit 8 can read as 0 at small sizes (T038). No sound cue for boss beam firing (T021).
 - Hooks load only when Claude Code is started inside `contrail/`.
 

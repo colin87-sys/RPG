@@ -41,8 +41,8 @@ export function caltropGeometry(p: CaltropParams, seed: number): THREE.BufferGeo
   const redDark: MatSpec = { albedo: mix(palette.caltropRed, palette.enemyBody, 0.45) };
   const body: MatSpec = { albedo: palette.enemyBody };
   const panel: MatSpec = { albedo: mix(palette.enemyBody, palette.enemyPanel, L.panelContrast) };
-  const eye: MatSpec = { albedo: palette.enemyBody, emit: palette.enemyMarker, emitStrength: 0.9, channel: CH.eye };
-  const eyeHot: MatSpec = { albedo: palette.enemyBody, emit: palette.hostileHalo, emitStrength: 0.8, channel: CH.eye };
+  const eye: MatSpec = { albedo: palette.enemyBody, emit: palette.enemyMarker, emitStrength: 1.8, channel: CH.eye };
+  const eyeHot: MatSpec = { albedo: palette.enemyBody, emit: palette.hostileHalo, emitStrength: 1.5, channel: CH.eye };
   const g = new GeoBuilder();
 
   // --- red star: ridge from the centre apex to each point (toon split per point)

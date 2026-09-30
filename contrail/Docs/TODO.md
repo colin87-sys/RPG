@@ -42,6 +42,8 @@
 | T038 | P1 | UI | Font: 8 reads as 0 at HUD sizes (Reviewer read 'HULL -8' as 'HULL -0'); give 8 a clear waist or use a slashed zero | open |
 | T039 | P1 | Director/Gameplay | Cloudgate strider partly buried by its own stream at chase distance; vary strider height/offset from the reticle line | open |
 | T040 | P1 | UI/Director | Lock language in play: show lockable hints more strongly and hold brackets briefly after release | open |
-| T041 | P2 | World | Cloudgate hero frames in the hull section show a flat sea; add cumulus towers beyond the hull on the open side | open |
+| T041 | P2 | World | Cloudgate hero frames in the hull section show a flat sea; add cumulus towers beyond the hull on the open side | done (graphics pass 1: displaced sea + 13 towers/km) |
 | T042 | P1 | Gameplay | BULWARK vent volley reads as a rigid 11x2 wall; stagger/arc it | open |
 | T043 | P2 | Harness | readability: skip mask discs occluded by geometry (depth test) and sample several times per stage | open |
+| T044 | P1 | Director | Graphics pass 1-2 raised software-GL frame cost ~3x (displaced sea fragment shader, tower overdraw); adaptive 3D resolution added (floor 60%). Measure on a real GPU; if < 60 fps at 1080p, drop the sea self-shadow and fine octave first | open |
+| T045 | P2 | World | Violet Tide horizon towers read as mushrooms/bushes at distance; widen the base banks or flatten the crowns | open |

@@ -269,7 +269,7 @@ export class View {
       this.railToWorld(e.u, e.x, e.y, V);
       if (e.kind === 'caltrop') {
         this.railQuat(e.u, 0, e.roll, Q);
-        this.caltrops.set(nc++, V, Q, 1.7, flash); // readability scale (T026)
+        this.caltrops.set(nc++, V, Q, 2.4, flash); // readability scale (T026): 3.4 m span ~ the 3.6 m hitbox
       } else if (e.kind === 'dart') {
         this.railQuat(e.u, Math.PI, e.roll, Q);
         this.darts.set(nd++, V, Q, 1.3, flash);
