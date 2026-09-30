@@ -1,6 +1,6 @@
 {
-  "utc": "2026-09-30T14:33:00Z",
-  "commit": "0b2f281",
+  "utc": "2026-09-30T14:33:49Z",
+  "commit": "ea8f296",
   "milestone": "M2",
   "goldpath": {
     "utc": "2026-09-30T14:33:00Z",
@@ -449,7 +449,7 @@
     ]
   },
   "perf": {
-    "utc": "2026-09-30T13:53:18Z",
+    "utc": "2026-09-30T14:33:49Z",
     "passed": true,
     "status": "pass (budgets)",
     "scene": "cloudgate",
@@ -457,15 +457,15 @@
     "seconds": 10,
     "w": 1920,
     "h": 1080,
-    "frames": 2,
-    "frame_ms_median": 5341.45,
-    "frame_ms_p99": 6901.17,
-    "fps_median": 0.2,
-    "fps_p1_low": 0.1,
-    "step_ms_median": 4.05,
-    "draw_calls": 45,
+    "frames": 3,
+    "frame_ms_median": 3916.5,
+    "frame_ms_p99": 3998.13,
+    "fps_median": 0.3,
+    "fps_p1_low": 0.3,
+    "step_ms_median": 3.6,
+    "draw_calls": 44,
     "draw_calls_max": 45,
-    "triangles": 154878,
+    "triangles": 154880,
     "triangles_max": 154882,
     "programs": 29,
     "textures": 10,
@@ -507,7 +507,7 @@
         "missing_refs": 0
       },
       "perf": {
-        "utc": "2026-09-30T13:53:18Z",
+        "utc": "2026-09-30T14:33:49Z",
         "console": 0,
         "missing_refs": 0
       },
