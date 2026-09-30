@@ -86,9 +86,11 @@ setInterval(()=>{if(on)show(k+1)},${Math.round(1000 / fps)});show(0);</script>`;
       },
       { url: `data:image/png;base64,${(await fsp.readFile(f)).toString('base64')}`, cap: rel(f), W, H, bg: th.bg, text: th.value },
     );
+    if (process.env.HARNESS_DEBUG) process.stderr.write(`frame ${rel(f)}\n`);
     if (!proc.stdin.write(Buffer.from(b64, 'base64'))) await new Promise((r) => proc.stdin.once('drain', r));
   }
   proc.stdin.end();
+  if (process.env.HARNESS_DEBUG) process.stderr.write('stdin closed\n');
   const code = await done;
   if (code !== 0) {
     await fsp.rm(tmp, { force: true });
