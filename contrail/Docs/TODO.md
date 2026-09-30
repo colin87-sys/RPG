@@ -19,3 +19,6 @@
 | T015 | P2 | World | Cloudgate sun inset horizon sparkle; sea diagonal streaks near frame bottom | open |
 | T016 | P1 | Entities | enemies C: dart and strider read weakly on spaceDeep; raise marker intensity / rim wrap for Wreckfield | open |
 | T017 | P1 | Entities | BULWARK reads bronze under Wreckfield key; boss must stay dark with rows of vents (M4) | open |
+| T018 | P1 | Director | Debug API: add readabilityMasks() (frame + hostile-projectile mask PNGs, same camera) for npm run readability (S6) | open |
+| T019 | P1 | Director | Wire setPost() once the post stack is integrated (capture --clean) | open |
+| T020 | P2 | Director | palette board crops 2 of 5 spheres per cell; widen camera | open |

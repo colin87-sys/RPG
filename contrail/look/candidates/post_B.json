@@ -1,0 +1,45 @@
+{
+  "post": {
+    "exposure": 1,
+    "toneShoulder": 0.8,
+    "acesMix": 0,
+    "bloomThreshold": 0.85,
+    "bloomKnee": 0.12,
+    "bloomStrength": 0.72,
+    "bloomRadius": 0.7,
+    "chromaScale": 0.85,
+    "chromaFalloff": 2,
+    "scanlineLines": 540,
+    "scanlineOpacity": 0.04,
+    "grain": 0.025,
+    "grainSize": 1,
+    "vignette": 0.2,
+    "gradeAmount": 1,
+    "saturation": 1.08,
+    "gamma": 1,
+    "softness": 0.2,
+    "dangerTint": 0.22,
+    "flashMax": 0.75,
+    "streaks": {
+      "count": 200,
+      "density": 0.4,
+      "widthPx": 1.1,
+      "lenMin": 0.04,
+      "lenMax": 0.42,
+      "opacity": 0.3,
+      "inner": 0.48,
+      "edgeBoost": 1.8,
+      "rate": 1.1
+    }
+  },
+  "hdr": true,
+  "msaa": 4,
+  "passes": {
+    "clean (tone map only)": 1,
+    "+bloom": 6,
+    "+chroma": 6,
+    "+scanlines/grain": 6,
+    "+vignette/grade": 6,
+    "full stack (+streaks, softness)": 6
+  }
+}

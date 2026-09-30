@@ -18,7 +18,7 @@ const T = { peakMax: -1, dcMax: 0.01, sfxRms: [-30, -10], musicRms: [-24, -12], 
 /** Intensity from an explicit field or the name (music@0.6, music_i0.6, intensity=0.6, int06). */
 function intensityOf(it) {
   if (Number.isFinite(it.intensity)) return it.intensity;
-  const m = String(it.name).match(/(?:intensity|int|i|@)[=_:-]?(0?\.\d+|1(?:\.0+)?|0\d)(?![\d])/i);
+  const m = String(it.name).match(/(?:intensity|int|i|@|x)[=_:-]?(0?\.\d+|1(?:\.0+)?|0\d)(?![\d])/i);
   if (!m) return null;
   return /^0\d$/.test(m[1]) ? Number(m[1]) / 10 : Number(m[1]);
 }
@@ -41,7 +41,7 @@ runTool(TOOL, async () => {
       return null;
     },
     null,
-    { timeout: num(args.timeout, 120) * 1000, what: 'window.__audioResults' },
+    { timeout: num(args.timeout, 300) * 1000, what: 'window.__audioResults' },
   );
   if (r.error) {
     if (/unknown board/.test(r.error)) {

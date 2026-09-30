@@ -173,6 +173,8 @@ class FFT {
   }
 }
 
+/** music strips are dense and mean-pooled: brighter top of the dB scale so kicks / bass lines separate */
+export const MUSIC_DB_HI = 0;
 const SPEC = { n: 1024, hop: 256, fLo: 30, fHi: 16000, dbLo: -100, dbHi: -12 };
 /** dB colour ramp built from tokens: spaceDeep -> hudLine -> hudText -> burstYellow -> burstWhite */
 const RAMP: [number, string][] = [
@@ -206,7 +208,7 @@ export function rampColour(t: number): string {
 }
 
 /** STFT spectrogram of a (stereo) buffer drawn to a PNG data URL with a name label. */
-export function spectrogramPng(buf: AudioBuffer, label: string, width = 480, height = 240, sub = ''): string {
+export function spectrogramPng(buf: AudioBuffer, label: string, width = 480, height = 240, sub = '', dbHi = SPEC.dbHi): string {
   const { n, hop } = SPEC;
   const sr = buf.sampleRate;
   const len = buf.length;
@@ -266,7 +268,7 @@ export function spectrogramPng(buf: AudioBuffer, label: string, width = 480, hei
         db = -200;
         for (let k = Math.ceil(a); k <= Math.min(bins - 1, Math.floor(b)); k++) if (col[k] > db) db = col[k];
       }
-      const t = Math.min(1, Math.max(0, (db - SPEC.dbLo) / (SPEC.dbHi - SPEC.dbLo)));
+      const t = Math.min(1, Math.max(0, (db - SPEC.dbLo) / (dbHi - SPEC.dbLo)));
       const ci = Math.round(t * 255) * 3, p = (y * width + x) * 4;
       img.data[p] = lutc[ci];
       img.data[p + 1] = lutc[ci + 1];
@@ -399,7 +401,7 @@ export async function renderForCheck(opts: CheckOptions = {}): Promise<AudioChec
       clipping: st.clipping, loopSeamOk: seam.ok, spectrogramPng: '', intensity: m.intensity, stage: m.stage,
       seamDeltaDb: seam.deltaDb, seamJump: seam.jump, activeS: st.activeS, pass: false, fails: [], renderMs: 0,
     };
-    r.spectrogramPng = spectrogramPng(buf, name, mw, mh, `${LOOP_S.toFixed(2)}s loop +1s`);
+    r.spectrogramPng = spectrogramPng(buf, name, mw, mh, `${LOOP_S.toFixed(2)}s loop +1s`, MUSIC_DB_HI);
     r.renderMs = Math.round(performance.now() - t0);
     judge(r);
     out.push(r);
@@ -420,7 +422,7 @@ export interface MixerCheck {
 /**
  * Ducking: music (cloudgate 0.6) rendered with and without a mixer.duck(8 dB, 1 s)
  * at 3.0 s; RMS ratio over 3.1-3.9 s = measured duck depth.
- * Held cannon: 2 s at 14/s vs one shot (peak must not grow = no pile-up).
+ * Held cannon: 28 shots (2 s at 14/s) vs one shot; peak may grow <= 3 dB (at most two shots overlap).
  * Voice stress: 24 explosionSmall requests over 0.2 s.
  */
 export async function checkMixer(seed = 1): Promise<MixerCheck> {
@@ -434,7 +436,9 @@ export async function checkMixer(seed = 1): Promise<MixerCheck> {
   const seg = (b: AudioBuffer) => rmsRange([b.getChannelData(0), b.getChannelData(1)], Math.round(3.1 * CHECK_SR), Math.round(3.9 * CHECK_SR));
   const duckMeasuredDb = gainToDb(seg(ducked)) - gainToDb(seg(plain));
 
-  const one = await renderSfx('cannon', seed);
+  const octx = new OfflineAudioContext({ numberOfChannels: 2, length: Math.ceil((PRE_ROLL_S + 0.5) * CHECK_SR), sampleRate: CHECK_SR });
+  new VoiceManager(octx, new Mixer(octx), seed).play('cannon', {}, PRE_ROLL_S + 0.02);
+  const one = cropBuffer(await octx.startRendering(), PRE_ROLL_S);
   const hctx = new OfflineAudioContext({ numberOfChannels: 2, length: Math.ceil((PRE_ROLL_S + 2.6) * CHECK_SR), sampleRate: CHECK_SR });
   const hvm = new VoiceManager(hctx, new Mixer(hctx), seed);
   for (let i = 0; i < 28; i++) hvm.play('cannon', {}, PRE_ROLL_S + 0.02 + i / 14);

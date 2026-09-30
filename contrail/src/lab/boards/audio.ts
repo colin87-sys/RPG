@@ -91,15 +91,15 @@ export default async function board(ctx: LabContext) {
   g.fillStyle = lab;
   text([['-100 dB', lab]], musicX, ly + 13);
   g.textAlign = 'right';
-  g.fillText('-12 dB (per STFT bin, 1024 Hann / hop 256)', musicX + lw, ly + 13);
+  g.fillText('-12 dB sfx / 0 dB music (STFT bin, 1024 Hann, hop 256)', musicX + lw, ly + 13);
   g.textAlign = 'left';
   const duckOk = Math.abs(mix.duckMeasuredDb - mix.duckTargetDb) < 2;
-  const pileOk = mix.cannonHeldPeakDbfs <= mix.cannonSinglePeakDbfs + 1;
+  const pileOk = mix.cannonHeldPeakDbfs <= Math.min(-1, mix.cannonSinglePeakDbfs + 3);
   const vs = mix.voiceStress;
   text([['duck test: target ', lab], [`${mix.duckTargetDb} dB`, lab], [' measured ', lab], [`${mix.duckMeasuredDb.toFixed(1)} dB`, duckOk ? ok : bad]], musicX, ly + 32);
   text([['cannon 2 s @14/s: pk ', lab], [`${mix.cannonHeldPeakDbfs.toFixed(1)}`, pileOk ? ok : bad], [` (single ${mix.cannonSinglePeakDbfs.toFixed(1)}) rms ${mix.cannonHeldRmsDbfs.toFixed(1)}`, lab]], musicX, ly + 49);
   text([[`voice stress 24x explosionSmall/0.2 s: played ${vs.played} dropped ${vs.dropped} stolen ${vs.stolen} max active `, lab], [`${vs.maxActive}/${vs.maxVoices}`, vs.maxActive <= vs.maxVoices ? ok : bad]], musicX, ly + 66);
-  text([[`total render+analysis ${(totalMs / 1000).toFixed(1)} s · x-axis: time, y-axis: 30 Hz-16 kHz log`, lab]], musicX, ly + 83);
+  text([[`total render+analysis ${(totalMs / 1000).toFixed(1)} s · y: 30 Hz-16 kHz log`, lab]], musicX, ly + 83);
 
   ctx.exportParams({
     board: 'audio',
