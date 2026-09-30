@@ -138,9 +138,10 @@ if (params.debug) {
           // peak-moment camera: advance (max 3 s) to the next beam firing or big kill
           // stop on a beam that is actually firing, or on a missile lock sweep with >= 3 locks
           const k0 = game.stats['killed:strider'] ?? 0;
-          for (let i = 0; i < 180 && game.state === 'play'; i++) {
+          const bossUp = game.enemies.some((e) => e.alive && e.kind === 'bulwark');
+          for (let i = 0; i < (bossUp ? 360 : 180) && game.state === 'play'; i++) {
             app.step(1, false);
-            const firing = game.lasers.some((l) => l.alive && l.state === 'fire' && l.t > 0.12);
+            const firing = game.lasers.some((l) => l.alive && l.state === 'fire' && l.t > 0.12 && (!bossUp || l.kind === 'boss'));
             if (firing || game.player.lockTargets.length >= 3 || (game.stats['killed:strider'] ?? 0) > k0) break;
           }
           app.step(0, true);

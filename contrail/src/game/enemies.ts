@@ -256,8 +256,10 @@ export function updateEnemy(e: Enemy, dt: number, c: Combat): boolean {
           const r = Math.floor(k / S.spreadCount), col = k % S.spreadCount;
           const i = (r % 2 ? S.spreadCount - 1 - col : col) - (S.spreadCount - 1) / 2; // serpentine sweep
           const ry = (r - (S.spreadRows - 1) / 2) * S.spreadRowDY, rx = r % 2 ? S.spreadStepX / 2 : 0;
-          const v = aimAt(c, e.u - 3, e.x, e.y + 2, S.bulletSpeed, i * S.spreadStepX + rx, ry + Math.abs(i) * -S.spreadDropY, S.lead);
-          c.fireBullet(e.u - 3, e.x, e.y + 2, v.vu, v.vx, v.vy, S.bulletRadius, S.bulletDamage);
+          // alternate the two arm guns (+/-5.5 m) so the stream does not cover the strider's body
+          const gx = e.x + (k % 2 ? 5.5 : -5.5);
+          const v = aimAt(c, e.u - 3, gx, e.y + 2, S.bulletSpeed, i * S.spreadStepX + rx, ry + Math.abs(i) * -S.spreadDropY, S.lead);
+          c.fireBullet(e.u - 3, gx, e.y + 2, v.vu, v.vx, v.vy, S.bulletRadius, S.bulletDamage);
           b.p[9]--;
           b.p[10] += S.spreadStagger;
         }

@@ -101,3 +101,5 @@ Missile regen 12 s -> 4 s [A] (barrages were rare: 0/6 ammo in every frame; Clou
 Cloudgate goldpath after the change: rank A, shield 56 (A15 challenge still met).
 
 ## 2026-09-30T11:29Z — Round-5: chroma hit/ring 0.006/0.008 -> 0.003/0.004 (fringing too heavy in hero shots); Violet Tide sea lit mix 0.3 -> 0.16, backlit 0.5 -> 0.3, fog #5E3A74 -> #3E2656 (dark-sunset rule)
+
+## 2026-09-30T11:35Z — Strider fires from arm guns (+/-5.5 m) so its stream no longer covers its body; combat camera on a boss stage waits (up to 6 s) for a firing boss beam
