@@ -5,8 +5,8 @@
  */
 export const T = {
   camera: {
-    back: 9, // m behind the craft [A]
-    up: 2.6, // m above [A]
+    back: 20, // m behind the craft [A: seed said 9; refs show craft at ~15-20% of frame width]
+    up: 5, // m above [A]
     fov: 68, // deg [A]
     followX: 0.72, // camera follows this fraction of the craft's lateral offset
     followY: 0.72,

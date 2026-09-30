@@ -1,0 +1,49 @@
+{
+  "utc": "2026-09-30T05:39:09Z",
+  "commit": "e2e4dfe",
+  "milestone": "P1",
+  "goldpath": {
+    "passed": false,
+    "duration_s": null,
+    "steps": [],
+    "status": "not run"
+  },
+  "perf": {
+    "scene": "",
+    "fps_median": null,
+    "fps_p1_low": null,
+    "draw_calls": null,
+    "method": "",
+    "status": "not run"
+  },
+  "errors": {
+    "console": 0,
+    "missing_refs": 0,
+    "by_tool": {
+      "lab:capture": {
+        "utc": "2026-09-30T05:39:09Z",
+        "console": 0,
+        "missing_refs": 0
+      }
+    }
+  },
+  "network": {
+    "external_requests": null,
+    "status": "not run"
+  },
+  "refcheck": {
+    "ref_files_in_build": null,
+    "status": "not run"
+  },
+  "audio": {
+    "clipping": null,
+    "peak_dbfs": null,
+    "rms_dbfs": null,
+    "loop_seam_ok": null,
+    "status": "not run"
+  },
+  "captures": [
+    "look/candidates/palette_A.png",
+    "look/candidates/palette_B.png"
+  ]
+}

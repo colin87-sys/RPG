@@ -1,0 +1,14 @@
+{
+  "stages": [
+    "cloudgate",
+    "violetTide",
+    "wreckfield"
+  ],
+  "albedos": [
+    "#C9CFD3",
+    "#52687A",
+    "#1A1F26",
+    "#E9ECD0",
+    "#E16C26"
+  ]
+}

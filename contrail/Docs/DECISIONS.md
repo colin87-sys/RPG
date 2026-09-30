@@ -31,3 +31,9 @@ Run length 24h per IDEA_CARD (worked in chunks; state files make it resumable). 
 
 ## 2026-09-30T04:48Z — Rendering is software GL in this container
 Headless Chromium gives WebGL2 through ANGLE + SwiftShader (Vulkan). It is fine for captures. fps measured here is **relative frame time, not real fps**; every perf number from this container is labelled `software-GL relative`. A real-GPU measurement is `pending owner review`.
+
+## 2026-09-30T05:50Z — Chase camera 20 m behind / 5 m above (seed said 9 m / 2.6 m)
+First stub capture at 9 m: the 9 m-span craft filled ~75% of the frame width. Owner stills show the craft at ~15-20% of width with FOV 68, which implies ~20 m. Seed value was tagged [A]. Tune again in M2 with the real craft.
+
+## 2026-09-30T05:50Z — Agent lanes interrupted by an API session limit, resumed
+All 9 background agents stopped at ~05:05Z on an API session limit; the owner asked to try again at ~05:36Z and every lane was resumed from its transcript. Director work (core, simulation, stub) continued inline and was committed.
