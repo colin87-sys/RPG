@@ -178,7 +178,7 @@ export function buildCloudBands(stage: StageId, params: CloudBandParams, seed: n
         vec3 v = normalize(vWorldPos - cameraPosition);
         vec3 L = normalize(uKeyDir);
         float az = max(dot(normalize(v.xz), normalize(L.xz)), 0.0);
-        float focus = pow(az, uRimFocus * 4.0) * 0.8 + 0.2;
+        float focus = pow(az, uRimFocus * 4.0) * 0.95 + 0.05;
         c += uRimC * rimZone * focus * uBandRimK;
 
         c = skyFogHaze(c, vWorldPos);

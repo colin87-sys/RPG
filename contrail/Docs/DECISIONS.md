@@ -59,3 +59,6 @@ Stop guard blocks only while `contrail/.claude/session_window.json` names a futu
 
 ## 2026-09-30T10:40Z — W3 Reviewer ranking adopted (Docs/reviews/W3_lookdev.md, look/selection.json)
 Winners: hero B, enemies B, vista-cloudgate C, vista-violet C, vista-wreck C, structures B, hud/hud-states/screens C, post A, rings A, beams C, bullets B, smoke B, explosion A. Winning set scored 6.4 avg (gate 7): consistency pass dispatched to lanes for D-1 (Violet Tide too bright/mauve), D-2 (hull too light), D-3 (dark enemies vanish on space), D-4 (flat pale Cloudgate sea), D-5 (HUD bands over bright sky), boss salmon, smoke vs clouds.
+
+## 2026-09-30T08:55Z — Violet Tide far fog #C0567E -> #5C2A55
+D-1 consistency pass: the bright pink far fog produced a pink strip under the horizon; darker plum keeps the sunset dark (median luminance target < 6%).

@@ -82,6 +82,10 @@
   ],
   "step": 0.004166666666666667,
   "post": "POST_VARIANTS.A",
+  "backdrop": {
+    "dark": "LabBackdrop wreckfield",
+    "bright": "buildSkyVista(CLOUDGATE_VARIANTS.C, 1)"
+  },
   "big": {
     "size": 3.5,
     "dist": 36

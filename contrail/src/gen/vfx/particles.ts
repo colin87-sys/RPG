@@ -72,6 +72,8 @@ export interface ParticleLook {
   nearFade: [number, number];
   /** minimum projected size as a fraction of the viewport height (0 = off) */
   minScreen: number;
+  /** darken rig-lit smoke by this x luminance of the stage fog colour (bright day stages get smoke a value step below cloud; space stays pale) */
+  bgAdapt: number;
 }
 
 export const DEFAULT_LOOK: ParticleLook = {
@@ -89,6 +91,7 @@ export const DEFAULT_LOOK: ParticleLook = {
   fireCore: 1.2,
   nearFade: [0.4, 4.0],
   minScreen: 0,
+  bgAdapt: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -328,6 +331,7 @@ uniform float uRimAmt;
 uniform float uEdgeDarken;
 uniform float uDensity;
 uniform float uFireCore;
+uniform float uBgAdapt;
 varying vec2 vUv;
 varying vec2 vRot;
 varying vec4 vColA;
@@ -435,6 +439,8 @@ void main() {
   smoke += litC * keyHue * fwd * (1.0 - clamp(centre, 0.0, 1.0)) * uBacklight;
   smoke += rimTerm(N, vToCam) * uRimAmt * vColA.rgb;
   smoke *= 1.0 - uEdgeDarken * edge;
+  float bgLum = dot(uFogColor, vec3(0.2126, 0.7152, 0.0722));
+  smoke *= 1.0 - uBgAdapt * clamp(bgLum, 0.0, 1.0) * mix(0.75, 1.15, 1.0 - l);
 
   vec3 col = mix(fire, smoke, vColB.a);
   float a = dens * vColA.a * vFade;
@@ -525,6 +531,7 @@ export class ParticleBatch {
         uFireCore: { value: look.fireCore },
         uNearFade: { value: new THREE.Vector2(look.nearFade[0], look.nearFade[1]) },
         uMinScreen: { value: look.minScreen },
+        uBgAdapt: { value: look.bgAdapt },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -562,6 +569,7 @@ export class ParticleBatch {
     if (look.fireCore !== undefined) u.uFireCore.value = look.fireCore;
     if (look.nearFade !== undefined) (u.uNearFade.value as THREE.Vector2).set(look.nearFade[0], look.nearFade[1]);
     if (look.minScreen !== undefined) u.uMinScreen.value = look.minScreen;
+    if (look.bgAdapt !== undefined) u.uBgAdapt.value = look.bgAdapt;
   }
 
   begin(): void {

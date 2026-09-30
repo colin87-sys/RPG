@@ -3,11 +3,38 @@
   "module": "src/gen/world/structures/hullMass.ts",
   "seed": 3,
   "params": "HULL_DEFAULTS; variants HULL_VARIANTS A/B/C",
-  "triangles": { "A": 12544, "B": 17296, "C": 10660 },
-  "lights": { "A": 401, "B": 809, "C": 256 },
-  "lengthMetres": { "A": 480, "B": 456, "C": 484 },
+  "triangles": {
+    "A": 12544,
+    "B": 16624,
+    "C": 10660
+  },
+  "lights": {
+    "A": 401,
+    "B": 294,
+    "C": 256
+  },
+  "lengthMetres": {
+    "A": 480,
+    "B": 456,
+    "C": 484
+  },
   "drawCalls": 3,
-  "boundsMetres": [300, 180, 484],
-  "tokensUsed": ["armourDark", "armourSteel", "armourLight", "emblemBlack", "canopyBlue", "smokeLit", "skyHorizon", "playerShotHalo", "shading.seamDarkness", "shading.specular"],
-  "notes": "Repeat module = InstancedMesh with per-instance part masks (greebles/fins/masts), placed along a plan-view bow; prow cap, stepped stern and gate arches merged into one mesh; lights = one Points set (cool white, beacons blink via update(time)). Local frame: prow tip at z=0, stern at z=-lengthMetres, hull on +X (side=1) or mirrored (side=-1); nearest surface 42 m from the axis, arches apex 48 m above it."
+  "boundsMetres": [
+    300,
+    180,
+    484
+  ],
+  "tokensUsed": [
+    "armourDark",
+    "armourSteel",
+    "armourLight",
+    "emblemBlack",
+    "canopyBlue",
+    "smokeLit",
+    "skyHorizon",
+    "playerShotHalo",
+    "shading.seamDarkness",
+    "shading.specular"
+  ],
+  "notes": "Repeat module = InstancedMesh with per-instance part masks (greebles/fins/masts), placed along a plan-view bow; prow cap, stepped stern and gate arches merged into one mesh; lights = one Points set (cool white, beacons blink via update(time)). Local frame: prow tip at z=0, stern at z=-lengthMetres, hull on +X (side=1) or mirrored (side=-1); nearest surface 42 m from the axis, arches apex 48 m above it. W3 consistency pass: hull tone toward armourDark (<6% luminance lit wall), shared rim limited to silhouette edges (the corridor wall is seen at grazing angles), dim accentOrange vent slits, B lights cut to ~290."
 }

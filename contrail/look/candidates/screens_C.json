@@ -12,7 +12,10 @@
       "aspect": 0.94,
       "gap": 1.75
     },
-    "outlineAlpha": 0.8
+    "outlineAlpha": 0.85,
+    "outlineMul": 1.4,
+    "scrimEdge": 0.62,
+    "scrimAdapt": 0.18
   },
   "cells": [
     "TITLE / MENU",

@@ -24,8 +24,8 @@
     "fadeOut": 0.4,
     "thinning": 0.3,
     "shadeJitter": 0.04,
-    "lit": "#F2EEE2",
-    "shadow": "#98A2AE",
+    "lit": "#e7e5dc",
+    "shadow": "#66707d",
     "look": {
       "normalStrength": 0.6,
       "stylize": 0.75,
@@ -41,7 +41,8 @@
       "nearFade": [
         0.4,
         4
-      ]
+      ],
+      "bgAdapt": 0.42
     }
   },
   "frames": [
@@ -67,5 +68,9 @@
   "drawCalls": {
     "smoke": 1,
     "explosion": 2
+  },
+  "backdrop": {
+    "dark": "LabBackdrop wreckfield",
+    "bright": "buildSkyVista(CLOUDGATE_VARIANTS.C, 1)"
   }
 }

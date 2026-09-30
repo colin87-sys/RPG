@@ -68,7 +68,7 @@ export const HULL_DEFAULTS: HullParams = {
 /** A = balanced; B = tight ribs, dense lights, strong bow; C = wide ribs, sparse lights, boxy + frequent arches. */
 export const HULL_VARIANTS: Record<'A' | 'B' | 'C', HullParams> = {
   A: { ...HULL_DEFAULTS },
-  B: { ...HULL_DEFAULTS, ribSpacing: 12, modules: 14, lightDensity: 0.62, greebleDensity: 0.6, bow: 40, roundness: 2.2, archEvery: 5, tone: 0.04 },
+  B: { ...HULL_DEFAULTS, ribSpacing: 12, modules: 14, lightDensity: 0.5, greebleDensity: 0.6, bow: 40, roundness: 2.2, archEvery: 5, tone: 0.04 },
   C: { ...HULL_DEFAULTS, ribSpacing: 26, modules: 7, lightDensity: 0.5, bow: 5, roundness: 3.6, archEvery: 2, tone: 0.12 },
 };
 
@@ -165,7 +165,9 @@ void main() {
   // accentOrange vent slits on a few panels (small, dim: never hostile-fire sized)
   float vent = step(0.94, fract(h * 31.7)) * step(0.44, f.y) * step(f.y, 0.52) * step(0.18, f.x) * step(f.x, 0.62) * vis;
   c += uVent * vent;
-  c += rimTerm(n, v) * uRimMul;
+  // the corridor wall is seen at grazing angles: keep the shared rim to true silhouette edges
+  float ndv = clamp(dot(n, v), 0.0, 1.0);
+  c += rimTerm(n, v) * uRimMul * smoothstep(0.82, 0.97, 1.0 - ndv);
   vec3 hv = normalize(normalize(uKeyDir) + v);
   float sp = pow(max(dot(n, hv), 0.0), uSpecPow);
   c += uKeyColor * smoothstep(0.5, 0.58, sp) * uSpecStr * albedo * 4.0;

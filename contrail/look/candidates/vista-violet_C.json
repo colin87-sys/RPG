@@ -77,13 +77,13 @@
   "params": {
     "stage": "violetTide",
     "sky": {
-      "horizonBand": 0.05,
+      "horizonBand": 0.04,
       "bandColor": [
         "sunsetMagenta",
-        "sunsetHorizon",
-        0.25
+        "sunsetZenith",
+        0.35
       ],
-      "bandSpan": 0.12,
+      "bandSpan": 0.05,
       "sunScale": 0.95,
       "sunIntensity": 2.2,
       "glowInner": [
@@ -91,14 +91,18 @@
         "sunsetHorizon",
         0.35
       ],
-      "glowOuter": "sunsetMagenta",
-      "glowSize": 0.26,
-      "glowStretch": 0.4,
-      "glowStrength": 1,
-      "cirrus": 0.18,
-      "cirrusColor": [
+      "glowOuter": [
         "sunsetMagenta",
+        "sunsetZenith",
+        0.35
+      ],
+      "glowSize": 0.14,
+      "glowStretch": 0.4,
+      "glowStrength": 0.7,
+      "cirrus": 0.08,
+      "cirrusColor": [
         "sunsetIndigo",
+        "sunsetMagenta",
         0.3
       ],
       "banding": 0.6,
@@ -139,15 +143,23 @@
       ],
       "humpSpread": 1200,
       "opacity": 1,
-      "lit": "sunsetMagenta",
-      "mid": "sunsetIndigo",
-      "shadow": "sunsetCloudDark",
+      "lit": [
+        "sunsetIndigo",
+        "sunsetMagenta",
+        0.35
+      ],
+      "mid": "sunsetCloudDark",
+      "shadow": [
+        "sunsetCloudDark",
+        "emblemBlack",
+        0.4
+      ],
       "rim": [
         "sunsetHorizon",
         "sunCore",
         0.3
       ],
-      "backlit": 1.1,
+      "backlit": 0.9,
       "rimPower": 5,
       "clusterNormal": 0.35,
       "toon": 0.4,
@@ -162,22 +174,22 @@
       "stretchX": 2.6,
       "bump": 12,
       "lit": [
-        "sunsetMagenta",
-        "sunsetIndigo",
-        0.5
-      ],
-      "mid": [
-        "sunsetIndigo",
         "sunsetCloudDark",
+        "sunsetMagenta",
         0.3
       ],
-      "shadow": "sunsetCloudDark",
+      "mid": "sunsetCloudDark",
+      "shadow": [
+        "sunsetCloudDark",
+        "emblemBlack",
+        0.5
+      ],
       "rim": [
         "sunsetHorizon",
         "sunsetMagenta",
         0.3
       ],
-      "backlit": 0.8,
+      "backlit": 0.5,
       "drift": 1,
       "contrast": 2
     },
@@ -196,21 +208,25 @@
       "domeAmp": 16,
       "detailWidth": 20,
       "detailAmp": 4,
-      "body": [
-        "sunsetIndigo",
+      "body": "sunsetCloudDark",
+      "lit": [
         "sunsetCloudDark",
-        0.4
+        "sunsetMagenta",
+        0.35
       ],
-      "lit": "sunsetMagenta",
-      "shadow": "sunsetCloudDark",
+      "shadow": [
+        "sunsetCloudDark",
+        "emblemBlack",
+        0.45
+      ],
       "rim": [
         "sunsetHorizon",
         "sunsetMagenta",
         0.25
       ],
       "rimWidth": 7,
-      "rimStrength": 1.3,
-      "rimFocus": 2.2,
+      "rimStrength": 1.1,
+      "rimFocus": 4,
       "opacity": 1,
       "drift": 1.5,
       "soft": 0.6,

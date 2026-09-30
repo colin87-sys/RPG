@@ -171,11 +171,13 @@ void main() {
   vec3 rN = normalize(vRimN);
   // rim only where BOTH the facet and the welded normal are grazing (no whole-face floods)
   float edge = 1.0 - max(clamp(abs(dot(rN, v)), 0.0, 1.0), clamp(dot(n, v), 0.0, 1.0) * 0.85);
-  float fr = smoothstep(0.7, 0.7 + 0.75 / uWarmRimPower, edge) * edge * edge;
-  fr *= smoothstep(-0.1, 0.25, dot(n, v) + 0.2);
+  // hard thin edge line (anime rim); uWarmRimPower narrows it
+  float lo = 0.9 - 0.45 / uWarmRimPower;
+  float fr = smoothstep(lo, lo + 0.12, edge);
   float facing = clamp(dot(rN, normalize(uRimDir)) * 0.5 + 0.5, 0.0, 1.0);
   c += uWarmRim * fr * mix(uRimWrap, 1.0, facing);
-  c += rimTerm(n, v) * uStageRim;
+  // share of the stage rim light, through the same thin mask (one rim direction for everything)
+  c += uRimColor * fr * facing * uStageRim;
   // emissive channels
   float chf = floor(vEmit.a + 0.0005);
   float ph = vEmit.a - chf;

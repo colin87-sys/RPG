@@ -88,6 +88,11 @@ export interface HudState {
   paused: boolean;
   /** seconds, drives animation */
   time: number;
+  /**
+   * 0..1 brightness of the sky behind the bands (0 = space, 1 = near-white cloud).
+   * Drives the adaptive band scrim; omit to assume bright (safe default).
+   */
+  skyLuma?: number;
 }
 
 /** A neutral starting state (the Integrator mutates it each frame). */
@@ -138,17 +143,23 @@ export interface HudVariant {
   glyph: GlyphStyle;
   /** alpha of the dark under-stroke behind text and reticle (legibility over clouds) */
   outlineAlpha: number;
+  /** multiplier on the text outline width */
+  outlineMul: number;
+  /** band scrim alpha at the screen edge (gradient to backingAlpha at the inner edge) */
+  scrimEdge: number;
+  /** extra scrim alpha added over a bright sky (x skyLuma) */
+  scrimAdapt: number;
 }
 
 export type HudVariantId = 'A' | 'B' | 'C';
 
 export const HUD_VARIANTS: Record<HudVariantId, HudVariant> = {
   /** A: token weights, slight lean, medium bevels */
-  A: { id: 'A', lineMul: 1, backingAlpha: hud.backingAlpha, chamfer: 14, glyph: GLYPH_STYLES.A, outlineAlpha: 0.75 },
+  A: { id: 'A', lineMul: 1, backingAlpha: hud.backingAlpha, chamfer: 14, glyph: GLYPH_STYLES.A, outlineAlpha: 0.75, outlineMul: 1, scrimEdge: 0.45, scrimAdapt: 0.15 },
   /** B: hairline, lighter backing, upright glyphs, small bevels */
-  B: { id: 'B', lineMul: 0.75, backingAlpha: 0.2, chamfer: 8, glyph: GLYPH_STYLES.B, outlineAlpha: 0.65 },
+  B: { id: 'B', lineMul: 0.75, backingAlpha: 0.2, chamfer: 8, glyph: GLYPH_STYLES.B, outlineAlpha: 0.65, outlineMul: 1, scrimEdge: 0.35, scrimAdapt: 0.15 },
   /** C: heavier lines, denser backing, strong lean, big bevels */
-  C: { id: 'C', lineMul: 1.35, backingAlpha: 0.4, chamfer: 22, glyph: GLYPH_STYLES.C, outlineAlpha: 0.8 },
+  C: { id: 'C', lineMul: 1.35, backingAlpha: 0.4, chamfer: 22, glyph: GLYPH_STYLES.C, outlineAlpha: 0.85, outlineMul: 1.4, scrimEdge: 0.62, scrimAdapt: 0.18 },
 };
 
 export type PortraitDrawer = (g: CanvasRenderingContext2D, w: number, h: number, o: { danger: number; time: number }) => void;
@@ -264,6 +275,23 @@ export class Hud {
     ladX: 0, ladY0: 0, ladY1: 0,
   };
   private minText = Infinity;
+  private scrimQ = -1;
+  private gTop: CanvasGradient | null = null;
+  private gBot: CanvasGradient | null = null;
+
+  /** band scrim gradients, rebuilt only when the layout or the adapt level changes */
+  private buildScrim(g: CanvasRenderingContext2D, adapt: number): void {
+    const L = this.L;
+    const inner = withAlpha(hud.colors.backing, Math.min(0.95, this.variant.backingAlpha + adapt));
+    const edge = withAlpha(hud.colors.backing, Math.min(0.95, this.variant.scrimEdge + adapt));
+    this.gTop = g.createLinearGradient(0, 0, 0, L.T);
+    this.gTop.addColorStop(0, edge);
+    this.gTop.addColorStop(1, inner);
+    this.gBot = g.createLinearGradient(0, L.y0, 0, this.lh);
+    this.gBot.addColorStop(0, inner);
+    this.gBot.addColorStop(1, edge);
+    this.scrimQ = Math.round(adapt * 50);
+  }
 
   constructor(variant: HudVariant | HudVariantId = 'A', portrait: PortraitDrawer | 'placeholder' = drawPilotPortrait) {
     this.variant = typeof variant === 'string' ? HUD_VARIANTS[variant] : variant;
@@ -301,6 +329,7 @@ export class Hud {
 
   private ensureLayout(w: number, h: number): void {
     if (w === this.lw && h === this.lh) return;
+    this.scrimQ = -1;
     this.lw = w;
     this.lh = h;
     const L = this.L;
@@ -359,6 +388,7 @@ export class Hud {
       color,
       style: this.variant.glyph,
       outline: this.cOutline,
+      outlineWidth: Math.max(1.5, Math.min(5, size * 0.08)) * this.variant.outlineMul,
       ...o,
     });
   }
@@ -412,14 +442,19 @@ export class Hud {
     const L = this.L;
     const c = hud.colors;
     const lineCol = s.hazard.on ? c.hazard : c.line;
+    // adaptive scrim: darker toward the screen edge, stronger over a bright sky
+    const adapt = this.variant.scrimAdapt * clamp01(s.skyLuma ?? 1);
+    const aq = Math.round(adapt * 50);
+    if (aq !== this.scrimQ || !this.gTop || !this.gBot) this.buildScrim(g, aq / 50);
     for (let i = 0; i < 3; i++) {
       pathPoly(g, L.top[i]);
-      g.fillStyle = this.cBacking;
+      g.fillStyle = this.gTop!;
       g.fill();
       g.strokeStyle = lineCol;
       g.lineWidth = L.line;
       g.stroke();
       pathPoly(g, L.bot[i]);
+      g.fillStyle = this.gBot!;
       g.fill();
       g.strokeStyle = c.line;
       g.stroke();

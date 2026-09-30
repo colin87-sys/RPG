@@ -129,6 +129,8 @@ export interface HostileBulletParams {
   /** halo shimmer amount and rate */
   pulse: number;
   pulseHz: number;
+  /** 0..1 how far the halo rim shifts toward fireOrange (lower keeps it yellow: separates from hot-orange skies) */
+  haloDeep?: number;
 }
 
 const hb = vfx.hostileBullet;
@@ -137,7 +139,7 @@ export const HOSTILE_VARIANTS: Record<'A' | 'B' | 'C', HostileBulletParams> = {
   /** A: token spec, balanced core/halo */
   A: { radius: 0.9, minFrameHeightFrac: hb.minFrameHeightFrac, coreFrac: 0.5, outlineFrac: 0.12, minOutlinePx: 2.0, outlineAlpha: 0.9, coreIntensity: 2.6, haloIntensity: 1.1, glow: 0.3, glowExtent: 1.6, pulse: 0.1, pulseHz: 7 },
   /** B: bigger floor, heavier outline (max bright-sky separation) */
-  B: { radius: 0.95, minFrameHeightFrac: 0.02, coreFrac: 0.52, outlineFrac: 0.17, minOutlinePx: 2.6, outlineAlpha: 1.0, coreIntensity: 2.6, haloIntensity: 1.0, glow: 0.1, glowExtent: 1.5, pulse: 0.08, pulseHz: 6 },
+  B: { radius: 0.95, minFrameHeightFrac: 0.02, coreFrac: 0.46, haloDeep: 0.15, outlineFrac: 0.17, minOutlinePx: 2.6, outlineAlpha: 1.0, coreIntensity: 2.6, haloIntensity: 1.0, glow: 0.1, glowExtent: 1.5, pulse: 0.08, pulseHz: 6 },
   /** C: hotter core, thinner outline, stronger glow (dark-stage bias) */
   C: { radius: 0.85, minFrameHeightFrac: hb.minFrameHeightFrac, coreFrac: 0.55, outlineFrac: 0.1, minOutlinePx: 1.6, outlineAlpha: 0.85, coreIntensity: 3.4, haloIntensity: 1.3, glow: 0.45, glowExtent: 1.8, pulse: 0.12, pulseHz: 8 },
 };
@@ -268,7 +270,7 @@ export class HostileBullets {
     (u.uCore.value as THREE.Vector3).copy(tvec(hb.core, p.coreIntensity));
     (u.uHalo.value as THREE.Vector3).copy(tvec(hb.halo, p.haloIntensity));
     // deeper orange toward the rim (derived: halo -> fireOrange) so the halo never reads as cream
-    (u.uHaloDeep.value as THREE.Vector3).copy(tvec(mix(hb.halo, palette.fireOrange, 0.55), p.haloIntensity));
+    (u.uHaloDeep.value as THREE.Vector3).copy(tvec(mix(hb.halo, palette.fireOrange, p.haloDeep ?? 0.55), p.haloIntensity));
     u.uCoreFrac.value = p.coreFrac;
     u.uOutlineFrac.value = p.outlineFrac;
     u.uMinOutlinePx.value = p.minOutlinePx;

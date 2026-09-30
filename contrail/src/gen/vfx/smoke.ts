@@ -89,7 +89,7 @@ const base: SmokeParams = {
   shadeJitter: 0.04,
   // one value step below lit cloud (cloudCream) with a cool, darker underside so trails separate from cumulus
   lit: mix(vfx.smoke.lit, vfx.smoke.shadow, 0.12),
-  shadow: shade(mix(vfx.smoke.shadow, palette.cloudShadow, 0.35), 0.78),
+  shadow: shade(mix(vfx.smoke.shadow, palette.cloudShadow, 0.45), 0.72),
   look: {
     normalStrength: 0.6,
     stylize: 0.75,
@@ -103,6 +103,7 @@ const base: SmokeParams = {
     edgeDarken: 0.12,
     density: 1.0,
     nearFade: [0.4, 4.0],
+    bgAdapt: 0.42,
   },
 };
 
@@ -119,7 +120,7 @@ export const SMOKE_VARIANTS: Record<'A' | 'B' | 'C', SmokeParams> = {
     turbulence: 0.5,
     spin: 0.4,
     thinning: 0.2,
-    look: { ...base.look, normalStrength: 1.0, term: 0.5, soft: 0.17, keyTint: 0.22, ambTint: 0.55, backlight: 0.35, rim: 0.18, edgeDarken: 0.32 },
+    look: { ...base.look, normalStrength: 1.0, term: 0.52, soft: 0.17, frontBias: 0.08, keyTint: 0.22, ambTint: 0.6, backlight: 0.35, rim: 0.12, edgeDarken: 0.45 },
   },
   C: {
     ...base,

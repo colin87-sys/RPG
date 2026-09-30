@@ -17,7 +17,7 @@
     "archTop": 48,
     "lipY": 36,
     "lipOut": 9,
-    "lightDensity": 0.62,
+    "lightDensity": 0.5,
     "greebleDensity": 0.6,
     "tone": 0.04,
     "capLength": 60
@@ -26,7 +26,7 @@
   "stats": {
     "triangles": 16624,
     "drawCalls": 3,
-    "lights": 324,
+    "lights": 294,
     "moduleTriangles": 900,
     "uniqueTriangles": 4024
   },

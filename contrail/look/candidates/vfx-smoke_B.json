@@ -24,24 +24,25 @@
     "fadeOut": 0.4,
     "thinning": 0.2,
     "shadeJitter": 0.04,
-    "lit": "#F2EEE2",
-    "shadow": "#98A2AE",
+    "lit": "#e7e5dc",
+    "shadow": "#66707d",
     "look": {
       "normalStrength": 1,
       "stylize": 0.75,
-      "term": 0.44,
+      "term": 0.52,
       "soft": 0.17,
-      "frontBias": 0.15,
+      "frontBias": 0.08,
       "keyTint": 0.22,
-      "ambTint": 0.45,
+      "ambTint": 0.6,
       "backlight": 0.35,
-      "rim": 0.18,
-      "edgeDarken": 0.22,
+      "rim": 0.12,
+      "edgeDarken": 0.45,
       "density": 1,
       "nearFade": [
         0.4,
         4
-      ]
+      ],
+      "bgAdapt": 0.42
     }
   },
   "frames": [
@@ -67,5 +68,9 @@
   "drawCalls": {
     "smoke": 1,
     "explosion": 2
+  },
+  "backdrop": {
+    "dark": "LabBackdrop wreckfield",
+    "bright": "buildSkyVista(CLOUDGATE_VARIANTS.C, 1)"
   }
 }

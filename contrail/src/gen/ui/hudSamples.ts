@@ -45,6 +45,7 @@ export function sampleHudState(id: HudSampleId, w = 1920, h = 1080): HudState {
   s.speed = 0.62;
   s.prompts = [];
   if (id === 'space') {
+    s.skyLuma = 0;
     s.stage = 'WRECKFIELD';
     s.lockMode = false;
     s.locks = 0;
@@ -56,6 +57,7 @@ export function sampleHudState(id: HudSampleId, w = 1920, h = 1080): HudState {
     s.combatText = [{ text: 'DIRECT HIT', kind: 'hot', age: 0.4 }];
     s.prompts = [{ key: 'K', text: 'HOLD TO SWEEP LOCKS, RELEASE TO FIRE' }];
   } else if (id === 'hazard') {
+    s.skyLuma = 0;
     s.stage = 'WRECKFIELD';
     s.hazard = { on: true, text: '// DEBRIS WAVE INBOUND //', t: 1.2 };
     s.lockMode = false;
@@ -66,6 +68,7 @@ export function sampleHudState(id: HudSampleId, w = 1920, h = 1080): HudState {
     s.shield = 51;
     s.combatText = [{ text: 'BREAK LEFT', kind: 'hot', age: 0.6 }];
   } else if (id === 'danger') {
+    s.skyLuma = 0.3;
     s.stage = 'VIOLET TIDE';
     s.shield = 14;
     s.danger = 0.95;
