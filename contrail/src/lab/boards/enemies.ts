@@ -122,7 +122,7 @@ export default async function board(ctx: LabContext) {
     const yaw = -0.62;
     const row: [string, Item, number][] = [
       ['PILOT 1.8 m', pilot(), -2],
-      ['CALTROP 1.4 m', mk.caltrop(), -7],
+      ['CALTROP 1.4 m', mk.caltrop(), -8.5],
       ['DART 7 m', mk.dart(), -15],
       ['SNIPER 8 m', mk.sniper(0.4), -26],
       ['KESTREL 12 m (hero)', hero(vid), -40],

@@ -50,10 +50,11 @@ attribute vec2 aInst;
 uniform float uSpinTime;
 uniform float uSpinRate;
 #endif
-#ifdef OUTLINE
 attribute vec3 aOutlineN;
+#ifdef OUTLINE
 uniform float uOutlineNdc;
 #endif
+varying vec3 vRimN;
 varying vec3 vAlbedo;
 varying vec4 vEmit;
 varying float vFlash;
@@ -72,6 +73,7 @@ const TAIL = /* glsl */ `
 void main() {
   vec3 p = position;
   vec3 n = normal;
+  vec3 rn = aOutlineN;
   #ifdef OUTLINE
     n = aOutlineN;
   #endif
@@ -80,12 +82,18 @@ void main() {
     float cs = cos(sa), sn = sin(sa);
     p.xy = vec2(cs * p.x - sn * p.y, sn * p.x + cs * p.y);
     n.xy = vec2(cs * n.x - sn * n.y, sn * n.x + cs * n.y);
+    rn.xy = vec2(cs * rn.x - sn * rn.y, sn * rn.x + cs * rn.y);
   #endif
   #ifdef USE_BONES
     mat4 bm = uBones[int(aBone + 0.5)];
     p = (bm * vec4(p, 1.0)).xyz;
     n = mat3(bm) * n;
+    rn = mat3(bm) * rn;
   #endif
+  #ifdef USE_INSTANCING
+    rn = mat3(instanceMatrix) * rn;
+  #endif
+  vRimN = normalize(mat3(modelMatrix) * rn);
   enemyPos = p;
   enemyNrm = n;
   enemyStdMain();
@@ -132,6 +140,7 @@ varying vec3 vAlbedo;
 varying vec4 vEmit;
 varying float vFlash;
 varying vec3 vLocal;
+varying vec3 vRimN;
 
 float seamLines(vec3 p, vec3 n) {
   // lines on the two axes most perpendicular to the (object-space) facet
@@ -157,11 +166,13 @@ void main() {
     alb *= 1.0 - seamLines(vLocal, ln) * uSeamStrength;
   }
   vec3 c = shadeToon(alb, n);
-  float ndv = clamp(dot(n, v), 0.0, 1.0);
-  // thin, crisp anime rim: only the last sliver before the silhouette edge
-  float edge = 1.0 - ndv;
-  float fr = smoothstep(0.62, 0.62 + 0.9 / uWarmRimPower, edge) * pow(edge, 1.5);
-  float facing = clamp(dot(n, normalize(uRimDir)) * 0.5 + 0.5, 0.0, 1.0);
+  // thin, crisp anime rim from the welded (smoothed) normal: hugs the silhouette
+  // instead of flooding flat facets seen at grazing angles
+  vec3 rN = normalize(vRimN);
+  float edge = 1.0 - clamp(abs(dot(rN, v)), 0.0, 1.0);
+  float fr = smoothstep(0.7, 0.7 + 0.75 / uWarmRimPower, edge) * edge * edge;
+  fr *= smoothstep(-0.1, 0.25, dot(n, v) + 0.2);
+  float facing = clamp(dot(rN, normalize(uRimDir)) * 0.5 + 0.5, 0.0, 1.0);
   c += uWarmRim * fr * mix(uRimWrap, 1.0, facing);
   c += rimTerm(n, v) * uStageRim;
   // emissive channels
@@ -229,7 +240,7 @@ function ownUniforms(o: EnemyMaterialOptions, bones: THREE.Matrix4[] | null) {
     uSilColor: { value: tvec(palette.hazardBlack) },
     // channels: none, marker, thruster, charge | sequence, weak, vent, eye
     uChanA: { value: new THREE.Vector4(0, L.markerIntensity, L.thrusterIntensity, 0.6) },
-    uChanB: { value: new THREE.Vector4(1.6, 0.6, 1.0, L.markerIntensity * 1.2) },
+    uChanB: { value: new THREE.Vector4(1.6, 0.6, 1.0, L.markerIntensity * 0.8) },
     uSeq: { value: 0 },
     uVentRate: { value: 2.2 },
     uEnemyTime: { value: 0 },
