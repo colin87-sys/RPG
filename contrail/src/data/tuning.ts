@@ -160,8 +160,8 @@ export const T = {
       spreadStagger: 0.045, // s between orbs of one volley (sweeping stream)
       warmup: 1.5, // s before the first spread
       spreadInterval: 1.5, // s [A] (T027: was 1.7)
-      spreadCount: 7,
-      spreadRows: 2, spreadRowDY: 3.2, // T027: two staggered rows (was one row of 7) so a wall cannot be slipped by drifting vertically
+      spreadCount: 9,
+      spreadRows: 1, spreadRowDY: 3.2, // T027: two staggered rows (was one row of 7) so a wall cannot be slipped by drifting vertically
       spreadStepX: 4.0, spreadDropY: 0.7, // m fan
       bulletSpeed: 45, bulletRadius: 0.5, lead: 0.5,
       bulletDamage: 8, // T027: big orbs hit harder than dart shots (T.damage.bullet)

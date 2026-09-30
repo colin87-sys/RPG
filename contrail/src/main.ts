@@ -136,10 +136,12 @@ if (params.debug) {
         hudOn = !['hero', 'vista'].includes(name);
         if (name === 'combat' && game.state === 'play') {
           // peak-moment camera: advance (max 3 s) to the next beam firing or big kill
-          const k0 = (game.events.counts.laserFire ?? 0) + (game.stats['killed:strider'] ?? 0);
+          // stop on a beam that is actually firing, or on a missile lock sweep with >= 3 locks
+          const k0 = game.stats['killed:strider'] ?? 0;
           for (let i = 0; i < 180 && game.state === 'play'; i++) {
             app.step(1, false);
-            if ((game.events.counts.laserFire ?? 0) + (game.stats['killed:strider'] ?? 0) > k0) { app.step(8, false); break; }
+            const firing = game.lasers.some((l) => l.alive && l.state === 'fire' && l.t > 0.12);
+            if (firing || game.player.lockTargets.length >= 3 || (game.stats['killed:strider'] ?? 0) > k0) break;
           }
           app.step(0, true);
         }
