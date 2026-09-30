@@ -68,3 +68,9 @@ Calibration PASSED: blind Reviewer ranked art-directed > planted-defect > naive 
 
 ## 2026-09-30T12:00Z — Threat tuning [A]: darts HP 6 -> 10, approach fire, strider 7-orb spread every 1.7 s (was 5 / 2.2 s), aimed shots lead 50-80%
 Probe: only 19 hostile bullets in 66 s and zero player hits over a full run (shield 100 throughout), far below the DESIGN peak target of 60-90 live projectiles. The 14/s cannon killed darts before their first burst. Numbers were [A]; tuned toward the design's density target.
+
+## 2026-09-30T09:32Z — Timestamp correction
+DECISIONS entries headed 2026-09-30T10:00Z, 10:40Z, 11:40Z and 12:00Z were estimated; real times were ~08:44Z-09:26Z (see git log). Content stands. All timestamps now come from `date -u`.
+
+## 2026-09-30T09:32Z — Kit frozen after red-team (Docs/KIT_REVIEW.md)
+Fixed: stage/mode false passes, stale DESIGN/STYLE_BIBLE (current-value tables), testability of A7-A13, A15 challenge row, root CLAUDE.md, stop-guard window. Accepted for later: perceptual-hash refcheck and pre-push hook (T029), specs for stages 2-3/boss/Caravan (M3/M4), readability API (T018), gameover driver (T030).

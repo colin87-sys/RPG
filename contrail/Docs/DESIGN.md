@@ -1,3 +1,19 @@
+# DESIGN — numbers (single source in code: `src/data/tuning.ts`, `src/game/enemies.ts` ENEMY_DEFS)
+
+## Current values that supersede the seed tables below (see Docs/DECISIONS.md)
+| Item | Seed | Current | Why |
+|---|---|---|---|
+| Chase camera | 9 m behind, 2.6 m up | **20 m behind, 5 m up**, FOV 68 | refs show craft at 15-20% of frame width |
+| Player hit radius | (unspecified) | **2.4 m** (bullets test 75%: 1.8 m) | zero hits at 1.4 m |
+| Caltrop drone | HP 3, r ~0.7 | HP 3, **hit r 1.8 m, drawn x1.7** | readability |
+| Dart fighter | HP 6, bursts every 1.6 s | **HP 10, hit r 3.0 m, drawn x1.3; single aimed shots on approach every 1.1 s (u<190 m); 3-shot fanned bursts every 1.6 s**, 80% lead | cannon killed darts before they fired |
+| Strider | 5-orb spread every 2.2 s | **7-orb spread every 1.7 s**, 50% lead | density target |
+| Hostile bullet size | >= 0.9% frame height | **core >= 1.8-2.0%**, halo ~3.7% | refs measured 1.9-5.3% |
+| Explosion core growth | 1x -> 3x in 0.3 s | **~2x in 0.3 s** [O] | REF_VERIFICATION |
+| Shock ring | thickness 3% of radius | **3 bands, ~13% of radius total**, still grows | REF_VERIFICATION + originality |
+| Missile smoke emission | 30 puffs/s | **every ~0.62 m (110-180/s), 30/s floor** | gaps at 110 m/s |
+| Stage | Cloudgate only defined in code (`src/game/stages.ts`) | Violet Tide, Wreckfield, BULWARK phases, Caravan: to be specified in M3/M4 | KIT_REVIEW #11 |
+
 # DESIGN SEED — numbers (tune in playtest)
 
 Tags: **[O]** observed in supplied material, **[R]** reported by reviews, **[A]** assumption. Anything [A] must be tuned by scripted playtests and Reviewer feedback; log every change of a number in `Docs/DECISIONS.md`.

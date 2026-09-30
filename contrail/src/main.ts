@@ -29,6 +29,8 @@ const hudAdapter = new HudAdapter(game, view);
 const hud = new Hud('C');
 setScreenStyle(GLYPH_STYLES.C);
 const postStack = new PostStack(app.renderer, { clean: params.clean, params: POST_VARIANTS.A });
+// count draw calls/triangles for the whole frame (scene + all post passes), not just the last pass
+app.renderer.info.autoReset = false;
 app.onResize((w, h) => postStack.setSize(w, h, app.pixelRatio));
 const audio = new AudioEngine({ muted: params.mute, seed: params.seed });
 const audioBind = bindGameAudio(audio, game.events);
@@ -86,6 +88,7 @@ app.start({
   },
   render: () => {
     const t0 = performance.now();
+    app.renderer.info.reset();
     const dt = 1 / 60;
     renderTime += dt;
     view.update(app.width / app.height);

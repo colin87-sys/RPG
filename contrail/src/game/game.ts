@@ -116,7 +116,8 @@ export class Game implements Combat {
   }
 
   loadStage(id: string): void {
-    const def = STAGES[id] ?? STAGES.cloudgate;
+    const def = STAGES[id];
+    if (!def) throw new Error(`unknown stage '${id}' (defined: ${Object.keys(STAGES).join(', ')})`);
     this.stage = def;
     this.rail = new Rail({ length: def.lengthS * T.rail.speed, wanderX: 60, wanderY: 18, wavelength: 900, seed: def.railSeed });
   }
@@ -158,7 +159,10 @@ export class Game implements Combat {
 
   start(opts: { stage?: string; mode?: 'campaign' | 'caravan'; difficulty?: string } = {}): void {
     if (opts.stage) this.loadStage(opts.stage);
-    if (opts.mode) this.mode = opts.mode;
+    if (opts.mode) {
+      if (opts.mode !== 'campaign') throw new Error(`mode '${opts.mode}' not implemented yet`);
+      this.mode = opts.mode;
+    }
     if (opts.difficulty && opts.difficulty in T.difficulty) this.difficulty = opts.difficulty as Difficulty;
     this.resetStage();
     this.setState('launch');

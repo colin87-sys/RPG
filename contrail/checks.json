@@ -1,15 +1,15 @@
 {
-  "utc": "2026-09-30T09:25:56Z",
-  "commit": "03a3348",
-  "milestone": "P1",
+  "utc": "2026-09-30T09:39:34Z",
+  "commit": "9cfc500",
+  "milestone": "M2",
   "goldpath": {
-    "utc": "2026-09-30T09:25:39Z",
+    "utc": "2026-09-30T09:37:42Z",
     "passed": true,
     "status": "pass",
     "stage": "cloudgate",
     "seed": 1,
     "duration_s": 184,
-    "wall_s": 292.8,
+    "wall_s": 283,
     "final": {
       "state": "results",
       "results": {
@@ -80,10 +80,10 @@
     },
     "failures": [],
     "captures": [
-      "Docs/progress/goldpath/20260930T092044Z_p25.png",
-      "Docs/progress/goldpath/20260930T092044Z_p50.png",
-      "Docs/progress/goldpath/20260930T092044Z_p75.png",
-      "Docs/progress/goldpath/20260930T092044Z_results.png"
+      "Docs/progress/goldpath/20260930T093258Z_p25.png",
+      "Docs/progress/goldpath/20260930T093258Z_p50.png",
+      "Docs/progress/goldpath/20260930T093258Z_p75.png",
+      "Docs/progress/goldpath/20260930T093258Z_results.png"
     ],
     "steps": [
       {
@@ -440,29 +440,29 @@
     ]
   },
   "perf": {
-    "utc": "2026-09-30T08:38:10Z",
+    "utc": "2026-09-30T09:39:34Z",
     "passed": true,
     "status": "pass (budgets)",
     "scene": "cloudgate",
     "t": 150,
-    "seconds": 10,
+    "seconds": 8,
     "w": 1920,
     "h": 1080,
-    "frames": 46,
-    "frame_ms_median": 200,
-    "frame_ms_p99": 517.51,
-    "fps_median": 5,
-    "fps_p1_low": 1.9,
-    "step_ms_median": 0.8,
-    "draw_calls": 9,
-    "draw_calls_max": 9,
-    "triangles": 2484,
-    "triangles_max": 2618,
-    "programs": 4,
-    "textures": 1,
-    "geometries": 13,
-    "enemies_alive": 4,
-    "hostile_projectiles": 10,
+    "frames": 5,
+    "frame_ms_median": 1666.6,
+    "frame_ms_p99": 1913.36,
+    "fps_median": 0.6,
+    "fps_p1_low": 0.5,
+    "step_ms_median": 4,
+    "draw_calls": 35,
+    "draw_calls_max": 35,
+    "triangles": 63072,
+    "triangles_max": 63554,
+    "programs": 28,
+    "textures": 10,
+    "geometries": 30,
+    "enemies_alive": 5,
+    "hostile_projectiles": 15,
     "sim_state": "play",
     "bot": true,
     "budget": {
@@ -483,7 +483,7 @@
         "missing_refs": 0
       },
       "netcheck": {
-        "utc": "2026-09-30T08:37:35Z",
+        "utc": "2026-09-30T09:32:56Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -493,28 +493,28 @@
         "missing_refs": 0
       },
       "goldpath": {
-        "utc": "2026-09-30T09:25:39Z",
+        "utc": "2026-09-30T09:37:42Z",
         "console": 0,
         "missing_refs": 0
       },
       "perf": {
-        "utc": "2026-09-30T08:38:10Z",
+        "utc": "2026-09-30T09:39:34Z",
         "console": 0,
         "missing_refs": 0
       },
       "audiocheck": {
-        "utc": "2026-09-30T08:38:36Z",
+        "utc": "2026-09-30T09:38:53Z",
         "console": 0,
         "missing_refs": 0
       }
     }
   },
   "network": {
-    "utc": "2026-09-30T08:37:35Z",
+    "utc": "2026-09-30T09:32:56Z",
     "passed": true,
     "status": "pass",
     "external_requests": 0,
-    "requests_total": 13,
+    "requests_total": 49,
     "hosts": [
       "127.0.0.1:4173"
     ],
@@ -524,13 +524,13 @@
         "page": "game title",
         "path": "/",
         "ok": true,
-        "requests": 5
+        "requests": 23
       },
       {
         "page": "game autopilot 10s",
         "path": "/?skip=1&bot=1&mute=1",
         "ok": true,
-        "requests": 5
+        "requests": 23
       },
       {
         "page": "lab index",
@@ -547,7 +547,7 @@
     }
   },
   "refcheck": {
-    "utc": "2026-09-30T08:37:37Z",
+    "utc": "2026-09-30T09:32:57Z",
     "passed": true,
     "status": "pass",
     "ref_files_in_build": 0,
@@ -557,7 +557,7 @@
     "refs_local": 121,
     "refs_not_in_manifest": [],
     "manifest_missing_locally": [],
-    "dist_files": 32,
+    "dist_files": 47,
     "dist_game_built": true,
     "lab_only_build": false,
     "data_image_literals": 0,
@@ -565,7 +565,7 @@
     "matches": []
   },
   "audio": {
-    "utc": "2026-09-30T08:38:36Z",
+    "utc": "2026-09-30T09:38:53Z",
     "passed": true,
     "status": "pending owner review",
     "clipping": false,
@@ -915,7 +915,11 @@
     "Docs/progress/goldpath/20260930T092044Z_p50.png",
     "Docs/progress/goldpath/20260930T092044Z_p75.png",
     "Docs/progress/goldpath/20260930T092044Z_results.png",
-    "Docs/progress/m1/20260930T092551Z_title.png"
+    "Docs/progress/m1/20260930T092551Z_title.png",
+    "Docs/progress/goldpath/20260930T093258Z_p25.png",
+    "Docs/progress/goldpath/20260930T093258Z_p50.png",
+    "Docs/progress/goldpath/20260930T093258Z_p75.png",
+    "Docs/progress/goldpath/20260930T093258Z_results.png"
   ],
   "capture": {
     "utc": "2026-09-30T09:25:56Z",
@@ -945,61 +949,61 @@
     "problems": []
   },
   "readability": {
-    "utc": "2026-09-30T08:38:36Z",
+    "utc": "2026-09-30T09:38:55Z",
     "status": "readability API not implemented yet",
     "passed": null
   },
   "acceptance": {
-    "utc": "2026-09-30T08:38:37Z",
+    "utc": "2026-09-30T09:38:57Z",
     "passed": true,
     "rows": [
       {
         "step": "build",
         "pri": "P0",
         "status": "pass",
-        "secs": 4,
+        "secs": 2,
         "note": ""
       },
       {
         "step": "netcheck",
         "pri": "P0",
         "status": "pass",
-        "secs": 17,
-        "note": "0 external request(s) of 13 on 3 page(s)"
+        "secs": 39,
+        "note": "0 external request(s) of 49 on 3 page(s)"
       },
       {
         "step": "refcheck",
         "pri": "P0",
         "status": "pass",
-        "secs": 2,
-        "note": "0 reference files and 0 images in dist/ (32 files), 0 copies outside Docs/refs/"
+        "secs": 1,
+        "note": "0 reference files and 0 images in dist/ (47 files), 0 copies outside Docs/refs/"
       },
       {
         "step": "goldpath",
         "pri": "P0",
         "status": "pass",
-        "secs": 20,
-        "note": "cleared cloudgate in 188 s (rank A, score 44960, shield 100), all 7 mechanics fired"
+        "secs": 285,
+        "note": "cleared cloudgate in 184 s (rank A, score 42040, shield 100), all 7 mechanics fired"
       },
       {
         "step": "perf",
         "pri": "P0",
         "status": "pass",
-        "secs": 16,
-        "note": "budgets ok (draw calls max 9/250, triangles max 2618/450000); fps 5 median / 1.9 1% low is software-GL relativ"
+        "secs": 50,
+        "note": "budgets ok (draw calls max 1/250, triangles max 1/450000); fps 0.5 median / 0.3 1% low is software-GL relative"
       },
       {
         "step": "audiocheck",
         "pri": "P0",
         "status": "pass",
-        "secs": 22,
+        "secs": 21,
         "note": "25 item(s) within thresholds; spectrograms in Docs/captures/audio/ (pending owner review)"
       },
       {
         "step": "readability",
         "pri": "P1",
         "status": "n/a",
-        "secs": 1,
+        "secs": 4,
         "note": "readability API not implemented yet (__game.readabilityMasks(): Promise<{frame, mask}>)"
       }
     ]

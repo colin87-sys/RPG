@@ -3,9 +3,9 @@ You are building CONTRAIL, an original procedural arcade rail shooter (Three.js 
 Mode: **procedural** — no keys, no logins, no external assets, zero external requests in the shipped game.
 
 ## 1. Read order (after every start, restart or compaction)
-1. `CLAUDE.md` 2. `Docs/PLAN.md`, `Docs/TODO.md` 3. last three entries of `Docs/DEVLOG.md`, `Docs/STATS.json`
+1. `CLAUDE.md` 2. `Docs/PLAN.md` (incl. gate status), `Docs/TODO.md`, `Docs/TASK.md` sections 4 and 6 3. last three entries of `Docs/DEVLOG.md` and `Docs/DECISIONS.md`, `Docs/STATS.json`
 4. Before visual work: `Docs/STYLE_BIBLE.md`, `src/style/tokens.ts`, `look/approved/*` (and `Docs/refs/owner/` if present — private, local only)
-5. Run `date -u`.
+5. Run `date -u`. **Every timestamp you write comes from `date -u`, never estimated.**
 
 ## 2. Autonomy
 Never ask the owner; decide, log to `Docs/DECISIONS.md` (UTC, options, reason), continue. Never end the run on your own: when TODO is empty run `npm run acceptance` and queue fixes. Retry tool failures twice, then switch route and log. Stuck > 45 min: write what was tried, take the fallback or cut, move on. Max 3 attempts per module per stage.

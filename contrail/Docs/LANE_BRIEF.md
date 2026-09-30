@@ -4,7 +4,7 @@ You are one lane of the CONTRAIL build (GAME_FORGE procedural mode). The Directo
 
 ## Project facts
 - Root: `/home/user/RPG/contrail`. Stack: Three.js 0.186 (npm), Vite 8, TypeScript 7 (`npx tsc --noEmit` must stay clean), Playwright 1.56.1 with pre-installed Chromium (never run `playwright install`).
-- Game: arcade rail shooter. Craft KESTREL flies a spline rail forward (-Z world, Y up) at ~45 m/s; chase camera 9 m behind, 2.6 m above, FOV 68. Stages: **Cloudgate** (bright day cloud corridor), **Violet Tide** (sunset over cloud sea), **Wreckfield** (dark debris field). Look: *analogue-anime hard-surface*; keywords: bright-to-dark drama, readable spectacle, thin-perimeter HUD with open centre.
+- Game: arcade rail shooter. Craft KESTREL flies a spline rail forward (-Z world, Y up) at ~45 m/s; chase camera 20 m behind, 5 m above, FOV 68 (DESIGN current values). Stages: **Cloudgate** (bright day cloud corridor), **Violet Tide** (sunset over cloud sea), **Wreckfield** (dark debris field). Look: *analogue-anime hard-surface*; keywords: bright-to-dark drama, readable spectacle, thin-perimeter HUD with open centre.
 - Read before coding: `Docs/STYLE_BIBLE.md`, `src/style/tokens.ts`, `src/style/color.ts`, `src/gen/common/lighting.ts`, `src/gen/common/materials.ts`, `src/lab/context.ts`, `src/lab/boards/palette.ts` (example board), `Docs/DESIGN.md` (numbers), `Docs/CONCEPT_CARD.md`.
 - You MAY open reference images in `Docs/refs/owner/` and `Docs/refs/motion/` (read `Docs/refs/owner_refs.md` for what each is) to understand **relationships** (value range, temperature, scale, readability, layout). Never reproduce their pixels, designs, characters, logos, fonts, exact HUD glyphs or text wording.
 

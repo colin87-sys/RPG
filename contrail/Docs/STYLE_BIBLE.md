@@ -1,3 +1,23 @@
+# STYLE BIBLE — analogue-anime hard-surface (procedural)
+
+**Authority:** `src/style/tokens.ts` holds every value; this bible explains them. Approved boards: `look/approved/` (index: `look/selection.json`). Where the seed text below disagrees, this table wins.
+
+## Current values that supersede the seed text (see Docs/DECISIONS.md, Docs/REF_VERIFICATION.md)
+| Rule | Seed | Current |
+|---|---|---|
+| HUD top band | ~6.5% | **8.5%** of frame height (bottom 9%) |
+| HUD band backing | none | **gradient scrim** darker at the frame edge (C: 0.62 -> 0.40, +0.18 over bright sky); text outline x1.4 |
+| HUD style | - | variant **C** (bold slanted original glyphs), labels SYS.STAT / TGT.DATA / ARMS / STREAK / HULL |
+| Hostile bullet | >= 0.9% frame height | **core >= 1.8-2.0%**, yellow halo, opaque dark outline ring |
+| Beam | white core + red halo | white core ~55-65% of width, warm edge line, strong red halo; telegraph line with dark outline |
+| Shock ring | thin, 3% of radius | **3 separated R/G/B bands (~13% of radius)**, grows visibly |
+| Violet Tide far fog | #C0567E | **#5C2A55** (dark sunset, median luminance < 6%) |
+| Fog base height | -40 m | **-70 m** (below cloud-sea tops) |
+| Hull mass | light steel | **near armourDark**, rim only on silhouette edges, ~256-300 small lights |
+| Smoke | pale cream | pale on dark stages; **stage-adaptive darker (-25-30%) on Cloudgate** so it separates from clouds |
+| Enemy look | - | variant **B** (seams + ink outline), dark bodies, thin warm rim, bright markers; BULWARK near-black with vent rows |
+| Winners | - | hero B, enemies B, Cloudgate C, Violet C, Wreckfield C, structures B, HUD/screens C, post A, rings A, beams C, bullets B, smoke B, explosion A |
+
 # STYLE SEED — analogue-anime hard-surface (procedural)
 
 GAME_FORGE W2 promotes this to `Docs/STYLE_BIBLE.md` and `src/style/tokens.ts`. Keep every rule testable by looking at a capture. Owner references show the *relationships* below; do not reproduce their pixels, portrait, font or layouts.

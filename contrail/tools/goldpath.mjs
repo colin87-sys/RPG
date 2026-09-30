@@ -16,6 +16,7 @@ export const DEFAULT_MECHANICS = ['cannonFire', 'missileFire', 'enemyKilled:miss
 
 runTool(TOOL, async () => {
   const stage = args.stage && args.stage !== true ? String(args.stage) : 'cloudgate';
+  const mode = args.mode && args.mode !== true ? String(args.mode) : 'campaign';
   const seed = num(args.seed, 1), timeout = num(args.timeout, 400), w = num(args.w, 1920), h = num(args.h, 1080);
   const logEvery = num(args.logEvery, 5), wallTimeout = num(args.wallTimeout, 1800) * 1000;
   const required = args.require === 'none' ? [] : list(args.require, DEFAULT_MECHANICS);
@@ -32,12 +33,12 @@ runTool(TOOL, async () => {
   await waitGame(page);
   const missing = await missingApi(page, ['setBot', 'start', 'step', 'state', 'counts', 'errors']);
   if (missing.length) throw new ToolError(`__game lacks ${missing.join(', ')}`);
-  await page.evaluate((stage) => {
+  await page.evaluate(({ stage, mode }) => {
     const g = window.__game;
     g.setBot(true);
-    g.start({ stage });
+    g.start({ stage, mode });
     g.setBot(true); // idempotent; guards against start() resetting input scripts
-  }, stage);
+  }, { stage, mode });
 
   const steps = [], captures = [];
   const marks = [0.25, 0.5, 0.75];
@@ -94,6 +95,9 @@ runTool(TOOL, async () => {
   const errList = errs.list(gErr.map((e) => `game: ${e}`));
   const failures = [];
   if (reason) failures.push(reason);
+  // KIT_REVIEW #1: never let a fallback stage/mode pass for the requested one
+  if (s.stage !== stage) failures.push(`ran stage '${s.stage}', expected '${stage}'`);
+  if (s.mode !== mode) failures.push(`ran mode '${s.mode}', expected '${mode}'`);
   if (s.state === 'results' && !(s.results && s.results.cleared === true)) failures.push('results.cleared is not true');
   if (notFired.length) failures.push(`mechanic(s) never fired: ${notFired.join(', ')}`);
   if (errList.length) failures.push(`${errList.length} page error(s): ${errList.slice(0, 3).join(' | ')}`);

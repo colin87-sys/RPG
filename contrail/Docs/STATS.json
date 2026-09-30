@@ -1,7 +1,7 @@
 {
-  "updated_utc": "2026-09-30T04:55:00Z", "elapsed_h": 0.2, "commits": 0, "loc": 0,
-  "modules": {"entities": {"attempted": 0, "accepted": 0, "rejected": 0}, "world": {"attempted": 0, "accepted": 0, "rejected": 0}, "ui": {"attempted": 0, "accepted": 0, "rejected": 0}, "vfx": {"attempted": 0, "accepted": 0, "rejected": 0}, "audio": {"attempted": 0, "accepted": 0, "rejected": 0}},
-  "bugs_fixed": 0, "reviews": 0,
-  "perf": {"fps_median": 0, "fps_p1_low": 0, "draw_calls": 0, "scene": "", "method": ""},
+  "updated_utc": "2026-09-30T09:40:13Z", "elapsed_h": 4.9, "commits": 36, "loc": 25297,
+  "modules": {"entities": {"attempted": 7, "accepted": 7, "rejected": 0}, "world": {"attempted": 7, "accepted": 7, "rejected": 0}, "ui": {"attempted": 3, "accepted": 3, "rejected": 0}, "vfx": {"attempted": 9, "accepted": 9, "rejected": 0}, "audio": {"attempted": 4, "accepted": 4, "rejected": 0}},
+  "bugs_fixed": 14, "reviews": 3,
+  "perf": {"fps_median": 0.6, "fps_p1_low": 0.5, "draw_calls": 35, "triangles": 63554, "scene": "cloudgate t=150 1920x1080", "method": "software-GL relative (SwiftShader, no GPU); real-GPU fps pending owner review"},
   "external_requests": 0
 }
