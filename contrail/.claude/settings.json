@@ -1,0 +1,6 @@
+{
+  "hooks": {
+    "Stop": [{ "hooks": [{ "type": "command", "command": "node .claude/hooks/stop_guard.mjs" }] }],
+    "SessionStart": [{ "matcher": "compact", "hooks": [{ "type": "command", "command": "node .claude/hooks/reread.mjs" }] }]
+  }
+}

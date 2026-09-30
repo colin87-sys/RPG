@@ -53,3 +53,6 @@ Deliberately kept different (original design, tagged [A]):
 
 ## 2026-09-30T08:36Z — Shared fog base height -70 m (was -40)
 Sky lane found -40 m sat inside the cloud-sea range and tinted the Violet Tide sea mauve. Height fog now starts below the sea tops.
+
+## 2026-09-30T10:00Z — Hooks live in contrail/.claude/ and never block without an explicit session window
+Stop guard blocks only while `contrail/.claude/session_window.json` names a future `until` and no ALLOW_STOP exists. Without the window file it allows stopping, so a cloud session opened at the repo root is never trapped. Hooks apply when Claude Code is started inside `contrail/`.
