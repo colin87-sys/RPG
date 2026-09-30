@@ -1,38 +1,38 @@
 {
-  "utc": "2026-09-30T10:23:25Z",
-  "commit": "f449c8d",
+  "utc": "2026-09-30T10:46:53Z",
+  "commit": "9ee415e",
   "milestone": "M2",
   "goldpath": {
-    "utc": "2026-09-30T10:17:40Z",
+    "utc": "2026-09-30T10:43:43Z",
     "passed": true,
     "status": "pass",
     "stage": "cloudgate",
     "seed": 1,
-    "duration_s": 186,
-    "wall_s": 487.5,
+    "duration_s": 124,
+    "wall_s": 200.7,
     "final": {
       "state": "results",
       "results": {
         "rank": "A",
-        "score": 52727,
-        "bestCombo": 30,
-        "shieldLeft": 70,
-        "timeS": 178.7,
+        "score": 51279,
+        "bestCombo": 38,
+        "shieldLeft": 96,
+        "timeS": 120,
         "cleared": true
       },
-      "score": 48310,
-      "shield": 69.9,
-      "kills": 174,
-      "bestCombo": 30
+      "score": 47010,
+      "shield": 95.7,
+      "kills": 153,
+      "bestCombo": 38
     },
     "mechanics": {
-      "cannonFire": 2549,
-      "missileFire": 15,
-      "enemyKilled:missile": 14,
-      "parry": 17,
-      "drift": 6,
-      "wingtrail": 3,
-      "shieldRefill": 6
+      "cannonFire": 1668,
+      "missileFire": 11,
+      "enemyKilled:missile": 9,
+      "parry": 14,
+      "drift": 9,
+      "wingtrail": 2,
+      "shieldRefill": 7
     },
     "required": [
       "cannonFire",
@@ -47,50 +47,51 @@
     "counts": {
       "stateChanged": 3,
       "stageStart": 1,
-      "cannonFire": 2549,
-      "lockAdded": 20,
-      "missileFire": 15,
-      "enemyHit": 1035,
-      "comboChanged": 216,
-      "enemyKilled": 174,
-      "missileHit": 17,
-      "playerHit": 12,
-      "laserTelegraph": 26,
-      "laserFire": 24,
-      "shieldRefill": 6,
-      "roll": 16,
-      "parry": 17,
-      "drift": 6,
+      "cannonFire": 1668,
+      "lockAdded": 17,
+      "missileFire": 11,
+      "enemyHit": 781,
+      "comboChanged": 179,
+      "enemyKilled": 153,
+      "missileHit": 14,
+      "playerHit": 9,
+      "shieldRefill": 7,
+      "laserTelegraph": 20,
+      "laserFire": 19,
+      "roll": 12,
+      "parry": 14,
+      "drift": 9,
+      "pickup": 1,
       "warning": 4,
-      "wingtrail": 3,
+      "wingtrail": 2,
       "stageClear": 1,
-      "missilesFired": 20,
-      "enemyKilled:cannon": 155,
-      "killed:caltrop": 139,
-      "enemyKilled:missile": 14,
-      "bulletsFired": 655,
-      "killed:dart": 20,
-      "killed:sniper": 8,
-      "shieldRefilled": 61.25000000000065,
-      "parries": 17,
-      "driftStarted": 3,
-      "enemyKilled:parry": 2,
-      "killed:strider": 7,
-      "enemyKilled:drift": 3
+      "missilesFired": 17,
+      "enemyKilled:cannon": 140,
+      "killed:caltrop": 125,
+      "enemyKilled:missile": 9,
+      "bulletsFired": 527,
+      "shieldRefilled": 68.08333333333383,
+      "killed:dart": 17,
+      "killed:sniper": 7,
+      "parries": 14,
+      "enemyKilled:parry": 3,
+      "driftStarted": 5,
+      "killed:strider": 4,
+      "enemyKilled:drift": 1
     },
     "failures": [],
     "captures": [
-      "Docs/progress/goldpath/20260930T100931Z_p25.png",
-      "Docs/progress/goldpath/20260930T100931Z_p50.png",
-      "Docs/progress/goldpath/20260930T100931Z_p75.png",
-      "Docs/progress/goldpath/20260930T100931Z_results.png"
+      "Docs/progress/goldpath/20260930T104021Z_p25.png",
+      "Docs/progress/goldpath/20260930T104021Z_p50.png",
+      "Docs/progress/goldpath/20260930T104021Z_p75.png",
+      "Docs/progress/goldpath/20260930T104021Z_results.png"
     ],
     "steps": [
       {
         "t": 1,
         "state": "launch",
         "stage_t": 0,
-        "progress": 0.001,
+        "progress": 0,
         "score": 0,
         "shield": 100,
         "kills": 0
@@ -99,7 +100,7 @@
         "t": 2,
         "state": "launch",
         "stage_t": 0,
-        "progress": 0.005,
+        "progress": 0,
         "score": 0,
         "shield": 100,
         "kills": 0
@@ -109,342 +110,225 @@
         "state": "play",
         "stage_t": 2.5,
         "progress": 0.021,
-        "score": 0,
+        "score": 110,
         "shield": 100,
-        "kills": 0
+        "kills": 1
       },
       {
         "t": 10,
         "state": "play",
         "stage_t": 7.3,
-        "progress": 0.048,
-        "score": 1160,
+        "progress": 0.061,
+        "score": 2210,
         "shield": 100,
-        "kills": 8
+        "kills": 13
       },
       {
         "t": 15,
         "state": "play",
         "stage_t": 12.3,
-        "progress": 0.076,
-        "score": 2140,
+        "progress": 0.103,
+        "score": 4410,
         "shield": 100,
-        "kills": 15
+        "kills": 21
       },
       {
         "t": 20,
         "state": "play",
-        "stage_t": 17.2,
-        "progress": 0.103,
-        "score": 3690,
-        "shield": 100,
-        "kills": 25
+        "stage_t": 17.3,
+        "progress": 0.144,
+        "score": 8390,
+        "shield": 92.2,
+        "kills": 29
       },
       {
         "t": 25,
         "state": "play",
-        "stage_t": 22.2,
-        "progress": 0.131,
-        "score": 4770,
-        "shield": 92,
-        "kills": 28
+        "stage_t": 22.3,
+        "progress": 0.186,
+        "score": 9310,
+        "shield": 96.1,
+        "kills": 32
       },
       {
         "t": 30,
         "state": "play",
-        "stage_t": 27.2,
-        "progress": 0.159,
-        "score": 5010,
-        "shield": 92,
-        "kills": 29
-      },
-      {
-        "t": 35,
-        "state": "play",
-        "stage_t": 32.2,
-        "progress": 0.186,
-        "score": 5910,
-        "shield": 92,
-        "kills": 32
-      },
-      {
-        "t": 40,
-        "state": "play",
-        "stage_t": 37.2,
-        "progress": 0.214,
-        "score": 8630,
+        "stage_t": 27.3,
+        "progress": 0.228,
+        "score": 11630,
         "shield": 100,
         "kills": 45
       },
       {
+        "t": 35,
+        "state": "play",
+        "stage_t": 32.3,
+        "progress": 0.269,
+        "score": 14270,
+        "shield": 100,
+        "kills": 51
+      },
+      {
+        "t": 40,
+        "state": "play",
+        "stage_t": 36.7,
+        "progress": 0.311,
+        "score": 16400,
+        "shield": 100,
+        "kills": 57
+      },
+      {
         "t": 45,
         "state": "play",
-        "stage_t": 42.2,
-        "progress": 0.242,
-        "score": 9420,
-        "shield": 100,
-        "kills": 48
-      },
-      {
-        "t": 50,
-        "state": "play",
-        "stage_t": 46.5,
-        "progress": 0.266,
-        "score": 9920,
-        "shield": 100,
-        "kills": 52
-      },
-      {
-        "t": 55,
-        "state": "play",
-        "stage_t": 51.5,
-        "progress": 0.293,
-        "score": 12010,
-        "shield": 100,
-        "kills": 63
-      },
-      {
-        "t": 60,
-        "state": "play",
-        "stage_t": 56.5,
-        "progress": 0.321,
-        "score": 12910,
+        "stage_t": 41.6,
+        "progress": 0.352,
+        "score": 20740,
         "shield": 100,
         "kills": 66
       },
       {
+        "t": 50,
+        "state": "play",
+        "stage_t": 46.6,
+        "progress": 0.394,
+        "score": 22510,
+        "shield": 100,
+        "kills": 73
+      },
+      {
+        "t": 55,
+        "state": "play",
+        "stage_t": 51,
+        "progress": 0.436,
+        "score": 22970,
+        "shield": 100,
+        "kills": 75
+      },
+      {
+        "t": 60,
+        "state": "play",
+        "stage_t": 56,
+        "progress": 0.477,
+        "score": 24370,
+        "shield": 92,
+        "kills": 78
+      },
+      {
         "t": 65,
         "state": "play",
-        "stage_t": 61.5,
-        "progress": 0.349,
-        "score": 13850,
+        "stage_t": 61,
+        "progress": 0.519,
+        "score": 25610,
         "shield": 100,
-        "kills": 71
+        "kills": 86
       },
       {
         "t": 70,
         "state": "play",
-        "stage_t": 66.4,
-        "progress": 0.376,
-        "score": 15100,
+        "stage_t": 65.9,
+        "progress": 0.56,
+        "score": 28640,
         "shield": 100,
-        "kills": 77
+        "kills": 101
       },
       {
         "t": 75,
         "state": "play",
-        "stage_t": 71.4,
-        "progress": 0.404,
-        "score": 15890,
-        "shield": 92,
-        "kills": 79
+        "stage_t": 70.2,
+        "progress": 0.602,
+        "score": 30610,
+        "shield": 100,
+        "kills": 107
       },
       {
         "t": 80,
         "state": "play",
-        "stage_t": 76.4,
-        "progress": 0.432,
-        "score": 16770,
-        "shield": 92,
-        "kills": 81
+        "stage_t": 74.8,
+        "progress": 0.643,
+        "score": 31250,
+        "shield": 100,
+        "kills": 108
       },
       {
         "t": 85,
         "state": "play",
-        "stage_t": 81.4,
-        "progress": 0.46,
-        "score": 17750,
-        "shield": 100,
-        "kills": 88
+        "stage_t": 79.6,
+        "progress": 0.684,
+        "score": 34650,
+        "shield": 76,
+        "kills": 110
       },
       {
         "t": 90,
         "state": "play",
-        "stage_t": 86.4,
-        "progress": 0.488,
-        "score": 17750,
-        "shield": 100,
-        "kills": 88
+        "stage_t": 84.6,
+        "progress": 0.725,
+        "score": 37540,
+        "shield": 87.1,
+        "kills": 112
       },
       {
         "t": 95,
         "state": "play",
-        "stage_t": 91.4,
-        "progress": 0.515,
-        "score": 20200,
+        "stage_t": 89.5,
+        "progress": 0.766,
+        "score": 38700,
         "shield": 100,
-        "kills": 102
+        "kills": 120
       },
       {
         "t": 100,
         "state": "play",
-        "stage_t": 96.4,
-        "progress": 0.543,
-        "score": 24260,
+        "stage_t": 94.5,
+        "progress": 0.808,
+        "score": 39510,
         "shield": 100,
-        "kills": 114
+        "kills": 126
       },
       {
         "t": 105,
         "state": "play",
-        "stage_t": 101.3,
-        "progress": 0.57,
-        "score": 25090,
+        "stage_t": 99.5,
+        "progress": 0.849,
+        "score": 39680,
         "shield": 100,
-        "kills": 115
+        "kills": 127
       },
       {
         "t": 110,
         "state": "play",
-        "stage_t": 105.9,
-        "progress": 0.595,
-        "score": 26840,
-        "shield": 93,
-        "kills": 116
-      },
-      {
-        "t": 115,
-        "state": "play",
-        "stage_t": 110.7,
-        "progress": 0.623,
-        "score": 30490,
-        "shield": 78,
-        "kills": 118
-      },
-      {
-        "t": 120,
-        "state": "play",
-        "stage_t": 115.7,
-        "progress": 0.65,
-        "score": 30490,
-        "shield": 78,
-        "kills": 118
-      },
-      {
-        "t": 125,
-        "state": "play",
-        "stage_t": 120.7,
-        "progress": 0.678,
-        "score": 31650,
-        "shield": 87.5,
-        "kills": 126
-      },
-      {
-        "t": 130,
-        "state": "play",
-        "stage_t": 125.7,
-        "progress": 0.706,
-        "score": 31650,
-        "shield": 96.9,
-        "kills": 126
-      },
-      {
-        "t": 135,
-        "state": "play",
-        "stage_t": 130.6,
-        "progress": 0.733,
-        "score": 32460,
-        "shield": 100,
-        "kills": 132
-      },
-      {
-        "t": 140,
-        "state": "play",
-        "stage_t": 135.6,
-        "progress": 0.761,
-        "score": 32630,
+        "stage_t": 104.2,
+        "progress": 0.891,
+        "score": 40680,
         "shield": 100,
         "kills": 133
       },
       {
-        "t": 145,
+        "t": 115,
         "state": "play",
-        "stage_t": 140.6,
-        "progress": 0.788,
-        "score": 32850,
+        "stage_t": 108.7,
+        "progress": 0.932,
+        "score": 41120,
         "shield": 100,
         "kills": 134
       },
       {
-        "t": 150,
+        "t": 120,
         "state": "play",
-        "stage_t": 144.9,
-        "progress": 0.812,
-        "score": 33720,
-        "shield": 100,
+        "stage_t": 113.2,
+        "progress": 0.973,
+        "score": 43890,
+        "shield": 87.5,
         "kills": 140
       },
       {
-        "t": 155,
-        "state": "play",
-        "stage_t": 149.9,
-        "progress": 0.84,
-        "score": 34530,
-        "shield": 100,
-        "kills": 146
-      },
-      {
-        "t": 160,
-        "state": "play",
-        "stage_t": 154.3,
-        "progress": 0.865,
-        "score": 36720,
-        "shield": 84,
-        "kills": 148
-      },
-      {
-        "t": 165,
-        "state": "play",
-        "stage_t": 158.6,
-        "progress": 0.889,
-        "score": 40050,
-        "shield": 97.9,
-        "kills": 165
-      },
-      {
-        "t": 170,
-        "state": "play",
-        "stage_t": 163.6,
-        "progress": 0.916,
-        "score": 41190,
-        "shield": 100,
-        "kills": 169
-      },
-      {
-        "t": 175,
-        "state": "play",
-        "stage_t": 168.1,
-        "progress": 0.941,
-        "score": 43240,
-        "shield": 85,
-        "kills": 170
-      },
-      {
-        "t": 180,
-        "state": "play",
-        "stage_t": 173.1,
-        "progress": 0.969,
-        "score": 45590,
-        "shield": 85.9,
-        "kills": 171
-      },
-      {
-        "t": 185,
-        "state": "play",
-        "stage_t": 178,
-        "progress": 0.996,
-        "score": 48310,
-        "shield": 69.9,
-        "kills": 174
-      },
-      {
-        "t": 186,
+        "t": 124,
         "state": "results",
-        "stage_t": 178.7,
+        "stage_t": 115.9,
         "progress": 1,
-        "score": 48310,
-        "shield": 69.9,
-        "kills": 174
+        "score": 47010,
+        "shield": 95.7,
+        "kills": 153
       }
     ]
   },
@@ -497,12 +381,12 @@
         "missing_refs": 0
       },
       "capture": {
-        "utc": "2026-09-30T09:25:56Z",
+        "utc": "2026-09-30T10:46:53Z",
         "console": 0,
         "missing_refs": 0
       },
       "goldpath": {
-        "utc": "2026-09-30T10:17:40Z",
+        "utc": "2026-09-30T10:43:43Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -967,30 +851,51 @@
     "Docs/progress/goldpath/20260930T100931Z_p75.png",
     "Docs/progress/goldpath/20260930T100931Z_results.png",
     "Docs/progress/goldpath/20260930T101941Z_gameover.png",
-    "Docs/progress/goldpath/20260930T101941Z_retry_play.png"
+    "Docs/progress/goldpath/20260930T101941Z_retry_play.png",
+    "Docs/progress/goldpath/20260930T102103Z_p25.png",
+    "Docs/progress/goldpath/20260930T102103Z_p50.png",
+    "Docs/progress/goldpath/20260930T102103Z_p75.png",
+    "Docs/progress/goldpath/20260930T102103Z_results.png",
+    "Docs/progress/goldpath/20260930T102648Z_p25.png",
+    "Docs/progress/goldpath/20260930T102648Z_p50.png",
+    "Docs/progress/goldpath/20260930T102648Z_p75.png",
+    "Docs/progress/goldpath/20260930T102648Z_results.png",
+    "Docs/progress/goldpath/20260930T103037Z_p25.png",
+    "Docs/progress/goldpath/20260930T103037Z_p50.png",
+    "Docs/progress/goldpath/20260930T103037Z_p75.png",
+    "Docs/progress/goldpath/20260930T103037Z_results.png",
+    "Docs/progress/goldpath/20260930T104021Z_p25.png",
+    "Docs/progress/goldpath/20260930T104021Z_p50.png",
+    "Docs/progress/goldpath/20260930T104021Z_p75.png",
+    "Docs/progress/goldpath/20260930T104021Z_results.png",
+    "Docs/progress/boss/20260930T104509Z_combat.png",
+    "Docs/progress/violet/20260930T104525Z_combat.png",
+    "Docs/progress/violet/20260930T104551Z_combat.png",
+    "Docs/progress/violet/20260930T104617Z_combat.png",
+    "Docs/progress/violet/20260930T104645Z_combat.png"
   ],
   "capture": {
-    "utc": "2026-09-30T09:25:56Z",
+    "utc": "2026-09-30T10:46:53Z",
     "passed": true,
     "cams": [
-      "title"
+      "combat"
     ],
     "seed": 1,
-    "t": 12,
-    "stage": "cloudgate",
+    "t": 60,
+    "stage": "violetTide",
     "w": 1280,
     "h": 720,
-    "feature": "m1",
+    "feature": "violet",
     "files": [
-      "Docs/progress/m1/20260930T092551Z_title.png"
+      "Docs/progress/violet/20260930T104645Z_combat.png"
     ],
     "stats": {
-      "title": {
-        "state": "title",
-        "time": 0,
-        "luma_mean": 37.9,
-        "luma_std": 35.1,
-        "colors": 142,
+      "combat": {
+        "state": "play",
+        "time": 61.05,
+        "luma_mean": 66.6,
+        "luma_std": 34.8,
+        "colors": 490,
         "size": "1280x720"
       }
     },

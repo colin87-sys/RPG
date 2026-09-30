@@ -332,7 +332,13 @@ export class Game implements Combat {
         return;
       case 'results':
         this.ageTexts(dt);
-        if (this.stateT > 1.5 && this.input.pressed('confirm')) this.setState('title');
+        if (this.stateT > 1.5 && this.input.pressed('confirm')) {
+          // campaign: advance to the next stage after a clear; otherwise back to the title
+          const order = ['cloudgate', 'violetTide', 'wreckfield'];
+          const i = order.indexOf(this.stage.id);
+          if (this.mode === 'campaign' && this.results?.cleared && i >= 0 && i < order.length - 1) this.start({ stage: order[i + 1], mode: 'campaign' });
+          else this.setState('title');
+        }
         return;
       case 'gameover':
         if (this.stateT > 0.8 && this.input.pressed('confirm')) { this.start({}); this.launchS = 0.8; } // quick retry (A13 < 2 s)

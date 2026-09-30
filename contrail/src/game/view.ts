@@ -159,6 +159,7 @@ export class View {
       const w = this.railToWorld(e.pos.z, e.pos.x, e.pos.y, new THREE.Vector3());
       const kind = e.kind === 'strider' || e.kind === 'bulwark' ? 'boss' : e.kind === 'caltrop' ? 'small' : 'big';
       const size = e.kind === 'strider' ? 9 : e.kind === 'caltrop' ? 1.8 : 3.5;
+      // explosions right next to the camera would swallow the frame: shrink them with proximity
       this.explosions.spawn(w, { size, kind, seed: e.id });
       if (e.big || e.weapon === 'missile') this.rings.spawn(w, { maxRadius: e.big ? 26 : 12, duration: e.big ? 1.2 : 0.8 });
       if (e.big) this.chromaPulse = Math.max(this.chromaPulse, 0.7);

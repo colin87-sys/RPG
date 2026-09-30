@@ -64,7 +64,7 @@ function drawOverlay(dt: number) {
     return;
   }
   if (st === 'launch') {
-    drawStageCard(g, w, h, { index: 1, stage: game.stage.name, subtitle: 'CLOUD CORRIDOR', t: game.stateT } as never);
+    drawStageCard(g, w, h, { index: ['cloudgate', 'violetTide', 'wreckfield'].indexOf(game.stage.id) + 1, stage: game.stage.name, subtitle: game.mode === 'caravan' ? 'CARAVAN // 120 S' : game.stage.subtitle, t: game.stateT } as never);
     return;
   }
   if (st === 'play') {
@@ -74,7 +74,7 @@ function drawOverlay(dt: number) {
   }
   if (st === 'results' && game.results) {
     const r = game.results;
-    drawResults(g, w, h, { stage: game.stage.name, score: r.score, bestChain: r.bestCombo, shieldLeft: r.shieldLeft, timeS: r.timeS, rank: r.rank as Rank, t: game.stateT, bonus: r.shieldBonus + r.killBonus });
+    drawResults(g, w, h, { stage: r.cleared ? game.stage.name : `${game.stage.name} // TARGET ESCAPED`, score: r.score, bestChain: r.bestCombo, shieldLeft: r.shieldLeft, timeS: r.timeS, rank: r.rank as Rank, t: game.stateT, bonus: r.shieldBonus + r.killBonus });
     return;
   }
   if (st === 'gameover') drawGameOver(g, w, h, { t: game.stateT, stage: game.stage.name, score: game.score, progress: game.progress });
@@ -125,7 +125,9 @@ if (params.debug) {
       while ((game.state === 'launch' || game.stageTime < t) && game.state !== 'results' && guard++ < 60 * 400) app.step(1, false);
       game.invulnerable = false;
       setBot(wasBot);
-      app.step(0, true);
+      // effects spawned during the unrendered skip never aged: drop them, then let one second of live FX build up
+      view.resetFx();
+      app.step(60, true);
     },
     step(n) { app.step(n, true); },
     setCamera(name) {

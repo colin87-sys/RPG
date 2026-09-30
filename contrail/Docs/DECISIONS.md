@@ -88,3 +88,6 @@ Fixed: stage/mode false passes, stale DESIGN/STYLE_BIBLE (current-value tables),
 
 ## 2026-09-30T10:23Z — Quick retry: 0.8 s relaunch after game over (title launch stays 2.5 s)
 A13 measured 2.53 s confirm->play with the full launch; now 0.82 s simulated (1.58 s from key press incl. the 0.8 s anti-mash lockout). forceGameOver() added to the debug API for the harness.
+
+## 2026-09-30T10:47Z — Capture fix: setTime() clears effects spawned during the unrendered skip, then steps 1 s live
+Explosions/smoke spawned while fast-forwarding never aged (no render updates), so every capture at t>0 showed a pile-up of a whole minute of fireballs. Earlier M1 review captures were affected. Campaign now advances cloudgate -> violetTide -> wreckfield after a clear; stage cards use each stage's subtitle; BULWARK weak points get HUD markers; results say TARGET ESCAPED on a boss escape.

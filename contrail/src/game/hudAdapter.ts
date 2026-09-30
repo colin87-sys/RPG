@@ -53,6 +53,13 @@ export class HudAdapter {
       const size = Math.max(14, (e.radius / Math.max(8, e.u + T.camera.back)) * h * 1.2);
       this.targets.push({ x: q.x, y: q.y, size, locked: lc > 0, lockCount: lc, hp01: e.big ? e.hp / e.maxHp : undefined, boss: e.kind === 'bulwark' } as HudTarget);
       if (e.big && (!boss || e.hp / e.maxHp < boss.hp01)) boss = { label: KIND_LABEL[e.kind] ?? e.kind.toUpperCase(), hp01: e.hp / e.maxHp };
+      if (e.kind === 'bulwark') {
+        // weak points: small contact markers (corner dots) so the player knows where to aim
+        for (const wp of T.behaviour.bulwark.weakPoints) {
+          const wq = this.view.project(e.u + wp[0], e.x + wp[1], e.y + wp[2], w, h);
+          if (wq) this.targets.push({ x: wq.x, y: wq.y, size: 26, locked: false, lockCount: 0 });
+        }
+      }
     }
     s.targets = this.targets;
     s.enemyInfo = boss;
