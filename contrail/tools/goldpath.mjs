@@ -14,6 +14,8 @@ import { ensureDist, startServer } from './lib/server.mjs';
 import { ROOT, ToolError, list, num, onCleanup, parseArgs, rel, round, runTool, utcIso, utcStamp, verdict, writeFileAtomic } from './lib/util.mjs';
 
 const TOOL = 'goldpath';
+// Software GL (SwiftShader) drains queued frames before a screenshot; the heavier world (2026-09-30 graphics pass) needs > 30 s
+const SHOT_TIMEOUT_MS = 120000;
 const args = parseArgs(undefined, { booleans: ['dev', 'build', 'gameover'] });
 export const DEFAULT_MECHANICS = ['cannonFire', 'missileFire', 'enemyKilled:missile', 'parry', 'drift', 'wingtrail', 'shieldRefill'];
 
@@ -49,7 +51,7 @@ runTool(TOOL, async () => {
   let s, sim = 0, reason = '', lastTime = -1, stall = 0;
   const wall0 = Date.now();
   const snap = async (label) => {
-    const f = await writeFileAtomic(join(ROOT, 'Docs', 'progress', 'goldpath', `${stamp}_${label}.png`), await page.screenshot({ type: 'png' }));
+    const f = await writeFileAtomic(join(ROOT, 'Docs', 'progress', 'goldpath', `${stamp}_${label}.png`), await page.screenshot({ type: 'png', timeout: SHOT_TIMEOUT_MS }));
     captures.push(rel(f));
   };
   for (;;) {
@@ -155,7 +157,7 @@ async function gameoverRun({ page, errs, stage, mode, seed, stamp, timeout, limi
   }
   const deathAt = sim;
   if (process.env.HARNESS_DEBUG) console.log('dead at', sim);
-  const shot = async (label) => rel(await writeFileAtomic(join(ROOT, 'Docs', 'progress', 'goldpath', `${stamp}_${label}.png`), await page.screenshot({ type: 'png' })));
+  const shot = async (label) => rel(await writeFileAtomic(join(ROOT, 'Docs', 'progress', 'goldpath', `${stamp}_${label}.png`), await page.screenshot({ type: 'png', timeout: SHOT_TIMEOUT_MS })));
   const captures = [await shot('gameover')];
   // Tap the real confirm key (Enter): down -> step(1) -> up -> step(1). The game reads confirm as a
   // press edge and ignores it during the game-over lockout, so a held key would be consumed early.

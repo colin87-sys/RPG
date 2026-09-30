@@ -24,6 +24,7 @@ import { HostileBullets, PlayerShots, HOSTILE_VARIANTS, PLAYER_SHOT_VARIANTS } f
 import { Beams, BEAM_VARIANTS } from '../gen/vfx/beams';
 import { ShockRings, RING_VARIANTS } from '../gen/vfx/rings';
 import { SmokeTrails, SMOKE_VARIANTS, SMOKE_EXHAUST } from '../gen/vfx/smoke';
+import { WingVapour, WING_VAPOUR_LOOKS } from '../gen/vfx/wingVapour';
 import { Explosions, EXPLOSION_VARIANTS } from '../gen/vfx/explosions';
 import { HitPops } from '../gen/vfx/particles-hit';
 
@@ -65,6 +66,10 @@ export class View {
   readonly rings = new ShockRings(RING_VARIANTS.A, 16);
   readonly smoke = new SmokeTrails(4000, SMOKE_VARIANTS.B, 3);
   readonly exhaustTrail = new SmokeTrails(600, SMOKE_EXHAUST, 5);
+  readonly vapour = new WingVapour(WING_VAPOUR_LOOKS.cloudgate);
+  private readonly tipA = new THREE.Vector3();
+  private readonly tipB = new THREE.Vector3();
+  private readonly tips: [THREE.Vector3, THREE.Vector3] = [this.tipA, this.tipB];
   readonly explosions = new Explosions(48, EXPLOSION_VARIANTS.A);
   readonly pops = new HitPops(64);
   private world = new Map<StageId, WorldSet>();
@@ -106,7 +111,7 @@ export class View {
     this.missileMesh.frustumCulled = false;
     this.missileMesh.count = 0;
     this.scene.add(this.missileMesh);
-    this.scene.add(this.beams.group, this.rings.group, this.smoke.group, this.exhaustTrail.group, this.explosions.group, this.pops.group);
+    this.scene.add(this.beams.group, this.rings.group, this.smoke.group, this.exhaustTrail.group, this.vapour.mesh, this.explosions.group, this.pops.group);
     this.bindEvents();
   }
 
@@ -117,6 +122,8 @@ export class View {
     if (id === this.stageId) return;
     this.stageId = id;
     applyStageLook(id);
+    this.vapour.setLook(WING_VAPOUR_LOOKS[id]);
+    this.vapour.clear();
     for (const w of this.world.values()) w.group.visible = false;
     let w = this.world.get(id);
     if (!w) {
@@ -183,6 +190,7 @@ export class View {
   resetFx(): void {
     this.smoke.clear();
     this.exhaustTrail.clear();
+    this.vapour.clear();
     this.explosions.clear();
     this.pops.clear();
     this.rings.clear();
@@ -360,6 +368,18 @@ export class View {
     this.rings.update(dt, this.camera);
     this.smoke.update(dt, this.camera);
     this.exhaustTrail.update(dt, this.camera);
+    // wingtip vapour: brighter with lateral speed, bank, boost and rolls
+    let tips: [THREE.Vector3, THREE.Vector3] | null = null;
+    if (this.craft.root.visible && g.state === 'play') {
+      this.craft.root.updateMatrixWorld();
+      this.craft.root.localToWorld(this.tipA.copy(this.craft.wingtips[0]));
+      this.craft.root.localToWorld(this.tipB.copy(this.craft.wingtips[1]));
+      tips = this.tips;
+    }
+    const pl = g.player;
+    const lat = Math.hypot(pl.vx, pl.vy) / T.move.maxLateralSpeed;
+    const vk = Math.min(1, lat * 0.9 + Math.abs(pl.bank) * 0.6 + (pl.boost > 0 ? 0.5 : 0) + (pl.rolling > 0 ? 0.7 : 0));
+    this.vapour.update(dt, tips, vk, this.camera);
     this.explosions.update(dt, this.camera);
     this.pops.update(dt, this.camera);
     this.hostile.update(0);

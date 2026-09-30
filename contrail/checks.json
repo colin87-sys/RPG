@@ -1,15 +1,15 @@
 {
-  "utc": "2026-09-30T13:37:52Z",
-  "commit": "9bc3033",
+  "utc": "2026-09-30T14:17:40Z",
+  "commit": "c4c040a",
   "milestone": "M2",
   "goldpath": {
-    "utc": "2026-09-30T13:37:52Z",
+    "utc": "2026-09-30T14:17:40Z",
     "passed": true,
     "status": "pass",
     "stage": "cloudgate",
     "seed": 1,
     "duration_s": 186,
-    "wall_s": 386.8,
+    "wall_s": 397.7,
     "final": {
       "state": "results",
       "results": {
@@ -80,10 +80,10 @@
     },
     "failures": [],
     "captures": [
-      "Docs/progress/goldpath/20260930T133123Z_p25.png",
-      "Docs/progress/goldpath/20260930T133123Z_p50.png",
-      "Docs/progress/goldpath/20260930T133123Z_p75.png",
-      "Docs/progress/goldpath/20260930T133123Z_results.png"
+      "Docs/progress/goldpath/20260930T141100Z_p25.png",
+      "Docs/progress/goldpath/20260930T141100Z_p50.png",
+      "Docs/progress/goldpath/20260930T141100Z_p75.png",
+      "Docs/progress/goldpath/20260930T141100Z_results.png"
     ],
     "steps": [
       {
@@ -449,7 +449,7 @@
     ]
   },
   "perf": {
-    "utc": "2026-09-30T13:28:44Z",
+    "utc": "2026-09-30T13:53:18Z",
     "passed": true,
     "status": "pass (budgets)",
     "scene": "cloudgate",
@@ -457,20 +457,20 @@
     "seconds": 10,
     "w": 1920,
     "h": 1080,
-    "frames": 4,
-    "frame_ms_median": 3708.15,
-    "frame_ms_p99": 4008,
-    "fps_median": 0.3,
-    "fps_p1_low": 0.2,
-    "step_ms_median": 2.95,
-    "draw_calls": 43,
-    "draw_calls_max": 44,
-    "triangles": 153837,
-    "triangles_max": 154312,
-    "programs": 28,
+    "frames": 2,
+    "frame_ms_median": 5341.45,
+    "frame_ms_p99": 6901.17,
+    "fps_median": 0.2,
+    "fps_p1_low": 0.1,
+    "step_ms_median": 4.05,
+    "draw_calls": 45,
+    "draw_calls_max": 45,
+    "triangles": 154878,
+    "triangles_max": 154882,
+    "programs": 29,
     "textures": 10,
-    "geometries": 34,
-    "enemies_alive": 16,
+    "geometries": 35,
+    "enemies_alive": 14,
     "hostile_projectiles": 49,
     "sim_state": "play",
     "bot": true,
@@ -497,17 +497,17 @@
         "missing_refs": 0
       },
       "capture": {
-        "utc": "2026-09-30T13:24:28Z",
+        "utc": "2026-09-30T13:44:06Z",
         "console": 0,
         "missing_refs": 0
       },
       "goldpath": {
-        "utc": "2026-09-30T13:37:52Z",
+        "utc": "2026-09-30T14:17:40Z",
         "console": 0,
         "missing_refs": 0
       },
       "perf": {
-        "utc": "2026-09-30T13:28:44Z",
+        "utc": "2026-09-30T13:53:18Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -903,20 +903,6 @@
     ]
   },
   "captures": [
-    "Docs/progress/goldpath/20260930T112306Z_p50.png",
-    "Docs/progress/goldpath/20260930T112306Z_p75.png",
-    "Docs/progress/goldpath/20260930T112306Z_results.png",
-    "Docs/progress/m2/20260930T112556Z_combat.png",
-    "Docs/progress/m2/20260930T112556Z_hero.png",
-    "Docs/progress/m2/20260930T112617Z_combat.png",
-    "Docs/progress/m2/20260930T112628Z_combat.png",
-    "Docs/progress/m2/20260930T112924Z_combat.png",
-    "Docs/progress/m2/20260930T112924Z_hero.png",
-    "Docs/progress/m2/20260930T112947Z_combat.png",
-    "Docs/progress/m2/20260930T112958Z_combat.png",
-    "Docs/progress/m2/20260930T113221Z_combat.png",
-    "Docs/progress/m2/20260930T113234Z_combat.png",
-    "Docs/progress/goldpath/20260930T113305Z_p25.png",
     "Docs/progress/goldpath/20260930T113305Z_p50.png",
     "Docs/progress/goldpath/20260930T113305Z_p75.png",
     "Docs/progress/goldpath/20260930T113305Z_results.png",
@@ -1002,30 +988,54 @@
     "Docs/progress/goldpath/20260930T133123Z_p25.png",
     "Docs/progress/goldpath/20260930T133123Z_p50.png",
     "Docs/progress/goldpath/20260930T133123Z_p75.png",
-    "Docs/progress/goldpath/20260930T133123Z_results.png"
+    "Docs/progress/goldpath/20260930T133123Z_results.png",
+    "Docs/progress/gfx/20260930T134038Z_play.png",
+    "Docs/progress/gfx/20260930T134050Z_play.png",
+    "Docs/progress/gfx/20260930T134101Z_play.png",
+    "Docs/progress/gfx/20260930T134112Z_play.png",
+    "Docs/progress/gfx/20260930T134123Z_play.png",
+    "Docs/progress/gfx/20260930T134135Z_play.png",
+    "Docs/progress/gfx/20260930T134325Z_play.png",
+    "Docs/progress/gfx/20260930T134325Z_hero.png",
+    "Docs/progress/gfx/20260930T134347Z_play.png",
+    "Docs/progress/gfx/20260930T134347Z_hero.png",
+    "Docs/progress/goldpath/20260930T141100Z_p25.png",
+    "Docs/progress/goldpath/20260930T141100Z_p50.png",
+    "Docs/progress/goldpath/20260930T141100Z_p75.png",
+    "Docs/progress/goldpath/20260930T141100Z_results.png"
   ],
   "capture": {
-    "utc": "2026-09-30T13:24:28Z",
+    "utc": "2026-09-30T13:44:06Z",
     "passed": true,
     "cams": [
-      "vista"
+      "play",
+      "hero"
     ],
     "seed": 1,
-    "t": 150,
-    "stage": "wreckfield",
+    "t": 90,
+    "stage": "violetTide",
     "w": 1280,
     "h": 720,
     "feature": "gfx",
     "files": [
-      "Docs/progress/gfx/20260930T132417Z_vista.png"
+      "Docs/progress/gfx/20260930T134347Z_play.png",
+      "Docs/progress/gfx/20260930T134347Z_hero.png"
     ],
     "stats": {
-      "vista": {
+      "play": {
         "state": "play",
-        "time": 152.54,
-        "luma_mean": 51.8,
-        "luma_std": 35.1,
-        "colors": 415,
+        "time": 92.54,
+        "luma_mean": 60.9,
+        "luma_std": 33.6,
+        "colors": 452,
+        "size": "1280x720"
+      },
+      "hero": {
+        "state": "play",
+        "time": 92.54,
+        "luma_mean": 44.7,
+        "luma_std": 20.9,
+        "colors": 207,
         "size": "1280x720"
       }
     },
