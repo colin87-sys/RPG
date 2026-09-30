@@ -117,8 +117,8 @@ export function chaseRig(aspect = 16 / 9): { camera: THREE.PerspectiveCamera; va
 /** Dark delta-wing placeholder (~12 m long, 9 m span) with orange inserts and a hot exhaust. */
 export function craftPlaceholder(): THREE.Group {
   const g = new THREE.Group();
-  const hull = toonMaterial({ albedo: palette.armourDark, rim: 1.4 });
-  const panel = toonMaterial({ albedo: palette.emblemBlack, rim: 1.2 });
+  const hull = toonMaterial({ albedo: palette.armourDark, rim: 0.6 });
+  const panel = toonMaterial({ albedo: palette.armourDark, rim: 0.25 });
   const insert = toonMaterial({ albedo: palette.accentOrange, emissive: palette.accentOrange, emissiveStrength: 1.4 });
   const glass = toonMaterial({ albedo: palette.canopyBlue, emissive: palette.canopyBlue, emissiveStrength: 0.25 });
   const hot = toonMaterial({ albedo: palette.accentOrange, emissive: palette.accentOrange, emissiveStrength: 2.2, fog: false });

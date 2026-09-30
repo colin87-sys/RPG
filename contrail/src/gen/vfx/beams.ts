@@ -26,7 +26,8 @@ export type BeamState = 'telegraph' | 'fire' | 'off';
 export interface BeamParams {
   /** total beam width in metres (token vfx.beam.haloWidth = 3.0) */
   width: number;
-  /** flat white core as a fraction of the width (REF_VERIFICATION ~0.65) */
+  /** flat white core as a fraction of the TOTAL width incl. halo (REF_VERIFICATION: core ~65% of the
+   *  bright beam, red halo ~25% of it per side -> ~0.48-0.55 of the total) */
   coreFrac: number;
   /** warm edge line width as a fraction of the width, and its px floor */
   edgeFrac: number;
@@ -65,14 +66,14 @@ const bt = vfx.beam;
 
 const baseBeam: BeamParams = {
   width: bt.haloWidth,
-  coreFrac: 0.62,
-  edgeFrac: 0.03,
+  coreFrac: 0.48,
+  edgeFrac: 0.035,
   edgeMinPx: 1.4,
   bossScale: 3,
   minWidthPx: 9,
-  coreIntensity: 2.6,
-  edgeIntensity: 2.6,
-  haloIntensity: 2.4,
+  coreIntensity: 1.8,
+  edgeIntensity: 2.0,
+  haloIntensity: 2.2,
   haloOcclusion: 0.7,
   telegraphWidth: 0.14,
   telegraphMinPx: 3,
@@ -96,9 +97,9 @@ export const BEAM_VARIANTS: Record<'A' | 'B' | 'C', BeamParams> = {
   /** A: verified cross-section, token width */
   A: { ...baseBeam },
   /** B: slimmer core, stronger halo, slower flicker (heavier threat read) */
-  B: { ...baseBeam, coreFrac: 0.55, haloIntensity: 2.8, haloOcclusion: 0.8, flickerHz: [5, 14], telegraphOutlinePx: 2.5, bossScale: 3.4 },
+  B: { ...baseBeam, coreFrac: 0.42, haloIntensity: 2.6, haloOcclusion: 0.8, flickerHz: [5, 14], telegraphOutlinePx: 2.5, bossScale: 3.4 },
   /** C: wider core, brighter flash, faster tip extension, livelier flow */
-  C: { ...baseBeam, coreFrac: 0.68, flashScale: 1.9, flashBoost: 1.6, extendS: 0.12, flowAmount: 0.3, telegraphWidth: 0.16, bossScale: 2.6 },
+  C: { ...baseBeam, coreFrac: 0.55, flashScale: 1.9, flashBoost: 1.6, extendS: 0.12, flowAmount: 0.3, telegraphWidth: 0.16, bossScale: 2.6 },
 };
 
 const VERT = /* glsl */ `
@@ -212,7 +213,7 @@ void main() {
     float core = 1.0 - smoothstep(cE - aa, cE + aa, x);
     float edge = (1.0 - smoothstep(cE + ew - aa, cE + ew + aa, x)) * (1.0 - core);
     float ht = clamp((x - cE) / max(1.0 - cE, 1e-3), 0.0, 1.0);
-    float halo = (1.0 - smoothstep(0.35, 1.0, ht)) * (1.0 - core);
+    float halo = (1.0 - smoothstep(0.55, 1.0, ht)) * (1.0 - core);
     float sW = vSW / max(vInvW, 1e-6) * vLenW;
     float flow = 1.0 + uFlowAmt * sin((sW / uFlowPeriod - uTime * uFlowSpeed / uFlowPeriod) * 6.2831853);
     vec3 hc = mix(mix(uHaloL, uHaloB, boss), mix(uHaloDarkL, uHaloDarkB, boss), smoothstep(0.1, 1.0, ht));
