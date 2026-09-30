@@ -1,0 +1,53 @@
+{
+  "board": "structures",
+  "variant": "B",
+  "seed": 3,
+  "params": {
+    "side": 1,
+    "clearance": 42,
+    "halfWidth": 58,
+    "halfHeight": 78,
+    "centerY": -18,
+    "roundness": 2.2,
+    "ribSpacing": 12,
+    "ribDepth": 2.8,
+    "modules": 14,
+    "bow": 40,
+    "archEvery": 5,
+    "archTop": 48,
+    "lipY": 36,
+    "lipOut": 9,
+    "lightDensity": 1.9,
+    "greebleDensity": 1,
+    "tone": 0.14,
+    "capLength": 60
+  },
+  "lengthMetres": 456,
+  "stats": {
+    "triangles": 17296,
+    "drawCalls": 3,
+    "lights": 809,
+    "moduleTriangles": 948,
+    "uniqueTriangles": 4024
+  },
+  "measuredContextFrame": {
+    "triangles": 17624,
+    "calls": 5
+  },
+  "camera": {
+    "pos": [
+      0,
+      5,
+      20
+    ],
+    "lookAt": [
+      0,
+      2.2,
+      -60
+    ],
+    "fov": 68
+  },
+  "placement": {
+    "hullGroupZ": 136.79999999999998
+  }
+}

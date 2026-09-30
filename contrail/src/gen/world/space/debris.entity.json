@@ -1,0 +1,12 @@
+{
+  "name": "debrisField",
+  "module": "src/gen/world/space/debris.ts",
+  "seed": 7,
+  "params": "DEBRIS_DEFAULTS; variants A/B/C in WRECK_VARIANTS",
+  "triangles": { "A": 24660, "B": 33752, "C": 17864 },
+  "instances": { "A": { "asteroids": 78, "slabs": 60, "flecks": 4200 }, "B": { "asteroids": 100, "slabs": 84, "flecks": 6000 }, "C": { "asteroids": 59, "slabs": 43, "flecks": 3000 } },
+  "drawCalls": 7,
+  "boundsMetres": [1640, 1150, 1500],
+  "tokensUsed": ["debrisDark", "debrisRim", "armourSteel", "armourDark", "armourLight", "spaceDeep", "smokeLit", "shading.specular", "shading.seamDarkness"],
+  "notes": "GPU-driven: placement, spin, stateless -Z recycling (relative to update() cameraPos), far-end shrink-in and fleck streaks are computed in the vertex shader; update() writes uniforms only. Big pieces keep a clear 20 m corridor around x=0,y=0. Needs camera.far >= ~1600 m for giants. Triangle numbers exclude the 1280-tri sky dome."
+}

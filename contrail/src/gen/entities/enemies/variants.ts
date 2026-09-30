@@ -38,17 +38,17 @@ function variant(name: string, look: EnemyLook, k: { spike: number; leg: number;
 export const ENEMY_VARIANTS: Record<'A' | 'B' | 'C', EnemyVariant> = {
   A: variant(
     'Ember rim',
-    { rimStrength: 1.35, rimPower: 2.4, rimWrap: 0.45, stageRim: 0.35, panelContrast: 0.65, markerIntensity: 2.2, markerDensity: 0.6, thrusterIntensity: 2.0, seamStrength: 0.25, outline: false, outlinePx: 1.6 },
+    { rimStrength: 1.35, rimPower: 2.4, rimWrap: 0.45, stageRim: 0.15, panelContrast: 0.65, markerIntensity: 2.2, markerDensity: 0.6, thrusterIntensity: 2.0, seamStrength: 0.25, outline: false, outlinePx: 1.6 },
     { spike: 1, leg: 1, wing: 1 },
   ),
   B: variant(
     'Hard panel',
-    { rimStrength: 0.95, rimPower: 3.2, rimWrap: 0.3, stageRim: 0.5, panelContrast: 1.0, markerIntensity: 2.6, markerDensity: 1.0, thrusterIntensity: 2.2, seamStrength: 0.45, outline: true, outlinePx: 1.4 },
+    { rimStrength: 0.95, rimPower: 3.2, rimWrap: 0.3, stageRim: 0.25, panelContrast: 1.0, markerIntensity: 2.6, markerDensity: 1.0, thrusterIntensity: 2.2, seamStrength: 0.45, outline: true, outlinePx: 1.4 },
     { spike: 0.6, leg: 0.94, wing: 1.06 },
   ),
   C: variant(
     'Ink',
-    { rimStrength: 1.7, rimPower: 2.0, rimWrap: 0.6, stageRim: 0.2, panelContrast: 0.3, markerIntensity: 3.0, markerDensity: 0.8, thrusterIntensity: 2.4, seamStrength: 0.0, outline: true, outlinePx: 2.0 },
+    { rimStrength: 1.7, rimPower: 2.0, rimWrap: 0.6, stageRim: 0.1, panelContrast: 0.3, markerIntensity: 3.0, markerDensity: 0.8, thrusterIntensity: 2.4, seamStrength: 0.0, outline: true, outlinePx: 2.0 },
     { spike: 1.4, leg: 1.07, wing: 0.95 },
   ),
 };

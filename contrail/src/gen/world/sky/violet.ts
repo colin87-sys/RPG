@@ -74,6 +74,8 @@ export function buildCloudBands(stage: StageId, params: CloudBandParams, seed: n
       uRimFocus: { value: P.rimFocus },
       uOpacity: { value: P.opacity },
       uSoft: { value: P.soft },
+      uFloorY: { value: P.floorY },
+      uFloorFade: { value: P.floorFade },
     },
     vertexShader: /* glsl */ `
       uniform vec4 uBands[${MAX_BANDS}];
@@ -114,7 +116,7 @@ export function buildCloudBands(stage: StageId, params: CloudBandParams, seed: n
       ${GLSL_SKY_NOISE}
       ${GLSL_SKY_HAZE}
       uniform vec4 uDome;
-      uniform float uSoft, uHeight, uBandTime, uDrift, uRimWidth, uBandRimK, uRimFocus, uOpacity;
+      uniform float uFloorY, uFloorFade, uSoft, uHeight, uBandTime, uDrift, uRimWidth, uBandRimK, uRimFocus, uOpacity;
       uniform vec3 uBody, uLit, uShadow, uRimC;
       varying vec3 vWorldPos;
       varying float vTop;
@@ -122,21 +124,24 @@ export function buildCloudBands(stage: StageId, params: CloudBandParams, seed: n
       varying float vFade;
       varying float vHScale;
 
-      // row of domes: returns height (0..1) and the dome's local slope in .y
+      // row of domes, smooth-max blended (no creases): returns height and d(height)/dx
       vec2 domes(float x, float w, float s) {
         float i = floor(x / w);
-        vec2 best = vec2(0.0);
+        float sw = 0.0, sv = 0.0, ss = 0.0;
         for (int k = -1; k <= 1; k++) {
           float c = i + float(k);
           float h1 = skyHash(c + s), h2 = skyHash(c * 1.73 + s + 3.1), h3 = skyHash(c * 2.31 + s + 7.7);
           float cx = (c + 0.2 + 0.6 * h1) * w;
           float r = w * (0.55 + 0.55 * h2);
           float hh = 0.4 + 0.6 * h3;
-          float q = (x - cx) / r;
-          float v = hh * sqrt(max(0.0, 1.0 - q * q));
-          if (v > best.x) best = vec2(v, -q * hh / max(sqrt(max(1e-3, 1.0 - q * q)), 0.15) / r);
+          float q = clamp((x - cx) / r, -1.0, 1.0);
+          float root = sqrt(max(0.0, 1.0 - q * q));
+          float v = hh * root;
+          float dv = -q * hh / max(root, 0.2) / r;
+          float wt = exp(v * 14.0);
+          sw += wt; sv += v * wt; ss += dv * wt;
         }
-        return best;
+        return vec2(sv / sw, ss / sw);
       }
 
       void main() {
@@ -151,6 +156,7 @@ export function buildCloudBands(stage: StageId, params: CloudBandParams, seed: n
         float aa = max(fwidth(below), 0.02) + uSoft * length(vWorldPos - cameraPosition) * 0.002;
         float a = smoothstep(-aa, aa, below);
         a *= smoothstep(0.0, uHeight * 0.55 * vHScale, vWorldPos.y - (vTop - uHeight * vHScale));
+        a *= smoothstep(uFloorY - 1.0, uFloorY + uFloorFade, vWorldPos.y);
         a *= vFade;
         if (a < 0.004) discard;
 
@@ -164,7 +170,7 @@ export function buildCloudBands(stage: StageId, params: CloudBandParams, seed: n
         float lit = mix(smoothstep(0.1, 0.95, xl), clamp((r - 0.18) / 0.9, 0.0, 1.0), 0.5);
         float strata = skyFbm(vec2(x * 0.004, vWorldPos.y * 0.05 + vSeed));
         float depthT = smoothstep(0.0, uHeight * 0.8 * vHScale, below);
-        vec3 c = mix(uBody, uShadow, depthT * 0.6 + (strata - 0.5) * 0.3);
+        vec3 c = mix(uBody, uShadow, clamp(depthT * 0.8 + (strata - 0.5) * 0.3, 0.0, 1.0));
         c = mix(c, uLit, smoothstep(0.45, 0.9, lit) * (1.0 - depthT * 0.7));
         c = mix(c, uShadow, (1.0 - lit) * 0.35);
 

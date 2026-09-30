@@ -32,11 +32,11 @@ export interface StreakParams {
 const base: StreakParams = {
   count: vfx.speedStreaks.count,
   density: 0.55,
-  widthPx: 1.6,
+  widthPx: 1.3,
   lenMin: 0.04,
   lenMax: 0.32,
-  opacity: 0.42,
-  inner: 0.34,
+  opacity: 0.34,
+  inner: 0.42,
   edgeBoost: vfx.speedStreaks.edgeBoost,
   rate: 1.1,
 };
@@ -45,9 +45,9 @@ export const STREAK_VARIANTS: Record<'A' | 'B' | 'C', StreakParams> = {
   /** A: token numbers, restrained */
   A: { ...base },
   /** B: sparser, thinner, longer (cleaner anime read) */
-  B: { ...base, density: 0.4, widthPx: 1.2, lenMax: 0.42, opacity: 0.36, inner: 0.4 },
+  B: { ...base, density: 0.4, widthPx: 1.1, lenMax: 0.42, opacity: 0.3, inner: 0.48 },
   /** C: denser analogue rush, shorter dashes */
-  C: { ...base, density: 0.75, widthPx: 1.9, lenMin: 0.03, lenMax: 0.26, opacity: 0.5, inner: 0.3, rate: 1.4 },
+  C: { ...base, density: 0.75, widthPx: 1.6, lenMin: 0.03, lenMax: 0.26, opacity: 0.42, inner: 0.38, rate: 1.4 },
 };
 
 /**
@@ -97,7 +97,7 @@ float speedStreaks(vec2 fragPx, vec2 vanishPx, vec2 res, float time, float speed
   float tail = clamp((rn - (head - len)) / max(len, 1e-3), 0.0, 1.0);
   float dash = tail * tail * (1.0 - smoothstep(head - 0.004, head + 0.004, rn));
   float edge = smoothstep(uStrInner, 1.0, rn);
-  edge = edge * (1.0 + (uStrEdge - 1.0) * edge) / uStrEdge;
+  edge = edge * edge * (1.0 + (uStrEdge - 1.0) * edge) / uStrEdge;
   return clamp(line * dash * edge * uStrOpacity * speed01 * (0.45 + 0.55 * h3), 0.0, 1.0);
 }
 `;

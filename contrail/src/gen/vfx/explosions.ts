@@ -44,7 +44,7 @@ export interface ExplosionParams {
 
 const base: ExplosionParams = {
   name: 'A-anime',
-  coreStart: 0.7,
+  coreStart: 0.42,
   heat: [5.0, 2.6, 1.7, 0.9],
   ramp: [
     [palette.burstWhite, palette.burstYellow],
@@ -53,8 +53,8 @@ const base: ExplosionParams = {
     [palette.fireOrange, mix(palette.fireOrange, palette.smokeDark, 0.55)],
   ],
   lobes: [vfx.explosion.lobes[0] + 1, vfx.explosion.lobes[1]],
-  lobeDist: [0.7, 1.35],
-  lobeSize: [1.2, 1.9],
+  lobeDist: [1.0, 1.7],
+  lobeSize: [1.1, 1.7],
   blooms: 22,
   bloomSize: [0.3, 0.75],
   flakes: 8,
@@ -85,7 +85,7 @@ export const EXPLOSION_VARIANTS: Record<'A' | 'B' | 'C', ExplosionParams> = {
   B: {
     ...base,
     name: 'B-hot-white',
-    coreStart: 0.8,
+    coreStart: 0.5,
     heat: [7.0, 3.4, 2.0, 0.9],
     ramp: [
       [palette.burstWhite, palette.burstWhite],
@@ -259,7 +259,7 @@ export class Explosions {
           fireRamp(R, age / (vfx.explosion.growS * 1.5), T);
           ir = T[0]; ig = T[1]; ib = T[2]; or = T[3]; og = T[4]; ob = T[5];
           alpha = age < vfx.explosion.growS ? 1 : 1 - ease.smooth(vfx.explosion.growS, life, age);
-          occ = p.fireOcc * 0.75;
+          occ = p.fireOcc * 0.6;
           break;
         }
         case T_LOBE: {
@@ -269,7 +269,7 @@ export class Explosions {
           x = cx + dx * r; y = cy + dy * r + S * 0.15 * t * t; z = cz + dz * r;
           w = S * A1 * (0.5 + 0.5 * ease.outCubic(Math.min(1, age / 0.36))) * (1 + 0.35 * t);
           fireRamp(R, age / A2, T);
-          lit = ease.smooth(0.42, 0.8, t);
+          lit = ease.smooth(0.5, 0.85, t);
           ir = T[0] + (this.smokeLit[0] - T[0]) * lit; ig = T[1] + (this.smokeLit[1] - T[1]) * lit; ib = T[2] + (this.smokeLit[2] - T[2]) * lit;
           or = T[3] + (this.smokeShd[0] - T[3]) * lit; og = T[4] + (this.smokeShd[1] - T[4]) * lit; ob = T[5] + (this.smokeShd[2] - T[5]) * lit;
           alpha = t < 0.6 ? 1 : 1 - ease.smooth(0.6, 1, t);
@@ -316,7 +316,7 @@ export class Explosions {
           ib = this.smokeLit[2] + (R[20] - this.smokeLit[2]) * glow * 0.6;
           or = this.smokeShd[0]; og = this.smokeShd[1]; ob = this.smokeShd[2];
           lit = 1 - glow * 0.5;
-          const fi = ease.smooth(0, 0.15, age);
+          const fi = ease.smooth(0, 0.22, age);
           alpha = p.smokeOpacity * fi * (t < 0.45 ? 1 : 1 - ease.smooth(0.45, 1, t));
           occ = 1;
           shape = this.cell[i];
@@ -357,12 +357,12 @@ export class Explosions {
     this.add(T_CORE, r, x, y, z, S, 0, vfx.explosion.growS * 1.55, 0, 0, 0, 0);
     const nl = r.int(p.lobes[0], p.lobes[1]) + (kind === 'boss' ? 2 : 0);
     for (let k = 0; k < nl; k++)
-      this.add(T_LOBE, r, x, y, z, S, r.range(0, 0.06), r.range(0.6, 0.85) * K.life,
-        r.range(p.lobeDist[0], p.lobeDist[1]), r.range(p.lobeSize[0], p.lobeSize[1]), r.range(0.38, 0.5), 0);
+      this.add(T_LOBE, r, x, y, z, S, r.range(0, 0.06), r.range(0.75, 1.0) * K.life,
+        r.range(p.lobeDist[0], p.lobeDist[1]), r.range(p.lobeSize[0], p.lobeSize[1]), r.range(0.5, 0.66), 0);
     const nb = cnt(p.blooms);
     for (let k = 0; k < nb; k++) {
       const u = r.next();
-      const dist = 0.5 + 1.8 * u;
+      const dist = 1.1 + 2.1 * u;
       this.add(T_BLOOM, r, x, y, z, S, 0.02 + 0.26 * u * r.range(0.6, 1), r.range(0.12, 0.22),
         dist, r.range(p.bloomSize[0], p.bloomSize[1]), r.range(0.5, 2.0), 0);
     }
@@ -372,12 +372,12 @@ export class Explosions {
         r.range(2.5, 6.0), r.range(0.22, 0.42), r.range(2.0, 3.5), r.next());
     const ns = cnt(p.smoke) + (kind === 'boss' ? 4 : 0);
     for (let k = 0; k < ns; k++)
-      this.add(T_SMOKE, r, x, y, z, S, r.range(0.12, 0.3), r.range(p.smokeLife[0], p.smokeLife[1]) * K.life,
+      this.add(T_SMOKE, r, x, y, z, S, r.range(0.24, 0.38), r.range(p.smokeLife[0], p.smokeLife[1]) * K.life,
         r.range(0.2, 1.1), r.range(1.4, 2.1), r.range(0.4, 1.0), 0);
     // sparks
     this.sparkPos.set(x, y, z);
     const nsp = depth > 0 ? Math.round(K.sparks * 0.5) : Math.round((K.sparks * p.sparks) / 30);
-    this.sparks.spawnBurst(this.sparkPos, nsp, 26 * Math.sqrt(S), palette.burstYellow, { seed: seed ^ 0x5a5a, width: Math.max(0.6, Math.sqrt(S) * 0.6) });
+    this.sparks.spawnBurst(this.sparkPos, nsp, 26 * Math.sqrt(S), palette.burstYellow, { seed: seed ^ 0x5a5a, width: Math.max(1.0, Math.sqrt(S) * 1.3) });
     // boss: staggered secondary detonations
     if (depth === 0 && K.subs > 0) {
       for (let s = 0; s < K.subs; s++) {

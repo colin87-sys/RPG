@@ -121,7 +121,7 @@ export function craftPlaceholder(): THREE.Group {
   const panel = toonMaterial({ albedo: palette.armourDark, rim: 1.2 });
   const insert = toonMaterial({ albedo: palette.accentOrange, emissive: palette.accentOrange, emissiveStrength: 1.4 });
   const glass = toonMaterial({ albedo: palette.canopyBlue, emissive: palette.canopyBlue, emissiveStrength: 0.25 });
-  const hot = toonMaterial({ albedo: palette.exhaustCore, emissive: palette.exhaustCore, emissiveStrength: 3.5, fog: false });
+  const hot = toonMaterial({ albedo: palette.accentOrange, emissive: palette.accentOrange, emissiveStrength: 2.2, fog: false });
   const fus = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.8, 11, 8), hull);
   fus.rotation.x = -Math.PI / 2;
   g.add(fus);
@@ -150,7 +150,8 @@ export function craftPlaceholder(): THREE.Group {
   can.scale.set(0.8, 0.6, 2.2);
   can.position.set(0, 0.55, -1.5);
   g.add(can);
-  const ex = new THREE.Mesh(new THREE.SphereGeometry(0.36, 12, 8), hot);
+  const ex = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.2, 0.3, 10), hot);
+  ex.rotation.x = Math.PI / 2;
   ex.position.set(0, 0, 5.6);
   g.add(ex);
   // sits ahead of the rig origin so the whole craft is in frame (see chaseRig note)

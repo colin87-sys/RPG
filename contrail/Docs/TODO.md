@@ -11,3 +11,5 @@
 | T007 | P0 | Director | CLAUDE.md, state files, KICKOFF.md, hooks (W7) | open |
 | T008 | P0 | Audio | SFX recipes, generative music, mixer, offline render (W8) | open |
 | T009 | P0 | Look-Dev | Lab boards A/B/C: hero, enemies, vistas, HUD, VFX, post (W3) | open |
+| T010 | P1 | World | vista-wreck A: big near asteroid overlaps the planet (upper right); keep the planet disc clear of near debris | open |
+| T011 | P0 | Director | Game camera far plane >= 1600 m for Wreckfield asteroids; verify sky renderOrder under the post stack's HDR target | open |

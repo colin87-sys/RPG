@@ -158,7 +158,9 @@ void main() {
   }
   vec3 c = shadeToon(alb, n);
   float ndv = clamp(dot(n, v), 0.0, 1.0);
-  float fr = pow(1.0 - ndv, uWarmRimPower);
+  // thin, crisp anime rim: only the last sliver before the silhouette edge
+  float edge = 1.0 - ndv;
+  float fr = smoothstep(0.62, 0.62 + 0.9 / uWarmRimPower, edge) * pow(edge, 1.5);
   float facing = clamp(dot(n, normalize(uRimDir)) * 0.5 + 0.5, 0.0, 1.0);
   c += uWarmRim * fr * mix(uRimWrap, 1.0, facing);
   c += rimTerm(n, v) * uStageRim;

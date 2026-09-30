@@ -58,11 +58,14 @@ setInterval(()=>{if(on)show(k+1)},${Math.round(1000 / fps)});show(0);</script>`;
   onCleanup(() => browser.close());
   const { page: p } = await newPage(browser, { w: 320, h: 200 });
   const tmp = `${out}.${process.pid}.tmp.webm`;
-  const proc = spawn(ff, ['-hide_banner', '-loglevel', process.env.HARNESS_DEBUG ? 'info' : 'error', '-y', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'mjpeg', '-i', '-', '-c:v', 'libvpx', '-b:v', '2M', '-r', String(fps), '-pix_fmt', 'yuv420p', '-f', 'webm', tmp], { stdio: ['pipe', 'inherit', 'pipe'] });
+  const proc = spawn(ff, ['-hide_banner', '-loglevel', process.env.HARNESS_DEBUG ? 'info' : 'error', '-y', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'mjpeg', '-i', 'pipe:0', '-c:v', 'libvpx', '-b:v', '2M', '-r', String(fps), '-pix_fmt', 'yuv420p', '-f', 'webm', tmp], { stdio: ['pipe', 'inherit', 'pipe'] });
   onCleanup(() => proc.exitCode === null && proc.kill('SIGKILL'));
   let stderr = '';
   proc.stderr.on('data', (d) => (stderr += d));
   const done = new Promise((res) => proc.on('close', res));
+  let dead = false;
+  done.then(() => (dead = true));
+  proc.stdin.on('error', () => (dead = true));
   for (const f of frames) {
     const b64 = await p.evaluate(
       async ({ url, cap, W, H, bg, text }) => {
@@ -87,7 +90,8 @@ setInterval(()=>{if(on)show(k+1)},${Math.round(1000 / fps)});show(0);</script>`;
       { url: `data:image/png;base64,${(await fsp.readFile(f)).toString('base64')}`, cap: rel(f), W, H, bg: th.bg, text: th.value },
     );
     if (process.env.HARNESS_DEBUG) process.stderr.write(`frame ${rel(f)}\n`);
-    if (!proc.stdin.write(Buffer.from(b64, 'base64'))) await new Promise((r) => proc.stdin.once('drain', r));
+    if (dead) break;
+    if (!proc.stdin.write(Buffer.from(b64, 'base64'))) await Promise.race([new Promise((r) => proc.stdin.once('drain', r)), done]);
   }
   proc.stdin.end();
   if (process.env.HARNESS_DEBUG) process.stderr.write('stdin closed\n');

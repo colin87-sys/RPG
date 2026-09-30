@@ -46,7 +46,7 @@ export interface HullParams {
 
 export const HULL_DEFAULTS: HullParams = {
   side: 1,
-  clearance: 30,
+  clearance: 42,
   halfWidth: 58,
   halfHeight: 78,
   centerY: -18,
@@ -61,15 +61,15 @@ export const HULL_DEFAULTS: HullParams = {
   lipOut: 9,
   lightDensity: 1,
   greebleDensity: 1,
-  tone: 0.5,
+  tone: 0.2,
   capLength: 60,
 };
 
 /** A = balanced; B = tight ribs, dense lights, strong bow; C = wide ribs, sparse lights, boxy + frequent arches. */
 export const HULL_VARIANTS: Record<'A' | 'B' | 'C', HullParams> = {
   A: { ...HULL_DEFAULTS },
-  B: { ...HULL_DEFAULTS, ribSpacing: 12, modules: 14, lightDensity: 1.9, bow: 40, roundness: 2.2, archEvery: 5, tone: 0.42 },
-  C: { ...HULL_DEFAULTS, ribSpacing: 26, modules: 7, lightDensity: 0.5, bow: 5, roundness: 3.6, archEvery: 2, tone: 0.58 },
+  B: { ...HULL_DEFAULTS, ribSpacing: 12, modules: 14, lightDensity: 1.9, bow: 40, roundness: 2.2, archEvery: 5, tone: 0.14 },
+  C: { ...HULL_DEFAULTS, ribSpacing: 26, modules: 7, lightDensity: 0.5, bow: 5, roundness: 3.6, archEvery: 2, tone: 0.28 },
 };
 
 export interface HullMass {
@@ -148,15 +148,15 @@ void main() {
   vec2 cell = floor(q);
   vec2 f = fract(q);
   float h = wfHash2(cell);
-  float t = clamp(vTone + (h - 0.5) * 0.28, 0.0, 1.0);
+  float t = clamp(vTone + (h - 0.5) * 0.16, 0.0, 1.0);
   vec3 albedo = mix(uDark, uSteel, t);
-  albedo = mix(albedo, uLight, step(0.965, h) * 0.22);
+  albedo = mix(albedo, uLight, step(0.985, h) * 0.18);
   // small detail: a darker inset strip on some panels
-  albedo *= 1.0 - 0.18 * step(0.82, fract(h * 13.7)) * step(0.3, f.y) * step(f.y, 0.45);
+  albedo *= 1.0 - 0.12 * step(0.88, fract(h * 13.7)) * step(0.3, f.y) * step(f.y, 0.4);
   vec2 fw = fwidth(q);
   vec2 sw = vec2(uSeamW) / uPanel;
   vec2 e = smoothstep(sw, sw + fw * 1.5, f) * smoothstep(sw, sw + fw * 1.5, 1.0 - f);
-  float vis = 1.0 - smoothstep(0.18, 0.45, max(fw.x, fw.y));
+  float vis = 1.0 - smoothstep(0.05, 0.16, max(fw.x, fw.y));
   albedo *= 1.0 - (1.0 - e.x * e.y) * uSeamDark * vis;
   // mass: darker toward the depths
   albedo *= mix(0.5, 1.0, smoothstep(-70.0, 25.0, vLocalY));
@@ -189,9 +189,9 @@ void main() {
   vec4 mv = viewMatrix * wp;
   gl_Position = projectionMatrix * mv;
   float px = aSize * projectionMatrix[1][1] * 0.5 * uViewH / max(-mv.z, 0.1);
-  float sigma = max(px * 0.5, 0.7);
+  float sigma = clamp(px * 0.5, 0.7, 1.8);
   float energy = px * px;
-  float peak = min(energy / (4.0 * sigma * sigma), 1.6);
+  float peak = min(energy / (4.0 * sigma * sigma), 1.1);
   float blink = aBlink > 0.5 ? smoothstep(0.55, 0.6, fract(uHullTime * 0.7 + aPhase)) * (1.0 - smoothstep(0.85, 0.9, fract(uHullTime * 0.7 + aPhase))) * 2.2 : 1.0;
   float d = length(wp.xyz - cameraPosition);
   float fd = uFogDensity * d;
@@ -546,7 +546,7 @@ export function buildHullMass(params: Partial<HullParams> = {}, seed = 1, opts: 
       uSteel: { value: tvec(palette.armourSteel) },
       uLight: { value: tvec(mix(palette.armourSteel, palette.armourLight, 0.5)) },
       uSil: { value: tvec(palette.emblemBlack) },
-      uPanel: { value: new THREE.Vector2(5.5, 3.6) },
+      uPanel: { value: new THREE.Vector2(9.0, 4.6) },
       uSeamW: { value: 0.14 },
       uSeamDark: { value: shading.seamDarkness },
       uRimMul: { value: 0.8 },

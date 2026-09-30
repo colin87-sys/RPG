@@ -41,6 +41,7 @@ export function buildSkyDome(stage: StageId, params: SkyDomeParams): SkyDome {
       uGlowSize: { value: params.glowSize },
       uGlowStretch: { value: params.glowStretch },
       uGlow: { value: look.sunGlow * params.glowStrength },
+      uBandSpan: { value: params.bandSpan },
       uCirrus: { value: params.cirrus },
       uCirrusColor: { value: colorVec(params.cirrusColor) },
       uBanding: { value: params.banding },
@@ -62,7 +63,7 @@ export function buildSkyDome(stage: StageId, params: SkyDomeParams): SkyDome {
       ${GLSL_SKY_NOISE}
       uniform vec3 uZenith, uMid, uHorizon, uBandColor, uSunColor, uGlowInner, uGlowOuter, uCirrusColor;
       uniform float uMidHeight, uHorizonBand, uSunSize, uSunIntensity, uGlowSize, uGlowStretch, uGlow;
-      uniform float uCirrus, uBanding, uBandSteps, uWobble, uSkyTime;
+      uniform float uBandSpan, uCirrus, uBanding, uBandSteps, uWobble, uSkyTime;
       varying vec3 vDir;
 
       // soft staircase: painterly bands without hard steps
@@ -82,7 +83,7 @@ export function buildSkyDome(stage: StageId, params: SkyDomeParams): SkyDome {
 
         float eu = max(e, 0.0);
         float t1 = paint(smoothstep(0.0, uHorizonBand, eu));
-        float t2 = paint(smoothstep(uHorizonBand * 0.6, max(uMidHeight, uHorizonBand + 0.05), eu));
+        float t2 = paint(smoothstep(uHorizonBand * 0.6, uHorizonBand + uBandSpan, eu));
         float t3 = paint(pow(smoothstep(uMidHeight, 1.0, eu), 0.8));
         vec3 c = mix(uHorizon, uBandColor, t1);
         c = mix(c, uMid, t2);
@@ -97,11 +98,12 @@ export function buildSkyDome(stage: StageId, params: SkyDomeParams): SkyDome {
         float cosA = clamp(dot(d, L), -1.0, 1.0);
         float ang = acos(cosA);
         float outer = exp(-pow(q / uGlowSize, 2.0));
-        float inner = exp(-ang / (uSunSize * 2.2));
+        float inner = exp(-pow(ang / (uSunSize * 2.6), 1.6));
         c = mix(c, uGlowOuter, clamp(outer * uGlow * 0.6, 0.0, 1.0) * smoothstep(-0.05, 0.02, e));
         c += uGlowInner * inner * uGlow * 0.9;
         float disc = 1.0 - smoothstep(uSunSize * 0.92, uSunSize * 1.04, ang);
-        c = mix(c, uSunColor * uSunIntensity, disc);
+        vec3 limb = mix(uSunColor * uSunIntensity, uGlowInner * uSunIntensity, smoothstep(0.4, 1.0, ang / uSunSize) * 0.35);
+        c = mix(c, limb, disc);
 
         // faint high cirrus streaks (projected onto a high plane, stretched)
         vec2 cp = d.xz / (d.y + 0.12);

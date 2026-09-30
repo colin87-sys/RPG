@@ -18,8 +18,8 @@
  *      then update(0) (or update(dt)) uploads. Mixing both on the same slots is not supported.
  */
 import * as THREE from 'three';
-import { vfx } from '../../style/tokens';
-import { tvec } from '../../style/color';
+import { palette, vfx } from '../../style/tokens';
+import { mix, tvec } from '../../style/color';
 
 // ------------------------------------------------------------------ shared pool
 class Pool {
@@ -135,11 +135,11 @@ const hb = vfx.hostileBullet;
 
 export const HOSTILE_VARIANTS: Record<'A' | 'B' | 'C', HostileBulletParams> = {
   /** A: token spec, balanced core/halo */
-  A: { radius: 0.9, minFrameHeightFrac: hb.minFrameHeightFrac, coreFrac: 0.54, outlineFrac: 0.1, minOutlinePx: 1.6, outlineAlpha: 0.85, coreIntensity: 3.0, haloIntensity: 1.35, glow: 0.3, glowExtent: 1.6, pulse: 0.1, pulseHz: 7 },
+  A: { radius: 0.9, minFrameHeightFrac: hb.minFrameHeightFrac, coreFrac: 0.5, outlineFrac: 0.12, minOutlinePx: 2.0, outlineAlpha: 0.9, coreIntensity: 2.6, haloIntensity: 1.1, glow: 0.3, glowExtent: 1.6, pulse: 0.1, pulseHz: 7 },
   /** B: bigger floor, heavier outline (max bright-sky separation) */
-  B: { radius: 0.95, minFrameHeightFrac: 0.02, coreFrac: 0.5, outlineFrac: 0.13, minOutlinePx: 2, outlineAlpha: 0.95, coreIntensity: 2.8, haloIntensity: 1.3, glow: 0.25, glowExtent: 1.5, pulse: 0.08, pulseHz: 6 },
+  B: { radius: 0.95, minFrameHeightFrac: 0.02, coreFrac: 0.46, outlineFrac: 0.15, minOutlinePx: 2.4, outlineAlpha: 0.95, coreIntensity: 2.6, haloIntensity: 1.0, glow: 0.25, glowExtent: 1.5, pulse: 0.08, pulseHz: 6 },
   /** C: hotter core, thinner outline, stronger glow (dark-stage bias) */
-  C: { radius: 0.85, minFrameHeightFrac: hb.minFrameHeightFrac, coreFrac: 0.58, outlineFrac: 0.08, minOutlinePx: 1.4, outlineAlpha: 0.8, coreIntensity: 3.6, haloIntensity: 1.5, glow: 0.45, glowExtent: 1.8, pulse: 0.12, pulseHz: 8 },
+  C: { radius: 0.85, minFrameHeightFrac: hb.minFrameHeightFrac, coreFrac: 0.55, outlineFrac: 0.1, minOutlinePx: 1.6, outlineAlpha: 0.85, coreIntensity: 3.4, haloIntensity: 1.3, glow: 0.45, glowExtent: 1.8, pulse: 0.12, pulseHz: 8 },
 };
 
 const HB_VERT = /* glsl */ `
@@ -167,6 +167,7 @@ void main() {
 const HB_FRAG = /* glsl */ `
 uniform vec3 uCore;
 uniform vec3 uHalo;
+uniform vec3 uHaloDeep;
 uniform vec3 uOutline;
 uniform float uCoreFrac;
 uniform float uOutlineFrac;
@@ -191,7 +192,7 @@ void main() {
   float core = 1.0 - smoothstep(coreR - aa, coreR + aa, rho);
   float sh = 1.0 + uPulse * sin(uTime * 6.2831853 * uPulseHz + vAS.y * 6.2831853);
   float t = clamp((rho - coreR) / max(haloEdge - coreR, 1e-3), 0.0, 1.0);
-  vec3 halo = mix(mix(uCore, uHalo, 0.55), uHalo, smoothstep(0.0, 0.5, t)) * sh;
+  vec3 halo = mix(mix(mix(uCore, uHalo, 0.75), uHalo, smoothstep(0.0, 0.3, t)), uHaloDeep, smoothstep(0.45, 1.0, t)) * sh;
   vec3 emit = mix(halo, uCore, core) * inner;
   float ring = (body - inner) * uOutlineAlpha;
   float g = uGlow * exp(-max(rho - 1.0, 0.0) * 3.2) * (1.0 - body) * (1.0 - smoothstep(uGlowExt - 0.2, uGlowExt, rho));
@@ -238,6 +239,7 @@ export class HostileBullets {
         uQuad: { value: 2 },
         uCore: { value: tvec(hb.core) },
         uHalo: { value: tvec(hb.halo) },
+        uHaloDeep: { value: tvec(hb.halo) },
         uOutline: { value: tvec(hb.outline) },
         uCoreFrac: { value: 0.4 },
         uOutlineFrac: { value: 0.16 },
@@ -265,6 +267,8 @@ export class HostileBullets {
     u.uQuad.value = Math.max(1.05, p.glowExtent);
     (u.uCore.value as THREE.Vector3).copy(tvec(hb.core, p.coreIntensity));
     (u.uHalo.value as THREE.Vector3).copy(tvec(hb.halo, p.haloIntensity));
+    // deeper orange toward the rim (derived: halo -> fireOrange) so the halo never reads as cream
+    (u.uHaloDeep.value as THREE.Vector3).copy(tvec(mix(hb.halo, palette.fireOrange, 0.55), p.haloIntensity));
     u.uCoreFrac.value = p.coreFrac;
     u.uOutlineFrac.value = p.outlineFrac;
     u.uMinOutlinePx.value = p.minOutlinePx;
@@ -383,11 +387,11 @@ const ps = vfx.playerShot;
 
 export const PLAYER_SHOT_VARIANTS: Record<'A' | 'B' | 'C', PlayerShotParams> = {
   /** A: thin cyan-white needles */
-  A: { length: 3.5, width: 0.14, minWidthPx: 2.6, maxWidthPx: 6, minLengthPx: 9, coreIntensity: 1.5, haloIntensity: 0.7, coreFrac: 0.35, tailFade: 0.85, occlusion: 0.2 },
+  A: { length: 3.5, width: 0.16, minWidthPx: 3, maxWidthPx: 6, minLengthPx: 10, coreIntensity: 1.2, haloIntensity: 0.95, coreFrac: 0.3, tailFade: 0.85, occlusion: 0.35 },
   /** B: longer, dimmer tracers */
-  B: { length: 5, width: 0.12, minWidthPx: 2.2, maxWidthPx: 5, minLengthPx: 12, coreIntensity: 1.25, haloIntensity: 0.55, coreFrac: 0.3, tailFade: 0.9, occlusion: 0.15 },
+  B: { length: 5, width: 0.13, minWidthPx: 2.6, maxWidthPx: 5, minLengthPx: 12, coreIntensity: 1.1, haloIntensity: 0.85, coreFrac: 0.28, tailFade: 0.9, occlusion: 0.3 },
   /** C: short bright bolts */
-  C: { length: 2.4, width: 0.16, minWidthPx: 3, maxWidthPx: 7, minLengthPx: 8, coreIntensity: 1.8, haloIntensity: 0.8, coreFrac: 0.4, tailFade: 0.7, occlusion: 0.25 },
+  C: { length: 2.4, width: 0.18, minWidthPx: 3.2, maxWidthPx: 7, minLengthPx: 8, coreIntensity: 1.4, haloIntensity: 1.0, coreFrac: 0.34, tailFade: 0.7, occlusion: 0.4 },
 };
 
 const PS_VERT = /* glsl */ `

@@ -31,6 +31,8 @@ export interface SkyDomeParams {
   horizonBand: number;
   /** colour just above the horizon band (blends into sky mid) */
   bandColor: ColorRef;
+  /** elevation (sin) over which the band colour blends into sky mid */
+  bandSpan: number;
   /** multiplier on stage sky.sunSize (angular radius) */
   sunScale: number;
   sunIntensity: number;
@@ -132,6 +134,9 @@ export interface CloudBandParams {
   drift: number;
   /** extra silhouette softness with distance */
   soft: number;
+  /** bands fade out toward this height (set to the cloud-sea y so they sink into it) */
+  floorY: number;
+  floorFade: number;
 }
 
 export interface SkyVistaParams {
@@ -160,6 +165,7 @@ export type VariantId = 'A' | 'B' | 'C';
 const cgSky: SkyDomeParams = {
   horizonBand: 0.07,
   bandColor: ['skyHorizon', 'skyDay', 0.3],
+  bandSpan: 0.3,
   sunScale: 1,
   sunIntensity: 1.5,
   glowInner: 'sunCore',
@@ -209,16 +215,16 @@ const cgClouds: CloudFieldParams = {
 const cgSea: CloudSeaParams = {
   y: -48,
   size: 16000,
-  scale: 420,
+  scale: 300,
   stretchX: 1.0,
-  bump: 5.0,
+  bump: 8,
   lit: 'cloudCream',
   mid: ['cloudSea', 'cloudMid', 0.3],
   shadow: ['cloudShadow', 'cloudMid', 0.35],
   rim: 'sunCore',
   backlit: 0.1,
   drift: 1.5,
-  contrast: 1.3,
+  contrast: 1.6,
 };
 
 const cgBands: CloudBandParams = {
@@ -242,7 +248,9 @@ const cgBands: CloudBandParams = {
   rimFocus: 3,
   opacity: 0.95,
   drift: 0,
-  soft: 1.5,
+  soft: 4,
+  floorY: -48,
+  floorFade: 30,
 };
 
 export const CLOUDGATE_VARIANTS: Record<VariantId, SkyVistaParams> = {
@@ -277,7 +285,7 @@ export const CLOUDGATE_VARIANTS: Record<VariantId, SkyVistaParams> = {
       towerWidth: [100, 180],
       lateral: [2, 600],
     },
-    sea: { ...cgSea, bump: 2.6 },
+    sea: { ...cgSea, bump: 10 },
     bands: { ...cgBands, topY: [10, 80], domeAmp: 150 },
   },
 };
@@ -286,6 +294,7 @@ export const CLOUDGATE_VARIANTS: Record<VariantId, SkyVistaParams> = {
 const vtSky: SkyDomeParams = {
   horizonBand: 0.03,
   bandColor: ['sunsetMagenta', 'sunsetHorizon', 0.25],
+  bandSpan: 0.12,
   sunScale: 1.25,
   sunIntensity: 2.2,
   glowInner: ['sunCore', 'sunsetHorizon', 0.35],
@@ -302,7 +311,7 @@ const vtSky: SkyDomeParams = {
 
 const vtClouds: CloudFieldParams = {
   ...cgClouds,
-  seaY: -58,
+  seaY: -50,
   towersPerKm: 0,
   banksPerKm: 3,
   humpsPerKm: 14,
@@ -325,18 +334,18 @@ const vtClouds: CloudFieldParams = {
 };
 
 const vtSea: CloudSeaParams = {
-  y: -58,
+  y: -50,
   size: 16000,
-  scale: 380,
+  scale: 300,
   stretchX: 2.6,
-  bump: 2.0,
-  lit: ['sunsetMagenta', 'sunsetIndigo', 0.35],
-  mid: 'sunsetIndigo',
+  bump: 12,
+  lit: ['sunsetMagenta', 'sunsetIndigo', 0.5],
+  mid: ['sunsetIndigo', 'sunsetCloudDark', 0.3],
   shadow: 'sunsetCloudDark',
   rim: ['sunsetHorizon', 'sunsetMagenta', 0.3],
   backlit: 0.8,
   drift: 1,
-  contrast: 1,
+  contrast: 2.0,
 };
 
 const vtBands: CloudBandParams = {
@@ -345,13 +354,13 @@ const vtBands: CloudBandParams = {
   spacing: 180,
   start: 60,
   back: 40,
-  topY: [-56, -44],
+  topY: [-48, -38],
   height: 45,
   domeWidth: 60,
   domeAmp: 10,
   detailWidth: 20,
   detailAmp: 4,
-  body: 'sunsetIndigo',
+  body: ['sunsetIndigo', 'sunsetCloudDark', 0.4],
   lit: 'sunsetMagenta',
   shadow: 'sunsetCloudDark',
   rim: ['sunsetHorizon', 'sunsetMagenta', 0.25],
@@ -361,6 +370,8 @@ const vtBands: CloudBandParams = {
   opacity: 1,
   drift: 1.5,
   soft: 0.6,
+  floorY: -50,
+  floorFade: 7,
 };
 
 export const VIOLET_VARIANTS: Record<VariantId, SkyVistaParams> = {

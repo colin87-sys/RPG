@@ -11,14 +11,15 @@
  * - Everything scales with h / 1080; widths follow w. Colours: hud.colors /
  *   palette tokens only; layout: hud tokens.
  * - No per-frame allocations beyond short strings for changed numbers.
- * - Portrait: pass a PortraitDrawer (e.g. drawPilotPortrait from
- *   src/gen/entities/pilot.ts once it exists). It is called with g translated to
- *   the frame's inner top-left and clipped to it; (w, h) = inner size in px.
- *   Without one, a built-in visored-helmet silhouette placeholder is drawn.
+ * - Portrait: defaults to drawPilotPortrait (src/gen/entities/pilot.ts). Any
+ *   PortraitDrawer is called with g translated to the frame's top-left and
+ *   clipped to it; (w, h) = frame size in px. Pass 'placeholder' to use the
+ *   built-in visored-helmet silhouette (drawHelmetPlaceholder).
  */
 import { hud, palette } from '../../style/tokens';
 import { mix, withAlpha } from '../../style/color';
 import { drawText, measureText, GLYPH_STYLES, type GlyphStyle, type TextOpts } from './font';
+import { drawPilotPortrait } from '../entities/pilot';
 
 /* ------------------------------- state ---------------------------------- */
 
@@ -264,9 +265,9 @@ export class Hud {
   };
   private minText = Infinity;
 
-  constructor(variant: HudVariant | HudVariantId = 'A', portrait: PortraitDrawer | null = null) {
+  constructor(variant: HudVariant | HudVariantId = 'A', portrait: PortraitDrawer | 'placeholder' = drawPilotPortrait) {
     this.variant = typeof variant === 'string' ? HUD_VARIANTS[variant] : variant;
-    this.portrait = portrait;
+    this.portrait = portrait === 'placeholder' ? drawHelmetPlaceholder : portrait;
     const c = hud.colors;
     this.cBacking = withAlpha(c.backing, this.variant.backingAlpha);
     this.cBackingStrong = withAlpha(c.backing, Math.min(0.9, this.variant.backingAlpha + 0.5));

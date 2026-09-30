@@ -278,7 +278,7 @@ export function bulwarkGeometry(p: BulwarkParams, seed: number) {
         const cn = new THREE.Vector3(0, by - y, bz - a).normalize();
         const n = new THREE.Vector3(1, 0, 0).cross(cn).normalize(); // points down/forward
         if (n.y > 0) n.negate();
-        addVent([(x) * side, yy + n.y * 0.25, z + n.z * 0.25], [0, n.y, n.z], [1, 0, 0], 2.4, 0.9, (c / p.ventsPerRow) * 2 + r * 0.13, 0.8 + 0.2 * (r % 2));
+        addVent([(x) * side, yy + n.y * 0.25, z + n.z * 0.25], [0, n.y, n.z], [1, 0, 0], 3.3, 1.3, (c / p.ventsPerRow) * 2 + r * 0.13, 0.8 + 0.2 * (r % 2));
       }
     }
   }

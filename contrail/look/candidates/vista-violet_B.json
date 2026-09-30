@@ -1,0 +1,219 @@
+{
+  "board": "vista-violet",
+  "variant": "B",
+  "seed": 1,
+  "camera": {
+    "position": [
+      0,
+      5,
+      20
+    ],
+    "lookDir": [
+      0,
+      0,
+      -1
+    ],
+    "fov": 68
+  },
+  "insets": [
+    {
+      "label": "side glance 55 deg left, 8 deg down",
+      "time": 0,
+      "position": [
+        0,
+        5,
+        20
+      ],
+      "dir": [
+        -0.8131576062214552,
+        -0.13883178642805333,
+        -0.5652437018856457
+      ]
+    },
+    {
+      "label": "t = 20 s, camera 900 m down -Z",
+      "time": 20,
+      "position": [
+        0,
+        5,
+        -880
+      ],
+      "dir": [
+        0,
+        0,
+        -1
+      ]
+    },
+    {
+      "label": "t = 300 s, camera 13.5 km down -Z",
+      "time": 300,
+      "position": [
+        0,
+        5,
+        -13480
+      ],
+      "dir": [
+        0,
+        0,
+        -1
+      ]
+    }
+  ],
+  "stats": {
+    "triangles": 2868,
+    "drawCalls": 4,
+    "puffs": 309,
+    "bands": 20,
+    "textures": [
+      "puffAtlas 1024x1024 RGBA8",
+      "skyNoise 256x256 RGBA8",
+      "cloudData 1024x4 RGBA32F"
+    ],
+    "mainFrameRendererInfo": {
+      "calls": 5,
+      "triangles": 2876
+    }
+  },
+  "params": {
+    "stage": "violetTide",
+    "sky": {
+      "horizonBand": 0.018,
+      "bandColor": [
+        "sunsetMagenta",
+        "sunsetHorizon",
+        0.25
+      ],
+      "bandSpan": 0.12,
+      "sunScale": 1.6,
+      "sunIntensity": 2.2,
+      "glowInner": [
+        "sunCore",
+        "sunsetHorizon",
+        0.35
+      ],
+      "glowOuter": "sunsetMagenta",
+      "glowSize": 0.38,
+      "glowStretch": 0.4,
+      "glowStrength": 1,
+      "cirrus": 0.18,
+      "cirrusColor": [
+        "sunsetMagenta",
+        "sunsetIndigo",
+        0.3
+      ],
+      "banding": 0.6,
+      "bandSteps": 8,
+      "wobble": 0.02
+    },
+    "clouds": {
+      "depth": 3200,
+      "back": 160,
+      "fadeFar": 700,
+      "fadeNear": 70,
+      "corridorX": 50,
+      "corridorY": 25,
+      "seaY": -50,
+      "towersPerKm": 0,
+      "banksPerKm": 3,
+      "humpsPerKm": 14,
+      "wispsPerKm": 0,
+      "towerHeight": [
+        110,
+        260
+      ],
+      "towerWidth": [
+        110,
+        200
+      ],
+      "bankLength": [
+        200,
+        500
+      ],
+      "bankHeight": [
+        18,
+        40
+      ],
+      "lateral": [
+        30,
+        900
+      ],
+      "humpSpread": 1200,
+      "opacity": 1,
+      "lit": "sunsetMagenta",
+      "mid": "sunsetIndigo",
+      "shadow": "sunsetCloudDark",
+      "rim": [
+        "sunsetHorizon",
+        "sunCore",
+        0.3
+      ],
+      "backlit": 1.1,
+      "rimPower": 5,
+      "clusterNormal": 0.35,
+      "toon": 0.4,
+      "lift": 0,
+      "wind": 2,
+      "cycleShift": 120
+    },
+    "sea": {
+      "y": -50,
+      "size": 16000,
+      "scale": 300,
+      "stretchX": 2.6,
+      "bump": 12,
+      "lit": [
+        "sunsetMagenta",
+        "sunsetIndigo",
+        0.5
+      ],
+      "mid": [
+        "sunsetIndigo",
+        "sunsetCloudDark",
+        0.3
+      ],
+      "shadow": "sunsetCloudDark",
+      "rim": [
+        "sunsetHorizon",
+        "sunsetMagenta",
+        0.3
+      ],
+      "backlit": 0.8,
+      "drift": 1,
+      "contrast": 2
+    },
+    "bands": {
+      "count": 20,
+      "mode": "wrap",
+      "spacing": 120,
+      "start": 60,
+      "back": 40,
+      "topY": [
+        -48,
+        -38
+      ],
+      "height": 38,
+      "domeWidth": 60,
+      "domeAmp": 8,
+      "detailWidth": 20,
+      "detailAmp": 4,
+      "body": [
+        "sunsetIndigo",
+        "sunsetCloudDark",
+        0.4
+      ],
+      "lit": "sunsetMagenta",
+      "shadow": "sunsetCloudDark",
+      "rim": [
+        "sunsetHorizon",
+        "sunsetMagenta",
+        0.25
+      ],
+      "rimWidth": 5,
+      "rimStrength": 1.3,
+      "rimFocus": 2.2,
+      "opacity": 1,
+      "drift": 1.5,
+      "soft": 0.6
+    }
+  }
+}

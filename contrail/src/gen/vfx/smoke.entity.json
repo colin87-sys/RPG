@@ -1,0 +1,12 @@
+{
+  "name": "SmokeTrails (missile smoke ropes + thin exhaust contrail)",
+  "seed": 1,
+  "params": ["SMOKE_VARIANTS.A (preferred)", "SMOKE_VARIANTS.B", "SMOKE_VARIANTS.C", "SMOKE_EXHAUST"],
+  "triangles": "2 per live puff; 6000 at capacity 3000 (board peak 370 puffs = 740)",
+  "drawCalls": 1,
+  "instanceCapacity": 3000,
+  "boundsMetres": ["trail-dependent", "puff 0.8 -> 3.0 m wide", "5 s life"],
+  "tokensUsed": ["smokeLit", "smokeShadow", "vfx.smoke"],
+  "textures": "shared 512x512 RGBA puff atlas (particles.ts), baked once ~134 ms",
+  "notes": "Distance-based emission (spacing 0.62 m in A) with 30 puffs/s floor; ~110 puffs/s per missile at 66-110 m/s, so 3000 puffs covers ~8-10 concurrent 2 s missile trails (ring overwrites the oldest). Sorted back-to-front each frame (radix, no allocation). Group can live in world or rail frame; `wind` drifts puffs."
+}

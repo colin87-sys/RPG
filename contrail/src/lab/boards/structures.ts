@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import type { LabContext } from '../context';
 import { palette, stages } from '../../style/tokens';
 import { tvec } from '../../style/color';
-import { applyStageLook } from '../../gen/common/lighting';
+import { applyStageLook, lightUniforms } from '../../gen/common/lighting';
 import { buildHullMass, HULL_VARIANTS } from '../../gen/world/structures/hullMass';
 import { placeholderDelta } from './vista-wreck';
 
@@ -79,6 +79,11 @@ export default async function board(ctx: LabContext) {
   ctx.label('in context: chase cam (0,5,20) FOV 68, Cloudgate rig, gradient sky placeholder', main.x + 8, main.y + 8);
 
   // --- alone: 3/4, side, silhouette (right column), plan (below context) ---
+  // (fog off for the kilometre-scale inspection views; restored after)
+  const fogKeep = lightUniforms.uFogDensity.value;
+  const fogHKeep = lightUniforms.uFogHeightFalloff.value;
+  lightUniforms.uFogDensity.value = 0.00015;
+  lightUniforms.uFogHeightFalloff.value = 0;
   const alone = new THREE.Scene();
   const hull2 = buildHullMass(params, seed);
   hull2.update(4.3);
@@ -111,13 +116,15 @@ export default async function board(ctx: LabContext) {
   ctx.label('silhouette test (approach view, fill black)', cells[2].x + 6, cells[2].y + 6, palette.hudValue);
 
   const planRect = { x: 12, y: main.y + main.h + 12, w: 1248, h: H - (main.y + main.h + 12) - 12 };
-  const halfW = L * 0.56, halfH = (halfW * planRect.h) / planRect.w;
+  const halfH = 175, halfW = (halfH * planRect.w) / planRect.h;
   const plan = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 1, 6000);
-  plan.position.set(20, 1500, -L / 2);
+  plan.position.set(15, 1500, -L / 2);
   plan.up.set(1, 0, 0);
-  plan.lookAt(20, 0, -L / 2);
+  plan.lookAt(15, 0, -L / 2);
   ctx.renderCells([{ scene: alone, camera: plan, rect: planRect, clear: palette.cloudShadow }], null);
   ctx.label('plan view (corridor axis horizontal, bow curvature)', planRect.x + 6, planRect.y + 6);
+  lightUniforms.uFogDensity.value = fogKeep;
+  lightUniforms.uFogHeightFalloff.value = fogHKeep;
 
   const st = hull.stats;
   ctx.title('Cloudgate hull mass', `${st.triangles} tris, ${st.drawCalls} calls, ${st.lights} lights, ${L.toFixed(0)} m (${(L / 45).toFixed(1)} s at 45 m/s) | ctx frame measured ${measured.triangles} tris ${measured.calls} calls`);

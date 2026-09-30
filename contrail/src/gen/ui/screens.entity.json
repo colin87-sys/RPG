@@ -1,0 +1,3 @@
+{ "name": "screens", "seed": 0, "params": ["A", "B", "C"], "triangles": 0, "drawCalls": 0, "boundsMetres": [0, 0, 0],
+  "tokensUsed": ["hud.colors.*", "palette.spaceDeep", "palette.sunsetZenith", "palette.sunsetIndigo", "palette.sunsetHorizon", "palette.smokeLit", "palette.accentOrange", "palette.exhaustCore", "palette.armourLight", "palette.emblemBlack", "palette.pickupGold", "palette.pickupCyan", "palette.playerShotHalo", "palette.hazardBlack"],
+  "notes": "Canvas 2D title/results/pause/SIGNAL LOST/stage card; glitch noise from hashString (seeded), no Math.random. setScreenStyle() picks the HUD variant's glyph face." }

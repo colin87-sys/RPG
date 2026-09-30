@@ -4,7 +4,7 @@
   "seed": 3,
   "params": {
     "side": 1,
-    "clearance": 30,
+    "clearance": 42,
     "halfWidth": 58,
     "halfHeight": 78,
     "centerY": -18,
@@ -19,14 +19,14 @@
     "lipOut": 9,
     "lightDensity": 1,
     "greebleDensity": 1,
-    "tone": 0.5,
+    "tone": 0.2,
     "capLength": 60
   },
   "lengthMetres": 480,
   "stats": {
     "triangles": 12544,
     "drawCalls": 3,
-    "lights": 397,
+    "lights": 401,
     "moduleTriangles": 948,
     "uniqueTriangles": 3064
   },
