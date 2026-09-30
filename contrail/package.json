@@ -8,7 +8,18 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 4173 --strictPort",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "capture": "node tools/capture.mjs",
+    "lab:capture": "node tools/labcapture.mjs",
+    "contact": "node tools/contact.mjs",
+    "goldpath": "node tools/goldpath.mjs",
+    "perf": "node tools/perf.mjs",
+    "netcheck": "node tools/netcheck.mjs",
+    "refcheck": "node tools/refcheck.mjs",
+    "audiocheck": "node tools/audiocheck.mjs",
+    "readability": "node tools/readability.mjs",
+    "timelapse": "node tools/timelapse.mjs",
+    "acceptance": "node tools/acceptance.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"
