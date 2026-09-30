@@ -1,0 +1,10 @@
+{
+  "name": "SpeedStreaks (GLSL, inside PostStack composite)",
+  "seed": 0,
+  "params": ["STREAK_VARIANTS.A", "STREAK_VARIANTS.B", "STREAK_VARIANTS.C"],
+  "triangles": 0,
+  "drawCalls": 0,
+  "boundsMetres": [0, 0, 0],
+  "tokensUsed": ["vfx.speedStreaks.count", "vfx.speedStreaks.edgeBoost", "vfx.speedStreaks.color"],
+  "notes": "~200 radial screen-space lines from PostFrame.vanish; dash length/opacity scale with speed01; quadratic edge weighting keeps the centre (craft) clean."
+}

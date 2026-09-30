@@ -8,8 +8,11 @@
  * light (glows on dark space), a small alpha replaces some background so the
  * red/green/blue bands keep their hue over near-white cloud (m4 reference).
  *
- * Numbers: thickness 3% of radius, RGB offset 0.4-0.8% of radius, grows over
- * the spawn duration (0.7-1.3 s) with an ease-out, fades over the last 30%.
+ * Numbers (Docs/REF_VERIFICATION.md supersedes the seed's 3% / 0.4-0.8%): three
+ * separated bands, red inside, green, blue-violet outside, ~4% of radius each at
+ * ~4.6% spacing (~13% total); ellipse height/width ~0.57. Pops at startScale of
+ * its final radius, keeps growing with an ease-out over the duration, fades over
+ * the last 30% (vfx.shockRing.fadeTailFrac).
  */
 import * as THREE from 'three';
 import { palette, vfx } from '../../style/tokens';

@@ -1,0 +1,57 @@
+{
+  "hostile": {
+    "radius": 0.85,
+    "minFrameHeightFrac": 0.018,
+    "coreFrac": 0.55,
+    "outlineFrac": 0.1,
+    "minOutlinePx": 1.6,
+    "outlineAlpha": 0.85,
+    "coreIntensity": 3.4,
+    "haloIntensity": 1.3,
+    "glow": 0.45,
+    "glowExtent": 1.8,
+    "pulse": 0.12,
+    "pulseHz": 8
+  },
+  "playerShot": {
+    "length": 2.4,
+    "width": 0.18,
+    "minWidthPx": 3.2,
+    "maxWidthPx": 7,
+    "minLengthPx": 8,
+    "coreIntensity": 1.4,
+    "haloIntensity": 1,
+    "coreFrac": 0.34,
+    "tailFade": 0.7,
+    "occlusion": 0.4
+  },
+  "post": "POST_VARIANTS.C",
+  "counts": {
+    "hostile": 80,
+    "player": 60
+  },
+  "distanceM": [
+    20,
+    150
+  ],
+  "deltaE": {
+    "cloudgate": {
+      "medianDeltaE": 20.6,
+      "minDeltaE": 6.2,
+      "p10DeltaE": 14.4,
+      "measured": 79
+    },
+    "violetTide": {
+      "medianDeltaE": 50.3,
+      "minDeltaE": 10.5,
+      "p10DeltaE": 26.2,
+      "measured": 79
+    },
+    "wreckfield": {
+      "medianDeltaE": 64.1,
+      "minDeltaE": 7.6,
+      "p10DeltaE": 32,
+      "measured": 79
+    }
+  }
+}
