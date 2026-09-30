@@ -1,0 +1,28 @@
+{
+  "name": "sniper",
+  "seed": 7,
+  "params": [
+    "ENEMY_VARIANTS.A",
+    "ENEMY_VARIANTS.B",
+    "ENEMY_VARIANTS.C"
+  ],
+  "triangles": 799,
+  "drawCalls": "2 (body with 4 rigid bones + rear plume; +1 outline in B/C)",
+  "boundsMetres": [
+    2.91,
+    2.81,
+    10.55
+  ],
+  "tokensUsed": [
+    "enemyBody",
+    "enemyPanel",
+    "laserRed",
+    "enemyMarker",
+    "accentOrange",
+    "armourDark",
+    "enemyRim",
+    "hitFlash",
+    "hazardBlack"
+  ],
+  "notes": "8 m lance: collar ring with glowing lens and three claws at the front, charge nodes along the spine, fletching vanes at the rear. setCharge(0..1) or update({charge}) drives the lens from red to white-hot, lights the nodes rear to front and springs the claws open. emitterLocal is the beam origin."
+}

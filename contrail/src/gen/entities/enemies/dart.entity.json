@@ -1,0 +1,28 @@
+{
+  "name": "dart",
+  "seed": 5,
+  "params": [
+    "ENEMY_VARIANTS.A",
+    "ENEMY_VARIANTS.B",
+    "ENEMY_VARIANTS.C"
+  ],
+  "triangles": 528,
+  "drawCalls": "2 (body + plumes; DartSquadron shares instance buffers; +1 outline in B/C)",
+  "boundsMetres": [
+    4.74,
+    2.16,
+    8.8
+  ],
+  "tokensUsed": [
+    "enemyBody",
+    "enemyPanel",
+    "enemyMarker",
+    "accentOrange",
+    "exhaustCore",
+    "armourDark",
+    "enemyRim",
+    "hitFlash",
+    "hazardBlack"
+  ],
+  "notes": "Arrowhead wedge rising to a blunt rear, drooped swept wings, canted V-fins, rear harpoon barbs, twin orange thrusters with alpha-blended plumes (visible on white cloud). Bounds include the 1.8 m plumes. Also exposes nozzlesLocal and muzzleLocal."
+}

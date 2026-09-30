@@ -489,7 +489,22 @@ export async function renderLoopOffline(
   opts.onMixer?.(mixer);
   const g = new MusicGraph(ctx, mixer.music, mixer.musicReverb, stage, opts.seed ?? 1, t0, intensity, 0.01);
   const steps = Math.ceil(seconds / STEP_S);
-  for (let n = 0; n < steps; n++) g.scheduleStep(n, t0 + n * STEP_S);
-  g.fadeOut(Math.max(t0, t0 + seconds - 0.03), 0.03);
+  // Schedule bar by bar just ahead of the render position (like the live lookahead):
+  // creating every note node up front makes Chromium's offline render ~4x slower.
+  const scheduleBar = (b: number) => {
+    for (let n = b * 16; n < Math.min(steps, (b + 1) * 16); n++) g.scheduleStep(n, t0 + n * STEP_S);
+  };
+  const bars = Math.ceil(steps / 16);
+  scheduleBar(0);
+  scheduleBar(1);
+  for (let b = 2; b < bars; b++) {
+    const at = t0 + (b - 1) * BAR_S;
+    ctx.suspend(at).then(() => {
+      scheduleBar(b);
+      if (b === bars - 1) g.fadeOut(Math.max(t0, t0 + seconds - 0.03), 0.03);
+      void ctx.resume();
+    });
+  }
+  if (bars <= 2) g.fadeOut(Math.max(t0, t0 + seconds - 0.03), 0.03);
   return ctx.startRendering();
 }
