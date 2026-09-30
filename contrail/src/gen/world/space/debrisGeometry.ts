@@ -1,11 +1,12 @@
 /**
  * Debris shape generators (unit scale, instanced later):
- * - asteroids: displaced icosahedra with planar cleaves (faceted, flat normals)
+ * - asteroids: displaced icosahedra with planar cleaves (welded, smooth normals; shader bump adds detail)
  * - wreck slabs: bent hull plate with frames, broken I-beam truss, curved broken rib
  * - fleck: a folded two-triangle shard
  * UVs are in local units (panel seams are drawn by the shader).
  */
 import * as THREE from 'three';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Rng } from '../../../core/rng';
 import { GeoBuilder, makeValueNoise3, type V3 } from './geomKit';
 
@@ -19,9 +20,9 @@ export interface AsteroidShape {
 }
 
 export const ASTEROID_SHAPES: AsteroidShape[] = [
-  { detail: 2, noiseAmp: 0.32, noiseFreq: 1.6, cuts: 2, cutDepth: [0.62, 0.8], stretch: [1.15, 0.9, 1.0] }, // lumpy boulder
-  { detail: 2, noiseAmp: 0.14, noiseFreq: 2.4, cuts: 6, cutDepth: [0.45, 0.72], stretch: [1.0, 0.85, 1.2] }, // cleaved chunk
-  { detail: 1, noiseAmp: 0.22, noiseFreq: 1.9, cuts: 3, cutDepth: [0.4, 0.65], stretch: [1.7, 0.7, 0.8] }, // shard rock
+  { detail: 6, noiseAmp: 0.32, noiseFreq: 1.6, cuts: 2, cutDepth: [0.62, 0.8], stretch: [1.15, 0.9, 1.0] }, // lumpy boulder
+  { detail: 6, noiseAmp: 0.14, noiseFreq: 2.4, cuts: 6, cutDepth: [0.45, 0.72], stretch: [1.0, 0.85, 1.2] }, // cleaved chunk
+  { detail: 4, noiseAmp: 0.22, noiseFreq: 1.9, cuts: 3, cutDepth: [0.4, 0.65], stretch: [1.7, 0.7, 0.8] }, // shard rock
 ];
 
 export function asteroidGeometry(shape: AsteroidShape, seed: number): THREE.BufferGeometry {
@@ -49,9 +50,14 @@ export function asteroidGeometry(shape: AsteroidShape, seed: number): THREE.Buff
     v.set(v.x * shape.stretch[0], v.y * shape.stretch[1], v.z * shape.stretch[2]);
     pos.setXYZ(i, v.x, v.y, v.z);
   }
-  g.computeVertexNormals(); // non-indexed -> flat facets
-  g.computeBoundingSphere();
-  return g;
+  // smooth-shaded rock: weld shared corners, then smooth normals (the shader adds bump detail)
+  g.deleteAttribute('normal');
+  g.deleteAttribute('uv');
+  const m = mergeVertices(g, 1e-4);
+  m.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(m.attributes.position.count * 2), 2));
+  m.computeVertexNormals();
+  m.computeBoundingSphere();
+  return m;
 }
 
 /** Bent hull plate with a jagged broken outline, thickness and two inner frames. */

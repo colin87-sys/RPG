@@ -68,6 +68,7 @@ export function noiseTexture(): THREE.DataTexture {
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.anisotropy = 8; // grazing views of the cloud sea: no view-aligned mip smear
   tex.generateMipmaps = true;
   tex.colorSpace = THREE.NoColorSpace;
   tex.needsUpdate = true;

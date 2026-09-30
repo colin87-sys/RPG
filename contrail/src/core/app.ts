@@ -30,6 +30,13 @@ export class App {
   width = 1;
   height = 1;
   pixelRatio = 1;
+  /** device pixel ratio of the 3D render (pixelRatio x adaptive renderScale); the HUD stays at pixelRatio */
+  renderPixelRatio = 1;
+  /** adaptive 3D resolution scale (live play only; fixed-size captures and det mode stay at 1) */
+  renderScale = 1;
+  private frameMsEma = 16.7;
+  private lastFrameT = 0;
+  private scaleHold = 0;
   hooks: AppHooks | null = null;
   private resizeListeners: ((w: number, h: number) => void)[] = [];
   private running = false;
@@ -84,7 +91,8 @@ export class App {
     this.width = w;
     this.height = h;
     this.pixelRatio = pr;
-    this.renderer.setPixelRatio(pr);
+    this.renderPixelRatio = pr * this.renderScale;
+    this.renderer.setPixelRatio(this.renderPixelRatio);
     this.renderer.setSize(w, h, false);
     this.glCanvas.style.width = `${w}px`;
     this.glCanvas.style.height = `${h}px`;
@@ -103,6 +111,7 @@ export class App {
       requestAnimationFrame(loop);
       if (!this.hooks) return;
       if (this.clock.deterministic) return; // driven by step(n) only
+      this.adaptResolution(now);
       const n = this.paused ? 0 : this.clock.stepsFor(now);
       for (let i = 0; i < n; i++) {
         this.hooks.update(FIXED_DT);
@@ -111,6 +120,26 @@ export class App {
       this.hooks.render(this.clock.alpha);
     };
     requestAnimationFrame(loop);
+  }
+
+  /**
+   * Keep frame rate on weaker GPUs: below ~50 fps for a second, drop the 3D
+   * resolution 10% (floor 60%); above ~58 fps for three seconds, raise it again.
+   */
+  private adaptResolution(now: number): void {
+    const dt = this.lastFrameT ? now - this.lastFrameT : 16.7;
+    this.lastFrameT = now;
+    if (dt > 1000 || this.params.w) return; // tab switch / fixed-size capture
+    this.frameMsEma += (dt - this.frameMsEma) * 0.05;
+    this.scaleHold += dt;
+    let next = this.renderScale;
+    if (this.frameMsEma > 20 && this.scaleHold > 1000) next = Math.max(0.6, this.renderScale - 0.1);
+    else if (this.frameMsEma < 17.2 && this.scaleHold > 3000) next = Math.min(1, this.renderScale + 0.1);
+    if (next !== this.renderScale) {
+      this.renderScale = Math.round(next * 10) / 10;
+      this.scaleHold = 0;
+      this.resize();
+    }
   }
 
   /** Advance exactly n fixed steps, then render once. Works in any mode. */

@@ -107,6 +107,15 @@ export interface CloudSeaParams {
   backlit: number;
   drift: number; // m/s of noise advection
   contrast: number;
+  /** vertical billow displacement (m, crest to trough) */
+  amp: number;
+  /** sky bounce into the lit-side shadows (0..1) */
+  bounce: number;
+  /** 0 = broad swells only, 1 = medium cumulus lumps unioned on top */
+  lumps: number;
+  /** self-shadow sample spacing (m, squared per step) and strength */
+  shadowStep: number;
+  shadowAmt: number;
 }
 
 export interface CloudBandParams {
@@ -219,12 +228,17 @@ const cgSea: CloudSeaParams = {
   stretchX: 1.0,
   bump: 10,
   lit: 'cloudCream',
-  mid: ['cloudMid', 'cloudShadow', 0.3],
-  shadow: ['cloudShadow', 'skyZenith', 0.3],
+  mid: ['cloudMid', 'cloudCream', 0.25],
+  shadow: ['cloudMid', 'cloudShadow', 0.6],
   rim: 'sunCore',
   backlit: 0.1,
   drift: 1.5,
   contrast: 2.4,
+  amp: 40,
+  bounce: 0.3,
+  lumps: 1,
+  shadowStep: 8,
+  shadowAmt: 0.5,
 };
 
 const cgBands: CloudBandParams = {
@@ -276,14 +290,14 @@ export const CLOUDGATE_VARIANTS: Record<VariantId, SkyVistaParams> = {
     sky: { ...cgSky, cirrus: 0.1 },
     clouds: {
       ...cgClouds,
-      towersPerKm: 9,
-      banksPerKm: 11,
-      humpsPerKm: 45,
+      towersPerKm: 13,
+      banksPerKm: 9,
+      humpsPerKm: 30,
       wispsPerKm: 8,
       corridorX: 28,
-      towerHeight: [90, 220],
-      towerWidth: [100, 180],
-      lateral: [2, 600],
+      towerHeight: [110, 300],
+      towerWidth: [100, 200],
+      lateral: [2, 420],
     },
     sea: { ...cgSea, bump: 10 },
     bands: { ...cgBands, topY: [10, 80], domeAmp: 150 },
@@ -312,7 +326,9 @@ const vtSky: SkyDomeParams = {
 const vtClouds: CloudFieldParams = {
   ...cgClouds,
   seaY: -50,
-  towersPerKm: 0,
+  towersPerKm: 3,
+  towerHeight: [150, 280],
+  towerWidth: [200, 340],
   banksPerKm: 3,
   humpsPerKm: 14,
   wispsPerKm: 0,
@@ -346,6 +362,11 @@ const vtSea: CloudSeaParams = {
   backlit: 0.3,
   drift: 1,
   contrast: 2.0,
+  amp: 22,
+  bounce: 0.08,
+  lumps: 0.6,
+  shadowStep: 10,
+  shadowAmt: 0.6,
 };
 
 const vtBands: CloudBandParams = {

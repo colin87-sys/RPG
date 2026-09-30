@@ -81,18 +81,20 @@ function makeTower(rng: Rng, P: CloudFieldParams, side: number): Puff[] {
   for (let k = 0; k < nl; k++) {
     const t = k / (nl - 1);
     const y = baseY + t * H * 0.8;
-    const rad = W * 0.5 * (1 - 0.45 * t);
-    const np = t < 0.2 ? 4 : 3;
+    // cumulus profile: flat base, bulging cauliflower middle, rounded dome (not a cone)
+    const bulge = Math.sin(Math.PI * Math.min(1, t * 1.15));
+    const rad = W * 0.5 * (0.72 + 0.32 * bulge - 0.28 * t * t * t);
+    const np = t < 0.2 ? 5 : 4;
     for (let m = 0; m < np; m++) {
       const a = rng.range(0, Math.PI * 2);
-      const rr = rad * rng.range(0.15, 0.6);
+      const rr = rad * rng.range(0.25, 0.75);
       const px = cx + Math.cos(a) * rr;
       const dz = Math.sin(a) * rr * 0.8;
       const flat = t < 0.18;
       const kind = flat ? 'flat' : t > 0.55 ? 'cumulus' : rng.chance(0.5) ? 'cumulus' : 'round';
       out.push({
         x: px, y, dz,
-        size: W * 0.62 * (1 - 0.35 * t) * rng.range(0.85, 1.15),
+        size: W * 0.6 * (0.78 + 0.22 * bulge - 0.2 * t * t) * rng.range(0.8, 1.2),
         aspect: flat ? rng.range(1.4, 1.8) : rng.range(1.0, 1.25),
         cell: pickCell(rng, kind), flip: rng.chance(0.5), alpha: 1,
         cnx: (px - cx) / (W * 0.5), cny: (y - cy) / (H * 0.55), cnz: dz / (W * 0.5) + 0.35,
@@ -101,10 +103,10 @@ function makeTower(rng: Rng, P: CloudFieldParams, side: number): Puff[] {
     }
   }
   // crown
-  const nc = rng.int(1, 2);
+  const nc = rng.int(2, 3);
   for (let c = 0; c < nc; c++) {
-    const px = cx + rng.range(-0.15, 0.15) * W;
-    const y = baseY + H * rng.range(0.86, 0.95);
+    const px = cx + rng.range(-0.28, 0.28) * W;
+    const y = baseY + H * rng.range(0.84, 0.94);
     out.push({
       x: px, y, dz: rng.range(-0.1, 0.1) * W, size: W * rng.range(0.42, 0.52), aspect: rng.range(1.0, 1.2),
       cell: pickCell(rng, 'cumulus'), flip: rng.chance(0.5), alpha: 1,

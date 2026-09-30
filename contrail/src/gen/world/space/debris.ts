@@ -129,6 +129,10 @@ varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
 varying vec2 vUv;
 varying float vVar;
+#ifdef ROCK
+varying vec3 vObjPos;
+varying float vScale;
+#endif
 mat3 rotAxis(vec3 a, float ang) {
   float s = sin(ang), c = cos(ang), oc = 1.0 - c;
   return mat3(oc * a.x * a.x + c, oc * a.x * a.y + a.z * s, oc * a.z * a.x - a.y * s,
@@ -143,6 +147,10 @@ void main() {
   vec3 st = vec3(iMisc.y, iMisc.z, 1.0);
   vec3 o = R * (position * st * iPosScale.w);
   vec3 nn = R * (normal / st);
+  #ifdef ROCK
+    vObjPos = position * st + vec3(iMisc.w * 37.0, iMisc.x * 11.0, 0.0);
+    vScale = iPosScale.w;
+  #endif
   vec3 c;
   float fade = 1.0;
   #ifdef WRAP_XYZ
@@ -197,13 +205,46 @@ varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
 varying vec2 vUv;
 varying float vVar;
+#ifdef ROCK
+varying vec3 vObjPos;
+varying float vScale;
+uniform float uBump;
+uniform vec3 uDust;
+uniform vec3 uFill;
+// rock height field (object space): lumpy fbm + ridged cracks + shallow pits
+float rockH(vec3 p) {
+  float f = wfFbm3(p * 2.6, 4);
+  float r = 1.0 - abs(wfNoise3(p * 5.3 + 3.7) * 2.0 - 1.0);
+  float pits = smoothstep(0.62, 0.8, wfNoise3(p * 3.4 + 11.0));
+  return f * 0.7 - r * r * r * 0.18 - pits * 0.22;
+}
+#endif
 void main() {
   vec3 n = normalize(vWorldNormal);
+  #ifdef ROCK
+    // derivative bump (surface gradient): follows the spin, no tangents needed
+    float h = rockH(vObjPos);
+    vec3 dpx = dFdx(vWorldPos), dpy = dFdy(vWorldPos);
+    vec3 r1 = cross(dpy, n), r2 = cross(n, dpx);
+    float det = dot(dpx, r1);
+    float bh = h * vScale * uBump;
+    vec3 grad = sign(det) * (dFdx(bh) * r1 + dFdy(bh) * r2);
+    float ok = step(1e-9, abs(det));
+    n = normalize(mix(n, abs(det) * n - grad, ok * 0.999) );
+    if (dot(n, n) < 0.5) n = normalize(vWorldNormal);
+  #endif
   #ifdef DOUBLE_SIDED
   n = gl_FrontFacing ? n : -n;
   #endif
   vec3 v = normalize(cameraPosition - vWorldPos);
   vec3 albedo = mix(uAlbedoA, uAlbedoB, vVar);
+  #ifdef ROCK
+    // mineral patches, dark crevices, pale dust on exposed tops
+    float patchN = wfFbm3(vObjPos * 1.3 + 5.0, 3);
+    albedo *= 0.75 + 0.55 * smoothstep(0.3, 0.7, patchN);
+    albedo *= 0.62 + 0.38 * smoothstep(-0.05, 0.35, h);
+    albedo = mix(albedo, uDust, smoothstep(0.35, 0.55, h) * 0.35);
+  #endif
   #ifdef PANELS
     vec2 q = vUv * vec2(4.0, 6.0);
     q.x += step(1.0, mod(floor(q.y), 2.0)) * 0.5;
@@ -218,6 +259,14 @@ void main() {
     albedo *= 1.0 - (1.0 - e.x * e.y) * uSeamDark * vis;
   #endif
   vec3 c = shadeToon(albedo, n);
+  #ifdef ROCK
+    // cool nebula bounce from the camera side, so the unlit faces show their relief
+    vec3 fd = normalize(vec3(-0.35, 0.45, 1.0));
+    float fl = clamp(dot(n, fd) * 0.6 + 0.4, 0.0, 1.0);
+    c += albedo * uFill * fl * fl;
+    // crevice occlusion
+    c *= 0.7 + 0.3 * smoothstep(-0.1, 0.3, h);
+  #endif
   // shared rim, narrowed to the true silhouette so bodies stay near-black
   float ndv = clamp(dot(n, v), 0.0, 1.0);
   c += rimTerm(n, v) * uRimMul * smoothstep(0.45, 0.85, 1.0 - ndv);
@@ -278,10 +327,13 @@ export function buildDebrisField(params: Partial<DebrisParams> = {}, seed = 1): 
     uSeamDark: { value: shading.seamDarkness },
   };
 
-  const asteroidMat = makeMaterial({}, {
+  const asteroidMat = makeMaterial({ ROCK: '' }, {
     ...common,
-    uAlbedoA: { value: tvec(palette.debrisDark) },
-    uAlbedoB: { value: tvec(mix(palette.debrisDark, palette.armourSteel, 0.22)) },
+    uBump: { value: 0.09 },
+    uDust: { value: tvec(mix(palette.armourSteel, palette.planetYellow, 0.25)) },
+    uFill: { value: tvec(mix(palette.spaceNebula, palette.armourLight, 0.4), 2.2) },
+    uAlbedoA: { value: tvec(mix(palette.debrisDark, palette.armourSteel, 0.3)) },
+    uAlbedoB: { value: tvec(mix(palette.debrisDark, palette.planetYellow, 0.18)) },
     uPanelLight: { value: tvec(palette.armourSteel) },
     uLightPanels: { value: 0 },
     uRimMul: { value: p.rimBoost },

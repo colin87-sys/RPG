@@ -31,7 +31,7 @@ setScreenStyle(GLYPH_STYLES.C);
 const postStack = new PostStack(app.renderer, { clean: params.clean, params: POST_VARIANTS.A });
 // count draw calls/triangles for the whole frame (scene + all post passes), not just the last pass
 app.renderer.info.autoReset = false;
-app.onResize((w, h) => postStack.setSize(w, h, app.pixelRatio));
+app.onResize((w, h) => postStack.setSize(w, h, app.renderPixelRatio));
 const audio = new AudioEngine({ muted: params.mute, seed: params.seed });
 const audioBind = bindGameAudio(audio, game.events);
 game.events.on('stateChanged', ({ to }) => {
