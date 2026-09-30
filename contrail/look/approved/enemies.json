@@ -1,0 +1,193 @@
+{
+  "board": "enemies",
+  "variant": "B",
+  "name": "Hard panel",
+  "look": {
+    "rimStrength": 1.7,
+    "rimPower": 2.4,
+    "rimWrap": 0.55,
+    "stageRim": 0.45,
+    "panelContrast": 1,
+    "markerIntensity": 3.2,
+    "markerDensity": 1,
+    "thrusterIntensity": 2.2,
+    "seamStrength": 0.45,
+    "outline": true,
+    "outlinePx": 1.4
+  },
+  "params": {
+    "name": "Hard panel",
+    "caltrop": {
+      "span": 1.4,
+      "valley": 0.3,
+      "thickness": 0.24,
+      "sweep": 0.12,
+      "hubRadius": 0.3,
+      "backPoints": 0.6,
+      "spinRate": 6.5,
+      "look": {
+        "rimStrength": 1.7,
+        "rimPower": 2.4,
+        "rimWrap": 0.55,
+        "stageRim": 0.45,
+        "panelContrast": 1,
+        "markerIntensity": 3.2,
+        "markerDensity": 1,
+        "thrusterIntensity": 2.2,
+        "seamStrength": 0.45,
+        "outline": true,
+        "outlinePx": 1.4
+      }
+    },
+    "dart": {
+      "length": 7,
+      "span": 4.8759999999999994,
+      "height": 0.95,
+      "wingDroop": 0.2,
+      "finCant": 0.42,
+      "barbs": 1,
+      "look": {
+        "rimStrength": 1.7,
+        "rimPower": 2.4,
+        "rimWrap": 0.55,
+        "stageRim": 0.45,
+        "panelContrast": 1,
+        "markerIntensity": 3.2,
+        "markerDensity": 1,
+        "thrusterIntensity": 2.2,
+        "seamStrength": 0.45,
+        "outline": true,
+        "outlinePx": 1.4
+      }
+    },
+    "sniper": {
+      "length": 8,
+      "lensRadius": 0.72,
+      "ringRadius": 1.2,
+      "claws": 3,
+      "vanes": 3,
+      "nodes": 6,
+      "look": {
+        "rimStrength": 1.7,
+        "rimPower": 2.4,
+        "rimWrap": 0.55,
+        "stageRim": 0.45,
+        "panelContrast": 1,
+        "markerIntensity": 3.2,
+        "markerDensity": 1,
+        "thrusterIntensity": 2.2,
+        "seamStrength": 0.45,
+        "outline": true,
+        "outlinePx": 1.4
+      }
+    },
+    "strider": {
+      "height": 16,
+      "shoulderWidth": 7.6,
+      "legScale": 0.94,
+      "jetpackSize": 1,
+      "swayAmp": 1,
+      "springK": 26,
+      "damping": 3.2,
+      "look": {
+        "rimStrength": 1.7,
+        "rimPower": 2.4,
+        "rimWrap": 0.55,
+        "stageRim": 0.45,
+        "panelContrast": 1,
+        "markerIntensity": 3.2,
+        "markerDensity": 1,
+        "thrusterIntensity": 2.2,
+        "seamStrength": 0.45,
+        "outline": true,
+        "outlinePx": 1.4
+      }
+    },
+    "bulwark": {
+      "span": 220,
+      "length": 150,
+      "sweep": 0.62,
+      "ventRows": 5,
+      "ventsPerRow": 30,
+      "emitters": 4,
+      "look": {
+        "rimStrength": 1.7,
+        "rimPower": 2.4,
+        "rimWrap": 0.55,
+        "stageRim": 0.45,
+        "panelContrast": 1,
+        "markerIntensity": 3.2,
+        "markerDensity": 1,
+        "thrusterIntensity": 2.2,
+        "seamStrength": 0.45,
+        "outline": true,
+        "outlinePx": 1.4
+      }
+    }
+  },
+  "scaleTokens": {
+    "pilot": 1.8,
+    "kestrelLength": 12,
+    "kestrelSpan": 9,
+    "caltrop": 1.4,
+    "dart": 7,
+    "sniper": 8,
+    "strider": 16,
+    "bulwarkSpan": 220
+  },
+  "stats": {
+    "caltrop": {
+      "triangles": 120,
+      "outlineTriangles": 120,
+      "drawCalls": 2,
+      "boundsMetres": [
+        1.39,
+        1.39,
+        0.63
+      ]
+    },
+    "dart": {
+      "triangles": 552,
+      "outlineTriangles": 456,
+      "drawCalls": 3,
+      "boundsMetres": [
+        5.08,
+        2.16,
+        8.8
+      ]
+    },
+    "sniper": {
+      "triangles": 841,
+      "outlineTriangles": 829,
+      "drawCalls": 3,
+      "boundsMetres": [
+        2.91,
+        2.81,
+        10.55
+      ]
+    },
+    "strider": {
+      "triangles": 2655,
+      "outlineTriangles": 2559,
+      "drawCalls": 3,
+      "boundsMetres": [
+        7.85,
+        15.27,
+        6.23
+      ]
+    },
+    "bulwark": {
+      "triangles": 5441,
+      "outlineTriangles": 5260,
+      "drawCalls": 4,
+      "boundsMetres": [
+        220,
+        77,
+        188
+      ],
+      "ventInstances": 460,
+      "trianglesInclVents": 6360,
+      "drawCallsBoard": 4
+    }
+  }
+}

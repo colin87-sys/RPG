@@ -1,512 +1,542 @@
 [
-  {
-    "subject": "hero",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/hero_A.png",
-        "params": "look/candidates/hero_A.json",
-        "note": "light armour dominant; hull melts into pale horizon in chase crop"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/hero_B.png",
-        "params": "look/candidates/hero_B.json",
-        "note": "steel dominant, extra orange; best separation from bright sky, outline on"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/hero_C.png",
-        "params": "look/candidates/hero_C.json",
-        "note": "no outline, longer nose/wider delta; soft edges, generic-jet read"
-      }
-    ],
-    "ranking": [
-      "B",
-      "A",
-      "C"
-    ],
-    "reason": "B's steel hull separates from the bright horizon while keeping the outline and 52-degree delta; A's white hull merges with the sky; C lacks the outline",
-    "approved": {
-      "board": "look/approved/hero.png",
-      "params": "look/approved/hero.json"
-    },
-    "status": "pending owner review"
+ {
+  "subject": "hero",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/hero_A.png",
+    "params": "look/candidates/hero_A.json",
+    "note": "light armour dominant; hull melts into pale horizon in chase crop"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/hero_B.png",
+    "params": "look/candidates/hero_B.json",
+    "note": "steel dominant, extra orange; best separation from bright sky, outline on"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/hero_C.png",
+    "params": "look/candidates/hero_C.json",
+    "note": "no outline, longer nose/wider delta; soft edges, generic-jet read"
+   }
+  ],
+  "ranking": [
+   "B",
+   "A",
+   "C"
+  ],
+  "reason": "B's steel hull separates from the bright horizon while keeping the outline and 52-degree delta; A's white hull merges with the sky; C lacks the outline",
+  "approved": {
+   "board": "look/approved/hero.png",
+   "params": "look/approved/hero.json",
+   "variant": "B",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "enemies",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/enemies_A.png",
-        "params": "look/candidates/enemies_A.json",
-        "note": "Ember rim; no outline, soft seams"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/enemies_B.png",
-        "params": "look/candidates/enemies_B.json",
-        "note": "Hard panel; seams + 1.4px outline match hero"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/enemies_C.png",
-        "params": "look/candidates/enemies_C.json",
-        "note": "Ink; strongest rim but seamless flat bodies"
-      }
-    ],
-    "ranking": [
-      "B",
-      "C",
-      "A"
-    ],
-    "reason": "B's seams and outline match the hero's hard-surface language; C has the best rim but flat seamless bodies; A is soft with no outline. All: dark enemies weak on space tiles",
-    "approved": {
-      "board": "look/approved/enemies.png",
-      "params": "look/approved/enemies.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "enemies",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/enemies_A.png",
+    "params": "look/candidates/enemies_A.json",
+    "note": "Ember rim; no outline, soft seams"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/enemies_B.png",
+    "params": "look/candidates/enemies_B.json",
+    "note": "Hard panel; seams + 1.4px outline match hero"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/enemies_C.png",
+    "params": "look/candidates/enemies_C.json",
+    "note": "Ink; strongest rim but seamless flat bodies"
+   }
+  ],
+  "ranking": [
+   "B",
+   "C",
+   "A"
+  ],
+  "reason": "B's seams and outline match the hero's hard-surface language; C has the best rim but flat seamless bodies; A is soft with no outline. All: dark enemies weak on space tiles",
+  "approved": {
+   "board": "look/approved/enemies.png",
+   "params": "look/approved/enemies.json",
+   "variant": "B",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "vista-cloudgate",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/vista-cloudgate_A.png",
-        "params": "look/candidates/vista-cloudgate_A.json",
-        "note": "sparse towers; flat, empty"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/vista-cloudgate_B.png",
-        "params": "look/candidates/vista-cloudgate_B.json",
-        "note": "medium banks; big grey left cloud reads overcast"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/vista-cloudgate_C.png",
-        "params": "look/candidates/vista-cloudgate_C.json",
-        "note": "dense narrow corridor; 3 depth layers, centre still open"
-      }
-    ],
-    "ranking": [
-      "C",
-      "B",
-      "A"
-    ],
-    "reason": "C has the most parallax layers and frames the corridor; lower-half fog sea still too pale in all",
-    "approved": {
-      "board": "look/approved/vista-cloudgate.png",
-      "params": "look/approved/vista-cloudgate.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "vista-cloudgate",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/vista-cloudgate_A.png",
+    "params": "look/candidates/vista-cloudgate_A.json",
+    "note": "sparse towers; flat, empty"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/vista-cloudgate_B.png",
+    "params": "look/candidates/vista-cloudgate_B.json",
+    "note": "medium banks; big grey left cloud reads overcast"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/vista-cloudgate_C.png",
+    "params": "look/candidates/vista-cloudgate_C.json",
+    "note": "dense narrow corridor; 3 depth layers, centre still open"
+   }
+  ],
+  "ranking": [
+   "C",
+   "B",
+   "A"
+  ],
+  "reason": "C has the most parallax layers and frames the corridor; lower-half fog sea still too pale in all",
+  "approved": {
+   "board": "look/approved/vista-cloudgate.png",
+   "params": "look/approved/vista-cloudgate.json",
+   "variant": "C",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "vista-violet",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/vista-violet_A.png",
-        "params": "look/candidates/vista-violet_A.json",
-        "note": "medium bands, large sun"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/vista-violet_B.png",
-        "params": "look/candidates/vista-violet_B.json",
-        "note": "big sun at centre washes upper sky"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/vista-violet_C.png",
-        "params": "look/candidates/vista-violet_C.json",
-        "note": "smallest sun, darkest zenith, wider horizon band"
-      }
-    ],
-    "ranking": [
-      "C",
-      "A",
-      "B"
-    ],
-    "reason": "C is closest to the dark-frame relationship, but all three are far too bright (mid-value mauve); needs darkening",
-    "approved": {
-      "board": "look/approved/vista-violet.png",
-      "params": "look/approved/vista-violet.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "vista-violet",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/vista-violet_A.png",
+    "params": "look/candidates/vista-violet_A.json",
+    "note": "medium bands, large sun"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/vista-violet_B.png",
+    "params": "look/candidates/vista-violet_B.json",
+    "note": "big sun at centre washes upper sky"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/vista-violet_C.png",
+    "params": "look/candidates/vista-violet_C.json",
+    "note": "smallest sun, darkest zenith, wider horizon band"
+   }
+  ],
+  "ranking": [
+   "C",
+   "A",
+   "B"
+  ],
+  "reason": "C is closest to the dark-frame relationship, but all three are far too bright (mid-value mauve); needs darkening",
+  "approved": {
+   "board": "look/approved/vista-violet.png",
+   "params": "look/approved/vista-violet.json",
+   "variant": "C",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "vista-wreck",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/vista-wreck_A.png",
-        "params": "look/candidates/vista-wreck_A.json",
-        "note": "balanced density"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/vista-wreck_B.png",
-        "params": "look/candidates/vista-wreck_B.json",
-        "note": "most clutter, busy centre"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/vista-wreck_C.png",
-        "params": "look/candidates/vista-wreck_C.json",
-        "note": "near dark masses + strong planet key; clean centre"
-      }
-    ],
-    "ranking": [
-      "C",
-      "A",
-      "B"
-    ],
-    "reason": "C gives clear near/mid/far layers and the strongest planet key with an uncluttered centre",
-    "approved": {
-      "board": "look/approved/vista-wreck.png",
-      "params": "look/approved/vista-wreck.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "vista-wreck",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/vista-wreck_A.png",
+    "params": "look/candidates/vista-wreck_A.json",
+    "note": "balanced density"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/vista-wreck_B.png",
+    "params": "look/candidates/vista-wreck_B.json",
+    "note": "most clutter, busy centre"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/vista-wreck_C.png",
+    "params": "look/candidates/vista-wreck_C.json",
+    "note": "near dark masses + strong planet key; clean centre"
+   }
+  ],
+  "ranking": [
+   "C",
+   "A",
+   "B"
+  ],
+  "reason": "C gives clear near/mid/far layers and the strongest planet key with an uncluttered centre",
+  "approved": {
+   "board": "look/approved/vista-wreck.png",
+   "params": "look/approved/vista-wreck.json",
+   "variant": "C",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "structures",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/structures_A.png",
-        "params": "look/candidates/structures_A.json",
-        "note": "single ring, plain hull"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/structures_B.png",
-        "params": "look/candidates/structures_B.json",
-        "note": "double ring forms a gate; dense greebles"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/structures_C.png",
-        "params": "look/candidates/structures_C.json",
-        "note": "heavy outer ring band across sky"
-      }
-    ],
-    "ranking": [
-      "B",
-      "C",
-      "A"
-    ],
-    "reason": "B's double ring frames the corridor as a gate; all hulls are too light and default-grey",
-    "approved": {
-      "board": "look/approved/structures.png",
-      "params": "look/approved/structures.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "structures",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/structures_A.png",
+    "params": "look/candidates/structures_A.json",
+    "note": "single ring, plain hull"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/structures_B.png",
+    "params": "look/candidates/structures_B.json",
+    "note": "double ring forms a gate; dense greebles"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/structures_C.png",
+    "params": "look/candidates/structures_C.json",
+    "note": "heavy outer ring band across sky"
+   }
+  ],
+  "ranking": [
+   "B",
+   "C",
+   "A"
+  ],
+  "reason": "B's double ring frames the corridor as a gate; all hulls are too light and default-grey",
+  "approved": {
+   "board": "look/approved/structures.png",
+   "params": "look/approved/structures.json",
+   "variant": "B",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "hud",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/hud_A.png",
-        "params": "look/candidates/hud_A.json",
-        "note": "italic angular glyphs"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/hud_B.png",
-        "params": "look/candidates/hud_B.json",
-        "note": "upright thin glyphs wash out on bright sky"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/hud_C.png",
-        "params": "look/candidates/hud_C.json",
-        "note": "bold italic glyphs with dark outline"
-      }
-    ],
-    "ranking": [
-      "C",
-      "A",
-      "B"
-    ],
-    "reason": "C's outlined bold italic glyphs keep contrast over bright cloud; same layout in all",
-    "approved": {
-      "board": "look/approved/hud.png",
-      "params": "look/approved/hud.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "hud",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/hud_A.png",
+    "params": "look/candidates/hud_A.json",
+    "note": "italic angular glyphs"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/hud_B.png",
+    "params": "look/candidates/hud_B.json",
+    "note": "upright thin glyphs wash out on bright sky"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/hud_C.png",
+    "params": "look/candidates/hud_C.json",
+    "note": "bold italic glyphs with dark outline"
+   }
+  ],
+  "ranking": [
+   "C",
+   "A",
+   "B"
+  ],
+  "reason": "C's outlined bold italic glyphs keep contrast over bright cloud; same layout in all",
+  "approved": {
+   "board": "look/approved/hud.png",
+   "params": "look/approved/hud.json",
+   "variant": "C",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "hud-states",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/hud-states_A.png",
-        "params": "look/candidates/hud-states_A.json",
-        "note": "italic; readable"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/hud-states_B.png",
-        "params": "look/candidates/hud-states_B.json",
-        "note": "thin text illegible on bright tile"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/hud-states_C.png",
-        "params": "look/candidates/hud-states_C.json",
-        "note": "outlined glyphs legible in all four states"
-      }
-    ],
-    "ranking": [
-      "C",
-      "A",
-      "B"
-    ],
-    "reason": "C stays legible in bright, dark, hazard and danger states",
-    "approved": {
-      "board": "look/approved/hud-states.png",
-      "params": "look/approved/hud-states.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "hud-states",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/hud-states_A.png",
+    "params": "look/candidates/hud-states_A.json",
+    "note": "italic; readable"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/hud-states_B.png",
+    "params": "look/candidates/hud-states_B.json",
+    "note": "thin text illegible on bright tile"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/hud-states_C.png",
+    "params": "look/candidates/hud-states_C.json",
+    "note": "outlined glyphs legible in all four states"
+   }
+  ],
+  "ranking": [
+   "C",
+   "A",
+   "B"
+  ],
+  "reason": "C stays legible in bright, dark, hazard and danger states",
+  "approved": {
+   "board": "look/approved/hud-states.png",
+   "params": "look/approved/hud-states.json",
+   "variant": "C",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "screens",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/screens_A.png",
-        "params": "look/candidates/screens_A.json",
-        "note": "italic title"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/screens_B.png",
-        "params": "look/candidates/screens_B.json",
-        "note": "upright, weaker title"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/screens_C.png",
-        "params": "look/candidates/screens_C.json",
-        "note": "bold italic, matches HUD C"
-      }
-    ],
-    "ranking": [
-      "C",
-      "A",
-      "B"
-    ],
-    "reason": "C matches the HUD C type family and has the strongest title",
-    "approved": {
-      "board": "look/approved/screens.png",
-      "params": "look/approved/screens.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "screens",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/screens_A.png",
+    "params": "look/candidates/screens_A.json",
+    "note": "italic title"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/screens_B.png",
+    "params": "look/candidates/screens_B.json",
+    "note": "upright, weaker title"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/screens_C.png",
+    "params": "look/candidates/screens_C.json",
+    "note": "bold italic, matches HUD C"
+   }
+  ],
+  "ranking": [
+   "C",
+   "A",
+   "B"
+  ],
+  "reason": "C matches the HUD C type family and has the strongest title",
+  "approved": {
+   "board": "look/approved/screens.png",
+   "params": "look/approved/screens.json",
+   "variant": "C",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "post",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/post_A.png",
-        "params": "look/candidates/post_A.json",
-        "note": "light grain/scanlines, crisp orbs"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/post_B.png",
-        "params": "look/candidates/post_B.json",
-        "note": "nearly identical to clean pass"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/post_C.png",
-        "params": "look/candidates/post_C.json",
-        "note": "heavy grain/softness speckles craft, dark corners"
-      }
-    ],
-    "ranking": [
-      "A",
-      "B",
-      "C"
-    ],
-    "reason": "A keeps visible analogue texture without hiding the craft; C too heavy, B adds nothing",
-    "approved": {
-      "board": "look/approved/post.png",
-      "params": "look/approved/post.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "post",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/post_A.png",
+    "params": "look/candidates/post_A.json",
+    "note": "light grain/scanlines, crisp orbs"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/post_B.png",
+    "params": "look/candidates/post_B.json",
+    "note": "nearly identical to clean pass"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/post_C.png",
+    "params": "look/candidates/post_C.json",
+    "note": "heavy grain/softness speckles craft, dark corners"
+   }
+  ],
+  "ranking": [
+   "A",
+   "B",
+   "C"
+  ],
+  "reason": "A keeps visible analogue texture without hiding the craft; C too heavy, B adds nothing",
+  "approved": {
+   "board": "look/approved/post.png",
+   "params": "look/approved/post.json",
+   "variant": "A",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "vfx-ring",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/vfx-ring_A.png",
-        "params": "look/candidates/vfx-ring_A.json",
-        "note": "three separated R/G/B bands"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/vfx-ring_B.png",
-        "params": "look/candidates/vfx-ring_B.json",
-        "note": "tight spacing reads as doubled shimmering bands"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/vfx-ring_C.png",
-        "params": "look/candidates/vfx-ring_C.json",
-        "note": "continuous spectral rainbow, pastel on bright sky"
-      }
-    ],
-    "ranking": [
-      "A",
-      "C",
-      "B"
-    ],
-    "reason": "A exactly matches the red-inside/green/blue-outside three-band spec",
-    "approved": {
-      "board": "look/approved/vfx-ring.png",
-      "params": "look/approved/vfx-ring.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "vfx-ring",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/vfx-ring_A.png",
+    "params": "look/candidates/vfx-ring_A.json",
+    "note": "three separated R/G/B bands"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/vfx-ring_B.png",
+    "params": "look/candidates/vfx-ring_B.json",
+    "note": "tight spacing reads as doubled shimmering bands"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/vfx-ring_C.png",
+    "params": "look/candidates/vfx-ring_C.json",
+    "note": "continuous spectral rainbow, pastel on bright sky"
+   }
+  ],
+  "ranking": [
+   "A",
+   "C",
+   "B"
+  ],
+  "reason": "A exactly matches the red-inside/green/blue-outside three-band spec",
+  "approved": {
+   "board": "look/approved/vfx-ring.png",
+   "params": "look/approved/vfx-ring.json",
+   "variant": "A",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "vfx-beam",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/vfx-beam_A.png",
-        "params": "look/candidates/vfx-beam_A.json",
-        "note": "core 48%"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/vfx-beam_B.png",
-        "params": "look/candidates/vfx-beam_B.json",
-        "note": "core 42%, widest boss beam"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/vfx-beam_C.png",
-        "params": "look/candidates/vfx-beam_C.json",
-        "note": "core 55%, strongest extension flash"
-      }
-    ],
-    "ranking": [
-      "C",
-      "A",
-      "B"
-    ],
-    "reason": "C's core is nearest the 65% spec and its fire flash reads best",
-    "approved": {
-      "board": "look/approved/vfx-beam.png",
-      "params": "look/approved/vfx-beam.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "vfx-beam",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/vfx-beam_A.png",
+    "params": "look/candidates/vfx-beam_A.json",
+    "note": "core 48%"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/vfx-beam_B.png",
+    "params": "look/candidates/vfx-beam_B.json",
+    "note": "core 42%, widest boss beam"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/vfx-beam_C.png",
+    "params": "look/candidates/vfx-beam_C.json",
+    "note": "core 55%, strongest extension flash"
+   }
+  ],
+  "ranking": [
+   "C",
+   "A",
+   "B"
+  ],
+  "reason": "C's core is nearest the 65% spec and its fire flash reads best",
+  "approved": {
+   "board": "look/approved/vfx-beam.png",
+   "params": "look/approved/vfx-beam.json",
+   "variant": "C",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "vfx-bullets",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/vfx-bullets_A.png",
-        "params": "look/candidates/vfx-bullets_A.json",
-        "note": "core 1.8%, thin dark ring"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/vfx-bullets_B.png",
-        "params": "look/candidates/vfx-bullets_B.json",
-        "note": "core 2.0%, thickest dark outline ring"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/vfx-bullets_C.png",
-        "params": "look/candidates/vfx-bullets_C.json",
-        "note": "no dark ring; weakest on cloud (p10 dE 14)"
-      }
-    ],
-    "ranking": [
-      "B",
-      "A",
-      "C"
-    ],
-    "reason": "B's larger core and dark outline ring give the best contrast on Cloudgate",
-    "approved": {
-      "board": "look/approved/vfx-bullets.png",
-      "params": "look/approved/vfx-bullets.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "vfx-bullets",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/vfx-bullets_A.png",
+    "params": "look/candidates/vfx-bullets_A.json",
+    "note": "core 1.8%, thin dark ring"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/vfx-bullets_B.png",
+    "params": "look/candidates/vfx-bullets_B.json",
+    "note": "core 2.0%, thickest dark outline ring"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/vfx-bullets_C.png",
+    "params": "look/candidates/vfx-bullets_C.json",
+    "note": "no dark ring; weakest on cloud (p10 dE 14)"
+   }
+  ],
+  "ranking": [
+   "B",
+   "A",
+   "C"
+  ],
+  "reason": "B's larger core and dark outline ring give the best contrast on Cloudgate",
+  "approved": {
+   "board": "look/approved/vfx-bullets.png",
+   "params": "look/approved/vfx-bullets.json",
+   "variant": "B",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "vfx-smoke",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/vfx-smoke_A.png",
-        "params": "look/candidates/vfx-smoke_A.json",
-        "note": "rope; flatter shading"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/vfx-smoke_B.png",
-        "params": "look/candidates/vfx-smoke_B.json",
-        "note": "cumulus; lit top / grey underside"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/vfx-smoke_C.png",
-        "params": "look/candidates/vfx-smoke_C.json",
-        "note": "wisp; visible sprite discs, weakest on cloud"
-      }
-    ],
-    "ranking": [
-      "B",
-      "A",
-      "C"
-    ],
-    "reason": "B's self-shaded puffs keep an edge against clouds; smoke still matches cloud value",
-    "approved": {
-      "board": "look/approved/vfx-smoke.png",
-      "params": "look/approved/vfx-smoke.json"
-    },
-    "status": "pending owner review"
+  "status": "pending owner review"
+ },
+ {
+  "subject": "vfx-smoke",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/vfx-smoke_A.png",
+    "params": "look/candidates/vfx-smoke_A.json",
+    "note": "rope; flatter shading"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/vfx-smoke_B.png",
+    "params": "look/candidates/vfx-smoke_B.json",
+    "note": "cumulus; lit top / grey underside"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/vfx-smoke_C.png",
+    "params": "look/candidates/vfx-smoke_C.json",
+    "note": "wisp; visible sprite discs, weakest on cloud"
+   }
+  ],
+  "ranking": [
+   "B",
+   "A",
+   "C"
+  ],
+  "reason": "B's self-shaded puffs keep an edge against clouds; smoke still matches cloud value",
+  "approved": {
+   "board": "look/approved/vfx-smoke.png",
+   "params": "look/approved/vfx-smoke.json",
+   "variant": "B",
+   "frozen_utc": "2026-09-30T11:10Z"
   },
-  {
-    "subject": "vfx-explosion",
-    "variants": [
-      {
-        "id": "A",
-        "board": "look/candidates/vfx-explosion_A.png",
-        "params": "look/candidates/vfx-explosion_A.json",
-        "note": "white core -> yellow -> orange lobes + sparks"
-      },
-      {
-        "id": "B",
-        "board": "look/candidates/vfx-explosion_B.png",
-        "params": "look/candidates/vfx-explosion_B.json",
-        "note": "white blob merges with cream clouds"
-      },
-      {
-        "id": "C",
-        "board": "look/candidates/vfx-explosion_C.png",
-        "params": "look/candidates/vfx-explosion_C.json",
-        "note": "ember; loses white core, pink on bright sky"
-      }
-    ],
-    "ranking": [
-      "A",
-      "C",
-      "B"
-    ],
-    "reason": "A follows the bible sequence and reads on both backgrounds",
-    "approved": {
-      "board": "look/approved/vfx-explosion.png",
-      "params": "look/approved/vfx-explosion.json"
-    },
-    "status": "pending owner review"
-  }
+  "status": "pending owner review"
+ },
+ {
+  "subject": "vfx-explosion",
+  "variants": [
+   {
+    "id": "A",
+    "board": "look/candidates/vfx-explosion_A.png",
+    "params": "look/candidates/vfx-explosion_A.json",
+    "note": "white core -> yellow -> orange lobes + sparks"
+   },
+   {
+    "id": "B",
+    "board": "look/candidates/vfx-explosion_B.png",
+    "params": "look/candidates/vfx-explosion_B.json",
+    "note": "white blob merges with cream clouds"
+   },
+   {
+    "id": "C",
+    "board": "look/candidates/vfx-explosion_C.png",
+    "params": "look/candidates/vfx-explosion_C.json",
+    "note": "ember; loses white core, pink on bright sky"
+   }
+  ],
+  "ranking": [
+   "A",
+   "C",
+   "B"
+  ],
+  "reason": "A follows the bible sequence and reads on both backgrounds",
+  "approved": {
+   "board": "look/approved/vfx-explosion.png",
+   "params": "look/approved/vfx-explosion.json",
+   "variant": "A",
+   "frozen_utc": "2026-09-30T11:10Z"
+  },
+  "status": "pending owner review"
+ }
 ]
