@@ -327,7 +327,8 @@ export function bulwarkGeometry(p: BulwarkParams, seed: number) {
 
 export function buildBulwark(params: BulwarkParams = ENEMY_VARIANTS.A.bulwark, seed = 1): BulwarkBuild {
   const G = bulwarkGeometry(params, seed);
-  const mp = createEnemyMaterial({ look: params.look, seamSpacing: 6 });
+  // a 220 m hull: halve the rim so it stays an edge line, not a wash over big facets
+  const mp = createEnemyMaterial({ look: { ...params.look, rimStrength: params.look.rimStrength * 0.5, stageRim: params.look.stageRim * 0.5 }, seamSpacing: 6 });
   const root = new THREE.Group();
   root.name = 'bulwark';
   for (const m of enemyMesh(G.geo, mp)) root.add(m);

@@ -43,7 +43,7 @@ export const ENEMY_VARIANTS: Record<'A' | 'B' | 'C', EnemyVariant> = {
   ),
   B: variant(
     'Hard panel',
-    { rimStrength: 0.95, rimPower: 3.2, rimWrap: 0.3, stageRim: 0.25, panelContrast: 1.0, markerIntensity: 2.6, markerDensity: 1.0, thrusterIntensity: 2.2, seamStrength: 0.45, outline: true, outlinePx: 1.4 },
+    { rimStrength: 1.6, rimPower: 3.2, rimWrap: 0.55, stageRim: 0.45, panelContrast: 1.0, markerIntensity: 3.2, markerDensity: 1.0, thrusterIntensity: 2.2, seamStrength: 0.45, outline: true, outlinePx: 1.4 },
     { spike: 0.6, leg: 0.94, wing: 1.06 },
   ),
   C: variant(

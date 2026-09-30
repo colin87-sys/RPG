@@ -169,7 +169,8 @@ void main() {
   // thin, crisp anime rim from the welded (smoothed) normal: hugs the silhouette
   // instead of flooding flat facets seen at grazing angles
   vec3 rN = normalize(vRimN);
-  float edge = 1.0 - clamp(abs(dot(rN, v)), 0.0, 1.0);
+  // rim only where BOTH the facet and the welded normal are grazing (no whole-face floods)
+  float edge = 1.0 - max(clamp(abs(dot(rN, v)), 0.0, 1.0), clamp(dot(n, v), 0.0, 1.0) * 0.85);
   float fr = smoothstep(0.7, 0.7 + 0.75 / uWarmRimPower, edge) * edge * edge;
   fr *= smoothstep(-0.1, 0.25, dot(n, v) + 0.2);
   float facing = clamp(dot(rN, normalize(uRimDir)) * 0.5 + 0.5, 0.0, 1.0);

@@ -17,21 +17,21 @@
     "archTop": 48,
     "lipY": 36,
     "lipOut": 9,
-    "lightDensity": 1.9,
-    "greebleDensity": 1,
-    "tone": 0.14,
+    "lightDensity": 0.62,
+    "greebleDensity": 0.6,
+    "tone": 0.04,
     "capLength": 60
   },
   "lengthMetres": 456,
   "stats": {
-    "triangles": 17296,
+    "triangles": 16624,
     "drawCalls": 3,
-    "lights": 809,
-    "moduleTriangles": 948,
+    "lights": 324,
+    "moduleTriangles": 900,
     "uniqueTriangles": 4024
   },
   "measuredContextFrame": {
-    "triangles": 17624,
+    "triangles": 16952,
     "calls": 5
   },
   "camera": {

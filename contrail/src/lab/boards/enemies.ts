@@ -336,7 +336,7 @@ export default async function board(ctx: LabContext) {
     const pxPerM = (RW - 40) / 240;
     const wM = RW / pxPerM, hM = b3.h / pxPerM;
     const cam = new THREE.OrthographicCamera(-wM / 2, wM / 2, hM / 2, -hM / 2, -2000, 2000);
-    cam.position.set(0, -20, -400);
+    cam.position.set(0, -20, -140); // ortho: close camera so fog does not lift the dark hull
     cam.lookAt(0, -22, 0);
     render('cloudgate', scene, cam, b3, palette.skyHorizon);
     header('TRUE SCALE vs BULWARK (front)', b3);

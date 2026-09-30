@@ -23,7 +23,7 @@ export default async function board(ctx: LabContext) {
     const r = cells[i];
     const hM = 240 * (r.h / r.w);
     const cam = new THREE.OrthographicCamera(-120, 120, hM / 2, -hM / 2, -2000, 2000);
-    cam.position.set(0, -20, -400);
+    cam.position.set(0, -20, -140);
     cam.lookAt(0, -22, 0);
     applyStageLook('cloudgate');
     ctx.renderCells([{ scene, camera: cam, rect: r, clear: palette.skyHorizon }], null);
