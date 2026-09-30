@@ -88,9 +88,9 @@ export function dartGeometry(p: DartParams, seed: number): DartGeo {
     g.loft([root(0.8, -0.5, 2.9, 0.12, 0.14), root(half * 0.62, 1.0, 3.1, 0.12 - droop * 0.55, 0.09), root(half, 2.1, 3.25, 0.12 - droop, 0.05)],
       (_r, s) => (s === 0 ? panel : s === 1 ? body : body), undefined, body);
     // wingtip marker light
-    g.box(half + 0.02, 0.12 - droop, 2.55, 0.1, 0.12, 0.5, marker);
+    g.box(half + 0.02, 0.12 - droop, 2.5, 0.16, 0.16, 0.8, marker);
     // optional flank markers
-    if (rng.next() < L.markerDensity) g.box(0.99, 0.2, 1.2, 0.05, 0.08, 0.35, marker);
+    if (rng.next() < L.markerDensity) g.box(0.99, 0.2, 1.2, 0.07, 0.14, 0.6, marker);
   });
 
   // --- V-fins, canted outward

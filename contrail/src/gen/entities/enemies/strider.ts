@@ -100,7 +100,7 @@ export function striderGeometry(p: StriderParams, seed: number) {
   g.mirrorX(() => {
     g.box(2.95 * sw, 4.85, 0.0, 1.9, 1.45, 2.7, panelHi, 0.35, body);
     g.box(2.95 * sw, 4.1, 0.0, 1.6, 0.4, 2.3, body, 0.3);
-    if (rng.next() < 0.5 + L.markerDensity * 0.5) g.box(3.2 * sw, 4.95, -1.37, 0.5, 0.18, 0.06, red());
+    if (rng.next() < 0.5 + L.markerDensity * 0.5) g.box(3.2 * sw, 4.95, -1.37, 0.8, 0.26, 0.06, red(1.8));
   });
   // hip armour
   g.mirrorX(() => g.box(1.6, -0.1, 0.1, 0.7, 1.3, 1.5, panel, 0.3, body));
@@ -112,7 +112,7 @@ export function striderGeometry(p: StriderParams, seed: number) {
     g.cylinder(8, 0.55 * jp, 0.72 * jp, 1.25, 1.8, panel, thr, undefined, Math.PI / 8);
     g.cylinder(4, 0.3, 0.02, 5.3, 6.9, body, undefined, undefined, Math.PI / 4); // antenna fin
     g.pop();
-    if (rng.next() < L.markerDensity) g.box(1.28, 5.0, 1.95 + 0.73 * jp, 0.3, 0.12, 0.05, red());
+    if (rng.next() < L.markerDensity) g.box(1.28, 5.0, 1.95 + 0.73 * jp, 0.45, 0.2, 0.05, red(1.8));
   });
   g.box(0, 3.4, 1.75, 1.7, 3.0, 1.1, body, 0.3);
   g.sphere([0, 3.4, 2.3], 0.55, 0.75, 0.45, 12, 6, core);

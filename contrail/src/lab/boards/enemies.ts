@@ -156,7 +156,7 @@ export default async function board(ctx: LabContext) {
       labels.push([name, new THREE.Vector3((b2.min.x + b2.max.x) / 2, b2.max.y, (b2.min.z + b2.max.z) / 2)]);
     }
     render('cloudgate', scene, cam, L0, palette.skyDay);
-    header('TRUE SCALE LINE-UP  (grid 1 m, Cloudgate light)', L0);
+    header('TRUE SCALE LINE-UP  (grid 1 m, Cloudgate rig: high-left sun, cool back-right rim)', L0);
     for (const [name, p] of labels) {
       const v = p.clone().project(cam);
       const sx = L0.x + ((v.x + 1) / 2) * L0.w, sy = L0.y + ((1 - v.y) / 2) * L0.h;
@@ -261,7 +261,7 @@ export default async function board(ctx: LabContext) {
       ctx.label(`${name} ${bg}`, r.x + 4, r.y + r.h - 24);
     });
   });
-  ctx.label('READABILITY cloudCream vs spaceDeep', 16, rY + 4, palette.hudText);
+  ctx.label('READABILITY cream=Cloudgate rig / space=Wreckfield rig', 16, rY + 4, palette.hudText);
 
   // =====================================================================
   // 4) SILHOUETTE ROW (flat black on cloudCream)

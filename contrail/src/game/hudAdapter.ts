@@ -63,6 +63,7 @@ export class HudAdapter {
     s.combatText = g.combatText.map((c) => ({ text: c.text, kind: c.kind, age: c.age })) as HudState['combatText'];
     s.speed = p.boost > 0 ? 0.95 : p.braking ? 0.2 : 0.55;
     s.prompts = g.prompts.filter((pr) => pr.age < 4).map((pr) => ({ text: pr.text }));
+    s.skyLuma = g.stage.id === 'wreckfield' ? 0 : g.stage.id === 'violetTide' ? 0.3 : 1;
     s.paused = g.paused;
     s.time = time;
     return s;
