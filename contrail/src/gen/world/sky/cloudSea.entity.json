@@ -1,0 +1,27 @@
+{
+  "name": "cloudSea",
+  "seed": 1,
+  "params": [
+    "CLOUDGATE_VARIANTS.*.sea",
+    "VIOLET_VARIANTS.*.sea"
+  ],
+  "triangles": 2,
+  "drawCalls": 1,
+  "boundsMetres": [
+    16000,
+    0,
+    16000
+  ],
+  "tokensUsed": [
+    "cloudCream",
+    "cloudSea",
+    "cloudMid",
+    "cloudShadow",
+    "sunCore",
+    "sunsetMagenta",
+    "sunsetIndigo",
+    "sunsetCloudDark",
+    "sunsetHorizon"
+  ],
+  "notes": "Opaque plane at y=-48 (Cloudgate) / -50 (Violet), follows camera in X/Z, world-space domain-warped fbm billows lit by the shared ramp + key, backlit crest rim, shared fog + sun in-scatter. Writes depth, renderOrder -900."
+}

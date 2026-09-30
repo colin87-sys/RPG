@@ -71,12 +71,12 @@ const baseBeam: BeamParams = {
   bossScale: 3,
   minWidthPx: 9,
   coreIntensity: 2.6,
-  edgeIntensity: 2.0,
-  haloIntensity: 1.5,
-  haloOcclusion: 0.55,
-  telegraphWidth: 0.12,
-  telegraphMinPx: 2.2,
-  telegraphOutlinePx: 1.6,
+  edgeIntensity: 2.6,
+  haloIntensity: 2.4,
+  haloOcclusion: 0.7,
+  telegraphWidth: 0.14,
+  telegraphMinPx: 3,
+  telegraphOutlinePx: 2,
   telegraphOutlineAlpha: 0.75,
   telegraphIntensity: 2.0,
   flickerHz: [7, 18],
@@ -96,7 +96,7 @@ export const BEAM_VARIANTS: Record<'A' | 'B' | 'C', BeamParams> = {
   /** A: verified cross-section, token width */
   A: { ...baseBeam },
   /** B: slimmer core, stronger halo, slower flicker (heavier threat read) */
-  B: { ...baseBeam, coreFrac: 0.55, haloIntensity: 1.8, haloOcclusion: 0.65, flickerHz: [5, 14], telegraphOutlinePx: 2, bossScale: 3.4 },
+  B: { ...baseBeam, coreFrac: 0.55, haloIntensity: 2.8, haloOcclusion: 0.8, flickerHz: [5, 14], telegraphOutlinePx: 2.5, bossScale: 3.4 },
   /** C: wider core, brighter flash, faster tip extension, livelier flow */
   C: { ...baseBeam, coreFrac: 0.68, flashScale: 1.9, flashBoost: 1.6, extendS: 0.12, flowAmount: 0.3, telegraphWidth: 0.16, bossScale: 2.6 },
 };
@@ -212,7 +212,7 @@ void main() {
     float core = 1.0 - smoothstep(cE - aa, cE + aa, x);
     float edge = (1.0 - smoothstep(cE + ew - aa, cE + ew + aa, x)) * (1.0 - core);
     float ht = clamp((x - cE) / max(1.0 - cE, 1e-3), 0.0, 1.0);
-    float halo = (1.0 - smoothstep(0.0, 1.0, ht)) * (1.0 - core);
+    float halo = (1.0 - smoothstep(0.35, 1.0, ht)) * (1.0 - core);
     float sW = vSW / max(vInvW, 1e-6) * vLenW;
     float flow = 1.0 + uFlowAmt * sin((sW / uFlowPeriod - uTime * uFlowSpeed / uFlowPeriod) * 6.2831853);
     vec3 hc = mix(mix(uHaloL, uHaloB, boss), mix(uHaloDarkL, uHaloDarkB, boss), smoothstep(0.1, 1.0, ht));
@@ -318,8 +318,8 @@ export class Beams {
         uHaloB: { value: tvec(bt.haloBoss) },
         uHaloDarkL: { value: tvec(shade(red, 0.5)) },
         uHaloDarkB: { value: tvec(palette.fireOrange) },
-        uTeleL: { value: tvec(mix(red, palette.burstWhite, 0.35)) },
-        uTeleB: { value: tvec(mix(yel, palette.burstWhite, 0.35)) },
+        uTeleL: { value: tvec(mix(red, palette.burstWhite, 0.18)) },
+        uTeleB: { value: tvec(mix(yel, palette.burstWhite, 0.12)) },
         uOutline: { value: tvec(palette.hostileOutline) },
       },
     });

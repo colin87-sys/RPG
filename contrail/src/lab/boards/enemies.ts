@@ -313,7 +313,7 @@ export default async function board(ctx: LabContext) {
     bb.update(1 / 60, { time: T + 0.4, phase: 1, ventGlow: 1, emitterCharge: 0.6 });
     scene.add(bb.root);
     const cam = new THREE.PerspectiveCamera(50, RW / b2.h, 1, 3000);
-    cam.position.set(60, -95, -250);
+    cam.position.set(45, -70, -175);
     cam.lookAt(0, -5, 0);
     render('cloudgate', scene, cam, b2, palette.skyDay);
     header('BULWARK front / below: emitters charging (Cloudgate)', b2);

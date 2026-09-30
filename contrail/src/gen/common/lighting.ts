@@ -51,7 +51,7 @@ export const lightUniforms = {
   uFogFar: { value: new THREE.Vector3(0.7, 0.8, 0.9) },
   uFogDensity: { value: 0.001 },
   uFogHeightFalloff: { value: 0.0 },
-  uFogBaseHeight: { value: -40.0 },
+  uFogBaseHeight: { value: -70.0 }, // below the cloud-sea tops (-45..-60 m)
   uShadowTint: { value: tvec(shading.shadowTint) },
   uHighlightTint: { value: tvec(shading.highlightTint) },
   uRamp: { value: makeRampTexture() },

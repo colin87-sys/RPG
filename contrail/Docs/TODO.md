@@ -15,3 +15,5 @@
 | T011 | P0 | Director | Game camera far plane >= 1600 m for Wreckfield asteroids; verify sky renderOrder under the post stack's HDR target | open |
 | T012 | P1 | VFX | vfx-smoke A over Cloudgate: trails merge with backdrop cumulus at 2.5-3.5 s; add slight cool shadow/contrast vs cloudCream | open |
 | T013 | P1 | Director | HUD wiring: parry/refill combat text must use kind 'good' (green); only damage lines red | open |
+| T014 | P1 | World | vista-cloudgate B: near-white cloud sea fills the lower ~40% and reads flat; add value variation / cool shadows in the near sea | open |
+| T015 | P2 | World | Cloudgate sun inset horizon sparkle; sea diagonal streaks near frame bottom | open |

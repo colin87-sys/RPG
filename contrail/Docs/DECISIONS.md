@@ -50,3 +50,6 @@ Deliberately kept different (original design, tagged [A]):
 - Hazard state keeps diagonal yellow/black stripes plus banner (reference uses blinking solid rails). Stripes add a shape cue beyond colour.
 - Shock rings keep a visible growth (30->65% width) instead of popping at full size, but band thickness is raised toward ~10-14% of radius.
 - Hostile bullets keep the thin dark outline ring (readability upgrade; reference has none).
+
+## 2026-09-30T08:36Z — Shared fog base height -70 m (was -40)
+Sky lane found -40 m sat inside the cloud-sea range and tinted the Violet Tide sea mauve. Height fog now starts below the sea tops.

@@ -1,0 +1,29 @@
+{
+  "name": "skyDome",
+  "seed": null,
+  "params": [
+    "CLOUDGATE_VARIANTS.*.sky",
+    "VIOLET_VARIANTS.*.sky"
+  ],
+  "triangles": 2208,
+  "drawCalls": 1,
+  "boundsMetres": [
+    10000,
+    10000,
+    10000
+  ],
+  "tokensUsed": [
+    "skyZenith",
+    "skyDay",
+    "skyHorizon",
+    "sunCore",
+    "cloudCream",
+    "sunsetZenith",
+    "sunsetIndigo",
+    "sunsetMagenta",
+    "sunsetHorizon",
+    "stages.*.sky",
+    "stages.*.fog.far"
+  ],
+  "notes": "Inverted sphere (48x24) follows the camera; gradient from stages[stage].sky with narrow horizon band, sun disc/limb/halo at uKeyDir, soft posterised painterly banding, faint cirrus. depthTest/depthWrite off, z forced to far plane, renderOrder -1000. Below-horizon = uFogFar so the cloud-sea edge is seamless."
+}

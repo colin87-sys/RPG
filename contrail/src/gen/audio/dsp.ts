@@ -213,6 +213,11 @@ export function filt(ctx: BaseAudioContext, type: BiquadFilterType, hz: number, 
   f.frequency.value = safeHz(ctx, hz);
   f.Q.value = q;
   if (gainDb) f.gain.value = gainDb;
+  // k-rate: coefficients per 128-sample block instead of per sample (sweeps stay smooth, ~3 ms steps)
+  f.frequency.automationRate = 'k-rate';
+  f.Q.automationRate = 'k-rate';
+  f.gain.automationRate = 'k-rate';
+  f.detune.automationRate = 'k-rate';
   return f;
 }
 

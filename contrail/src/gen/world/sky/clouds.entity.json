@@ -1,0 +1,31 @@
+{
+  "name": "cloudField",
+  "seed": 1,
+  "params": [
+    "CLOUDGATE_VARIANTS.A|B|C.clouds",
+    "VIOLET_VARIANTS.A|B|C.clouds"
+  ],
+  "triangles": {
+    "cloudgateA": 962,
+    "cloudgateB": 1852,
+    "cloudgateC": 2380,
+    "violet": 618
+  },
+  "drawCalls": 1,
+  "boundsMetres": [
+    3000,
+    420,
+    3200
+  ],
+  "tokensUsed": [
+    "cloudCream",
+    "cloudMid",
+    "cloudShadow",
+    "sunCore",
+    "sunsetMagenta",
+    "sunsetIndigo",
+    "sunsetCloudDark",
+    "sunsetHorizon"
+  ],
+  "notes": "Instanced camera-facing puffs (InstancedBufferGeometry, 1 draw). Instance data in a float texture sorted far-first; shader wraps clusters along -Z (window 3200 m, fade-in 700 m, near fade 70 m) and re-seeds side/offset per wrap; draw order = rotated instance index via one int uniform (back-to-front stays correct, zero per-frame allocation). Puff atlas 1024^2 baked once on CPU (normals + top-lit AO + density). Clear corridor |x|<corridorX, |y|<25 m."
+}
