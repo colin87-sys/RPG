@@ -1,0 +1,20 @@
+{
+  "name": "exhaust",
+  "seed": 7,
+  "params": [
+    "DEFAULT_EXHAUST",
+    "variant B: length 2.9, glow 1.2"
+  ],
+  "triangles": 580,
+  "drawCalls": 1,
+  "boundsMetres": [
+    1.2,
+    0.9,
+    7.5
+  ],
+  "tokensUsed": [
+    "exhaustCore",
+    "accentOrange"
+  ],
+  "notes": "Additive, depthWrite off, frustumCulled off. Core+outer cones+glow disc per port in one mesh; springs on throttle; boost shock diamonds; drift long plume."
+}

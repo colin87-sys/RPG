@@ -84,6 +84,8 @@ export interface CloudFieldParams {
   clusterNormal: number;
   /** 0 = soft wrap lighting, 1 = shared toon ramp */
   toon: number;
+  /** translucency lift of the half-lambert term (clouds scatter light into their shadow side) */
+  lift: number;
   /** headwind (m/s, clouds drift toward +Z) */
   wind: number;
   /** per-wrap lateral re-shuffle (m) so the field does not repeat */
@@ -128,6 +130,8 @@ export interface CloudBandParams {
   rimFocus: number;
   opacity: number;
   drift: number;
+  /** extra silhouette softness with distance */
+  soft: number;
 }
 
 export interface SkyVistaParams {
@@ -163,7 +167,7 @@ const cgSky: SkyDomeParams = {
   glowSize: 0.45,
   glowStretch: 1,
   glowStrength: 1,
-  cirrus: 0.35,
+  cirrus: 0.2,
   cirrusColor: 'cloudCream',
   banding: 0.55,
   bandSteps: 7,
@@ -178,25 +182,26 @@ const cgClouds: CloudFieldParams = {
   corridorX: 45,
   corridorY: 25,
   seaY: -48,
-  towersPerKm: 5,
-  banksPerKm: 6,
-  humpsPerKm: 30,
+  towersPerKm: 7,
+  banksPerKm: 8,
+  humpsPerKm: 36,
   wispsPerKm: 3,
   towerHeight: [110, 260],
   towerWidth: [110, 200],
   bankLength: [180, 420],
   bankHeight: [35, 80],
-  lateral: [10, 900],
+  lateral: [10, 650],
   humpSpread: 1400,
   opacity: 1,
   lit: 'cloudCream',
   mid: 'cloudMid',
   shadow: 'cloudShadow',
   rim: 'sunCore',
-  backlit: 0.25,
-  rimPower: 4,
+  backlit: 0.7,
+  rimPower: 3,
   clusterNormal: 0.45,
-  toon: 0.55,
+  toon: 0.45,
+  lift: 0.16,
   wind: 3,
   cycleShift: 120,
 };
@@ -206,28 +211,28 @@ const cgSea: CloudSeaParams = {
   size: 16000,
   scale: 420,
   stretchX: 1.0,
-  bump: 2.2,
+  bump: 5.0,
   lit: 'cloudCream',
   mid: ['cloudSea', 'cloudMid', 0.3],
   shadow: ['cloudShadow', 'cloudMid', 0.35],
   rim: 'sunCore',
   backlit: 0.1,
   drift: 1.5,
-  contrast: 1,
+  contrast: 1.3,
 };
 
 const cgBands: CloudBandParams = {
   count: 3,
   mode: 'follow',
-  spacing: 700,
-  start: 2000,
+  spacing: 450,
+  start: 1000,
   back: 0,
-  topY: [60, 200],
-  height: 260,
-  domeWidth: 420,
-  domeAmp: 150,
-  detailWidth: 110,
-  detailAmp: 40,
+  topY: [-10, 60],
+  height: 150,
+  domeWidth: 260,
+  domeAmp: 120,
+  detailWidth: 70,
+  detailAmp: 28,
   body: 'cloudMid',
   lit: 'cloudCream',
   shadow: 'cloudShadow',
@@ -237,6 +242,7 @@ const cgBands: CloudBandParams = {
   rimFocus: 3,
   opacity: 0.95,
   drift: 0,
+  soft: 1.5,
 };
 
 export const CLOUDGATE_VARIANTS: Record<VariantId, SkyVistaParams> = {
@@ -246,7 +252,7 @@ export const CLOUDGATE_VARIANTS: Record<VariantId, SkyVistaParams> = {
     sky: { ...cgSky },
     clouds: { ...cgClouds, towersPerKm: 4, banksPerKm: 1.5, humpsPerKm: 22, wispsPerKm: 1, corridorX: 60, towerHeight: [150, 320], towerWidth: [120, 210], lateral: [20, 1000] },
     sea: { ...cgSea },
-    bands: { ...cgBands, topY: [30, 120], domeAmp: 110 },
+    bands: { ...cgBands, topY: [-20, 30], domeAmp: 90 },
   },
   // B: medium banks
   B: {
@@ -259,7 +265,7 @@ export const CLOUDGATE_VARIANTS: Record<VariantId, SkyVistaParams> = {
   // C: dense, narrow corridor
   C: {
     stage: 'cloudgate',
-    sky: { ...cgSky, cirrus: 0.2 },
+    sky: { ...cgSky, cirrus: 0.1 },
     clouds: {
       ...cgClouds,
       towersPerKm: 9,
@@ -272,7 +278,7 @@ export const CLOUDGATE_VARIANTS: Record<VariantId, SkyVistaParams> = {
       lateral: [2, 600],
     },
     sea: { ...cgSea, bump: 2.6 },
-    bands: { ...cgBands, topY: [100, 240], domeAmp: 170 },
+    bands: { ...cgBands, topY: [10, 80], domeAmp: 150 },
   },
 };
 
@@ -284,8 +290,8 @@ const vtSky: SkyDomeParams = {
   sunIntensity: 2.2,
   glowInner: ['sunCore', 'sunsetHorizon', 0.35],
   glowOuter: 'sunsetMagenta',
-  glowSize: 0.55,
-  glowStretch: 0.6,
+  glowSize: 0.3,
+  glowStretch: 0.4,
   glowStrength: 1,
   cirrus: 0.18,
   cirrusColor: ['sunsetMagenta', 'sunsetIndigo', 0.3],
@@ -314,6 +320,7 @@ const vtClouds: CloudFieldParams = {
   rimPower: 5,
   clusterNormal: 0.35,
   toon: 0.4,
+  lift: 0.0,
   wind: 2,
 };
 
@@ -338,12 +345,12 @@ const vtBands: CloudBandParams = {
   spacing: 180,
   start: 60,
   back: 40,
-  topY: [-44, -26],
-  height: 70,
-  domeWidth: 90,
-  domeAmp: 16,
-  detailWidth: 28,
-  detailAmp: 6,
+  topY: [-56, -44],
+  height: 45,
+  domeWidth: 60,
+  domeAmp: 10,
+  detailWidth: 20,
+  detailAmp: 4,
   body: 'sunsetIndigo',
   lit: 'sunsetMagenta',
   shadow: 'sunsetCloudDark',
@@ -353,6 +360,7 @@ const vtBands: CloudBandParams = {
   rimFocus: 2.2,
   opacity: 1,
   drift: 1.5,
+  soft: 0.6,
 };
 
 export const VIOLET_VARIANTS: Record<VariantId, SkyVistaParams> = {
@@ -367,18 +375,18 @@ export const VIOLET_VARIANTS: Record<VariantId, SkyVistaParams> = {
   // B: tight bands, bigger sun, narrowest horizon band
   B: {
     stage: 'violetTide',
-    sky: { ...vtSky, sunScale: 1.6, horizonBand: 0.018, glowSize: 0.65 },
+    sky: { ...vtSky, sunScale: 1.6, horizonBand: 0.018, glowSize: 0.38 },
     clouds: { ...vtClouds },
     sea: { ...vtSea },
-    bands: { ...vtBands, count: 20, spacing: 120, domeAmp: 12, height: 55 },
+    bands: { ...vtBands, count: 20, spacing: 120, domeAmp: 8, height: 38 },
   },
   // C: wide bold bands, smaller sun, wider horizon band
   C: {
     stage: 'violetTide',
-    sky: { ...vtSky, sunScale: 0.95, horizonBand: 0.05, glowSize: 0.45 },
+    sky: { ...vtSky, sunScale: 0.95, horizonBand: 0.05, glowSize: 0.26 },
     clouds: { ...vtClouds, banksPerKm: 2 },
     sea: { ...vtSea },
-    bands: { ...vtBands, count: 10, spacing: 270, domeAmp: 24, domeWidth: 130, height: 90, rimWidth: 7 },
+    bands: { ...vtBands, count: 10, spacing: 270, domeAmp: 16, domeWidth: 95, height: 60, rimWidth: 7 },
   },
 };
 

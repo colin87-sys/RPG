@@ -1,0 +1,66 @@
+{
+  "name": "kestrel",
+  "seed": 7,
+  "params": [
+    "KESTREL_VARIANTS.A (Gull)",
+    "KESTREL_VARIANTS.B (Ember)",
+    "KESTREL_VARIANTS.C (Longbow)"
+  ],
+  "triangles": {
+    "A": {
+      "hull": 1037,
+      "outline": 847,
+      "exhaust": 580,
+      "total": 2464
+    },
+    "B": {
+      "hull": 1037,
+      "outline": 847,
+      "exhaust": 580,
+      "total": 2464
+    },
+    "C": {
+      "hull": 1037,
+      "outline": 847,
+      "exhaust": 580,
+      "total": 1617
+    }
+  },
+  "drawCalls": {
+    "A": 3,
+    "B": 3,
+    "C": 2
+  },
+  "boundsMetres": {
+    "A": [
+      9.08,
+      1.65,
+      12.05
+    ],
+    "B": [
+      9.08,
+      1.65,
+      12.05
+    ],
+    "C": [
+      9.54,
+      1.64,
+      12.89
+    ]
+  },
+  "tokensUsed": [
+    "armourLight",
+    "armourSteel",
+    "armourDark",
+    "accentOrange",
+    "exhaustCore",
+    "canopyBlue",
+    "emblemBlack",
+    "spaceDeep",
+    "hitFlash",
+    "shading.*",
+    "scale.kestrelLength",
+    "scale.kestrelSpan"
+  ],
+  "notes": "Hull = 1 draw call (flaps/fins deform in vertex shader via uPart), outline = 1 (optional), exhaust = 1. Nose -Z, up +Y, origin at CoM. Ports are root-local and refreshed by update(). Board: look/candidates/hero_{A,B,C}.png"
+}

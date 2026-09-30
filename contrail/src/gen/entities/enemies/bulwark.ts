@@ -176,7 +176,7 @@ export function bulwarkGeometry(p: BulwarkParams, seed: number) {
   const weak: THREE.Vector3[] = [];
   g.mirrorX((s) => {
     g.push(new THREE.Matrix4().makeTranslation(9 * ks, -12.4 * ks, 18 * ks));
-    g.cylinder(10, 4.2 * ks, 3.6 * ks, 0.8 * ks, -0.2 * ks, dark, undefined, undefined); // housing (downward)
+    g.cylinder(10, 3.6 * ks, 4.2 * ks, -0.2 * ks, 0.8 * ks, dark, dark, dark); // housing
     g.pop();
     g.sphere([9 * ks, -12.6 * ks, 18 * ks], 3.0 * ks, 1.4 * ks, 3.0 * ks, 12, 6, core);
     weak.push(new THREE.Vector3(9 * ks * s, -13.8 * ks, 18 * ks));
@@ -211,8 +211,8 @@ export function bulwarkGeometry(p: BulwarkParams, seed: number) {
       (_r, s) => (s === 1 ? plateHi : hullC), hullC);
     // root fins (front silhouette)
     const fx = x0 + 10;
-    g.loft([bl(fx, yW(fx) + th(fx) * 0.8, zl(fx) + 30, zt(fx) - 8, 1.2).map(([x, y, z]) => [x, y, z] as V),
-      bl(fx + 3, yW(fx) + th(fx) + 16, zl(fx) + 50, zt(fx) + 2, 0.2)].map((r) => r.map(([x, y, z]) => [x, y, z] as V)).map((r) => [r[0], r[3], r[2], r[1]]),
+    // loft upward (+Y) needs [leading, inner, trailing, outer]
+    g.loft([bl(fx, yW(fx) + th(fx) * 0.8, zl(fx) + 30, zt(fx) - 8, 1.2), bl(fx + 3, yW(fx) + th(fx) + 16, zl(fx) + 50, zt(fx) + 2, 0.2)].map((r) => [r[0], r[3], r[2], r[1]]),
       (_r, s) => (s === 0 ? plateHi : hullC), hullC);
     // leading-edge marker lights
     for (let i = 0; i < 6; i++) {
@@ -229,7 +229,7 @@ export function bulwarkGeometry(p: BulwarkParams, seed: number) {
       g.box(x, y - th(x) * 0.5 - 4, zc + 6, 4.5, 9, 22, hullC, 0.3, plate);
       g.push(new THREE.Matrix4().makeTranslation(x, y - th(x) * 0.5 - 9, zc).multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2 + 0.2)));
       g.cylinder(10, 3.4, 3.8, -6, 6, plate, undefined, dark);
-      g.cylinder(10, 3.4, 2.6, -6, -7.2, hullC, undefined, undefined);
+      g.cylinder(10, 2.6, 3.4, -7.2, -6, hullC, hullC, undefined);
       g.pop();
       // lens (smooth orb) at the pylon front
       const lp = new THREE.Vector3(x, y - th(x) * 0.5 - 9, zc).add(new THREE.Vector3(0, Math.sin(0.2) * 6.4, -Math.cos(0.2) * 6.4));

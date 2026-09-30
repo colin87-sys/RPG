@@ -34,7 +34,7 @@ const CELLS: Cell[] = [
       s.progress = 0;
       s.score = 184250;
       s.combo = { chain: 0, timer: 0, refill: false, multiplier: 1 };
-      s.reticle = { x: W / 2, y: H * 0.62 };
+      s.reticle = { x: W * 0.36, y: H * 0.7 };
       new Hud(v).draw(g, W, H, s, 1 / 60);
       drawStageCard(g, W, H, { index: 2, stage: 'VIOLET TIDE', subtitle: 'CROSS THE CLOUD SEA BEFORE NIGHTFALL', t: 1.6, upgrade: { name: 'MISSILE RACK +1', detail: 'LOCK-ON CAPACITY 6 > 7' } });
     },

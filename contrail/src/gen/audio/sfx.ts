@@ -476,12 +476,12 @@ const uiMove: SfxRecipe = (ctx, out, t0, p) => {
   const end = t0 + 0.06;
   const o = tone(ctx, 'triangle', 1760 * p.pitch, t0, end);
   const g = amp(ctx);
-  envAD(g.gain, t0, 0.001, 0.04, 0.35 * G);
+  envAD(g.gain, t0, 0.001, 0.05, 0.9 * G);
   chain(o, g, out);
   const n = noise(ctx, nb.white, t0, t0 + 0.02, p.rng);
   const hp = filt(ctx, 'highpass', 6000, 0.7);
   const ng = amp(ctx);
-  envAD(ng.gain, t0, 0.0005, 0.008, 0.2 * G);
+  envAD(ng.gain, t0, 0.0005, 0.008, 0.5 * G);
   chain(n, hp, ng, out);
   return { end };
 };

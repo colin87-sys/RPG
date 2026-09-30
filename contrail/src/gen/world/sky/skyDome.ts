@@ -98,7 +98,7 @@ export function buildSkyDome(stage: StageId, params: SkyDomeParams): SkyDome {
         float ang = acos(cosA);
         float outer = exp(-pow(q / uGlowSize, 2.0));
         float inner = exp(-ang / (uSunSize * 2.2));
-        c = mix(c, uGlowOuter, clamp(outer * uGlow * 0.75, 0.0, 1.0) * smoothstep(-0.05, 0.02, e));
+        c = mix(c, uGlowOuter, clamp(outer * uGlow * 0.6, 0.0, 1.0) * smoothstep(-0.05, 0.02, e));
         c += uGlowInner * inner * uGlow * 0.9;
         float disc = 1.0 - smoothstep(uSunSize * 0.92, uSunSize * 1.04, ang);
         c = mix(c, uSunColor * uSunIntensity, disc);
@@ -106,8 +106,8 @@ export function buildSkyDome(stage: StageId, params: SkyDomeParams): SkyDome {
         // faint high cirrus streaks (projected onto a high plane, stretched)
         vec2 cp = d.xz / (d.y + 0.12);
         vec2 sp = vec2(cp.x * 0.09 + cp.y * 0.04, cp.y * 0.55 - cp.x * 0.1) + vec2(uSkyTime * 0.0015, 0.0);
-        float cn = skyFbm(sp * vec2(0.6, 2.6) + vec2(0.4, 0.2));
-        float cm = smoothstep(0.52, 0.78, cn) * skyFbmLo(sp * 0.4 + 0.3);
+        float cn = skyFbm(sp * vec2(1.1, 2.4) + vec2(0.4, 0.2));
+        float cm = smoothstep(0.56, 0.8, cn) * skyFbmLo(sp * 0.4 + 0.3);
         cm *= smoothstep(0.06, 0.3, e) * (1.0 - smoothstep(0.75, 1.0, e));
         c = mix(c, uCirrusColor, clamp(cm * uCirrus * 1.6, 0.0, 1.0));
 

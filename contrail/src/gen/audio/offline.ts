@@ -236,7 +236,8 @@ export function spectrogramPng(buf: AudioBuffer, label: string, width = 480, hei
   for (let x = 0; x < width; x++) {
     const f0 = Math.floor((x * frames) / width);
     const f1 = Math.max(f0 + 1, Math.floor(((x + 1) * frames) / width));
-    col.fill(-200);
+    const pool = f1 - f0 > 3 ? 'mean' : 'max';
+    col.fill(pool === 'mean' ? 0 : -200);
     for (let f = f0; f < f1; f++) {
       const o = f * hop;
       for (let i = 0; i < n; i++) {
@@ -246,10 +247,15 @@ export function spectrogramPng(buf: AudioBuffer, label: string, width = 480, hei
       }
       fft.transform(re, im);
       for (let k = 0; k < bins; k++) {
-        const db = 20 * Math.log10(Math.hypot(re[k], im[k]) / norm + 1e-12);
-        if (db > col[k]) col[k] = db;
+        const mag = Math.hypot(re[k], im[k]) / norm;
+        if (pool === 'mean') col[k] += mag * mag;
+        else {
+          const db = 20 * Math.log10(mag + 1e-12);
+          if (db > col[k]) col[k] = db;
+        }
       }
     }
+    if (pool === 'mean') for (let k = 0; k < bins; k++) col[k] = 10 * Math.log10(col[k] / (f1 - f0) + 1e-24);
     for (let y = 0; y < height; y++) {
       const a = rowLo[y], b = rowHi[y];
       let db: number;
@@ -299,16 +305,32 @@ export const SFX_DEMO: Partial<Record<SfxName, { times: number[]; pitch?: number
 };
 
 const TAIL_S = 0.4;
+/**
+ * Silent pre-roll before every offline render: Chromium's DynamicsCompressor
+ * ramps up over ~100 ms after a context starts (measured: -8 dB in the first
+ * 50 ms on a steady tone). In the game the mixer exists long before any cue,
+ * so the check lets the master chain settle, then crops the pre-roll away.
+ */
+export const PRE_ROLL_S = 0.3;
+
+/** Copy of `buf` from `startS` on. */
+export function cropBuffer(buf: AudioBuffer, startS: number): AudioBuffer {
+  const a = Math.round(startS * buf.sampleRate);
+  const len = Math.max(1, buf.length - a);
+  const out = new AudioBuffer({ numberOfChannels: buf.numberOfChannels, length: len, sampleRate: buf.sampleRate });
+  for (let c = 0; c < buf.numberOfChannels; c++) out.copyToChannel(buf.getChannelData(c).subarray(a, a + len), c);
+  return out;
+}
 
 async function renderSfx(name: SfxName, seed: number): Promise<AudioBuffer> {
   const info = SFX_INFO[name];
   const demo = SFX_DEMO[name];
   const times = demo?.times ?? [0.02];
-  const len = Math.ceil((times[times.length - 1] + info.durationS + TAIL_S) * CHECK_SR);
+  const len = Math.ceil((PRE_ROLL_S + times[times.length - 1] + info.durationS + TAIL_S) * CHECK_SR);
   const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: len, sampleRate: CHECK_SR });
   const vm = new VoiceManager(ctx, new Mixer(ctx), seed);
-  times.forEach((t, i) => vm.play(name, { pitch: demo?.pitch?.[i] ?? 1, seed: seed + i }, t));
-  return ctx.startRendering();
+  times.forEach((t, i) => vm.play(name, { pitch: demo?.pitch?.[i] ?? 1, seed: seed + i }, PRE_ROLL_S + t));
+  return cropBuffer(await ctx.startRendering(), PRE_ROLL_S);
 }
 
 export interface CheckOptions {
@@ -368,8 +390,8 @@ export async function renderForCheck(opts: CheckOptions = {}): Promise<AudioChec
     if (!want(name) && !want('music')) continue;
     const t0 = performance.now();
     const seconds = LOOP_S + 1;
-    const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: Math.ceil(seconds * CHECK_SR), sampleRate: CHECK_SR });
-    const buf = await renderLoopOffline(ctx, seconds, m.intensity, m.stage, seed);
+    const ctx = new OfflineAudioContext({ numberOfChannels: 2, length: Math.ceil((PRE_ROLL_S + seconds) * CHECK_SR), sampleRate: CHECK_SR });
+    const buf = cropBuffer(await renderLoopOffline(ctx, seconds, m.intensity, m.stage, { seed, startAt: PRE_ROLL_S }), PRE_ROLL_S);
     const st = analyseBuffer(buf, 'music', LOOP_S);
     const seam = seamCheck(buf, LOOP_S);
     const r: AudioCheckResult = {
@@ -403,18 +425,20 @@ export interface MixerCheck {
  */
 export async function checkMixer(seed = 1): Promise<MixerCheck> {
   const secs = 5;
-  const mk = () => new OfflineAudioContext({ numberOfChannels: 2, length: secs * CHECK_SR, sampleRate: CHECK_SR });
-  const plain = await renderLoopOffline(mk(), secs, 0.6, 'cloudgate', seed);
-  const dctx = mk();
-  const ducked = await renderDucked(dctx, secs, seed);
+  const mk = () => new OfflineAudioContext({ numberOfChannels: 2, length: (PRE_ROLL_S + secs) * CHECK_SR, sampleRate: CHECK_SR });
+  const plain = cropBuffer(await renderLoopOffline(mk(), secs, 0.6, 'cloudgate', { seed, startAt: PRE_ROLL_S }), PRE_ROLL_S);
+  const ducked = cropBuffer(
+    await renderLoopOffline(mk(), secs, 0.6, 'cloudgate', { seed, startAt: PRE_ROLL_S, onMixer: (mx) => mx.duck(8, 1.0, PRE_ROLL_S + 3.0) }),
+    PRE_ROLL_S,
+  );
   const seg = (b: AudioBuffer) => rmsRange([b.getChannelData(0), b.getChannelData(1)], Math.round(3.1 * CHECK_SR), Math.round(3.9 * CHECK_SR));
   const duckMeasuredDb = gainToDb(seg(ducked)) - gainToDb(seg(plain));
 
   const one = await renderSfx('cannon', seed);
-  const hctx = new OfflineAudioContext({ numberOfChannels: 2, length: Math.ceil(2.6 * CHECK_SR), sampleRate: CHECK_SR });
+  const hctx = new OfflineAudioContext({ numberOfChannels: 2, length: Math.ceil((PRE_ROLL_S + 2.6) * CHECK_SR), sampleRate: CHECK_SR });
   const hvm = new VoiceManager(hctx, new Mixer(hctx), seed);
-  for (let i = 0; i < 28; i++) hvm.play('cannon', {}, 0.02 + i / 14);
-  const held = await hctx.startRendering();
+  for (let i = 0; i < 28; i++) hvm.play('cannon', {}, PRE_ROLL_S + 0.02 + i / 14);
+  const held = cropBuffer(await hctx.startRendering(), PRE_ROLL_S);
   const hs = analyseBuffer(held, 'sfx');
 
   const sctx = new OfflineAudioContext({ numberOfChannels: 2, length: CHECK_SR, sampleRate: CHECK_SR });
@@ -433,8 +457,4 @@ export async function checkMixer(seed = 1): Promise<MixerCheck> {
     cannonHeldRmsDbfs: hs.rmsDbfs,
     voiceStress: { ...svm.stats, maxActive, maxVoices: SFX_INFO.explosionSmall.maxVoices },
   };
-}
-
-function renderDucked(ctx: OfflineAudioContext, secs: number, seed: number): Promise<AudioBuffer> {
-  return renderLoopOffline(ctx, secs, 0.6, 'cloudgate', seed, (mixer) => mixer.duck(8, 1.0, 3.0));
 }

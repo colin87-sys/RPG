@@ -1,0 +1,33 @@
+{
+  "name": "pilot",
+  "seed": 0,
+  "params": [
+    "none (fixed figure)"
+  ],
+  "triangles": 294,
+  "drawCalls": 1,
+  "boundsMetres": [
+    0.7,
+    1.8,
+    0.35
+  ],
+  "tokensUsed": [
+    "armourLight",
+    "armourSteel",
+    "armourDark",
+    "accentOrange",
+    "canopyBlue",
+    "spaceDeep",
+    "skyDay",
+    "skyHorizon",
+    "shieldRed",
+    "hudDim",
+    "hudValue",
+    "hudText",
+    "emblemBlack",
+    "cloudCream",
+    "sunsetHorizon",
+    "sunsetIndigo"
+  ],
+  "notes": "buildPilotFigure(): 1.8 m, visored helmet, no face. drawPilotPortrait(g,w,h,{danger,time}) for the HUD pilot frame; clips to its rect."
+}

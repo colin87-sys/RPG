@@ -150,14 +150,16 @@ function menu(g: CanvasRenderingContext2D, cx: number, y: number, items: string[
       txt(g, '>', cx - w / 2 + 22 * k + bob, yy, size * 0.8, C.text);
       txt(g, '<', cx + w / 2 - 22 * k - bob, yy, size * 0.8, C.text, { align: 'right' });
     }
-    txt(g, items[i], cx, yy, size, tag ? C.dim : on ? C.value : C.text, { align: 'center', glow: on ? 0.35 : 0, outline: tag ? undefined : OUTLINE });
+    txt(g, items[i], cx, yy, size, on ? C.value : C.text, { align: 'center', glow: on ? 0.35 : 0, alpha: tag ? 0.5 : 1 });
     if (tag) {
       const tw = meas(items[i], size);
       const tx = cx + tw / 2 + 16 * k;
       const ts = 13 * k;
       const pw = meas(tag, ts) + 14 * k;
       plate(g, tx, yy - 11 * k, pw, 22 * k, 5 * k);
-      g.strokeStyle = C.dim;
+      g.fillStyle = withAlpha(C.backing, 0.8);
+      g.fill();
+      g.strokeStyle = C.line;
       g.lineWidth = 1.5 * k;
       g.stroke();
       txt(g, tag, tx + 7 * k, yy, ts, C.text, { outline: undefined, alpha: 0.8 });
@@ -245,7 +247,7 @@ function titleBackdrop(g: CanvasRenderingContext2D, w: number, h: number, time: 
   g.fillStyle = lin;
   g.fillRect(0, 0, w, h);
   // horizon glow
-  const hy = h * 0.74;
+  const hy = h * 0.8;
   const hg = g.createLinearGradient(0, hy - 60 * k, 0, hy + 60 * k);
   hg.addColorStop(0, withAlpha(palette.sunsetHorizon, 0));
   hg.addColorStop(0.5, withAlpha(palette.sunsetHorizon, 0.4));
@@ -319,8 +321,8 @@ export function drawTitle(g: CanvasRenderingContext2D, w: number, h: number, st:
     txt(g, 'PRESS ENTER / START', cx, h * 0.7, 30 * k, C.value, { align: 'center', alpha: blink, tracking: 0.15, glow: 0.3 });
   } else {
     const items = st.items ?? ['CAMPAIGN', 'CARAVAN', 'SETTINGS'];
-    menu(g, cx, h * 0.6, items, st.selected, k, st.time, st.tags);
-    txt(g, '[ENTER] / START  SELECT    [ESC]  BACK', cx, h * 0.6 + items.length * 58 * k + 30 * k, 14 * k, C.text, { align: 'center', alpha: 0.85 });
+    menu(g, cx, h * 0.56, items, st.selected, k, st.time, st.tags);
+    txt(g, '[ENTER] / START  SELECT    [ESC]  BACK', cx, h * 0.56 + items.length * 58 * k + 30 * k, 14 * k, C.text, { align: 'center', alpha: 0.85 });
   }
   txt(g, st.version ?? 'V0.1', w - 30 * k, h - 30 * k, 13 * k, C.dim, { align: 'right', outline: undefined });
   g.restore();
