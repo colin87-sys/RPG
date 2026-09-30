@@ -37,6 +37,9 @@ export class App {
   private frameMsEma = 16.7;
   private lastFrameT = 0;
   private scaleHold = 0;
+  /** device pixel ratio cap and adaptive floor (phones: lower, see setTouchQuality) */
+  private prCap = 2;
+  private scaleFloor = 0.6;
   hooks: AppHooks | null = null;
   private resizeListeners: ((w: number, h: number) => void)[] = [];
   private running = false;
@@ -87,7 +90,7 @@ export class App {
     const w = p.w ?? window.innerWidth;
     const h = p.h ?? window.innerHeight;
     // Fixed-size captures render at exactly w x h device pixels.
-    const pr = p.w && p.h ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+    const pr = p.w && p.h ? 1 : Math.min(window.devicePixelRatio || 1, this.prCap);
     this.width = w;
     this.height = h;
     this.pixelRatio = pr;
@@ -122,6 +125,14 @@ export class App {
     requestAnimationFrame(loop);
   }
 
+  /** Phones/tablets: cap the device pixel ratio at 1.5, start at 80% and allow down to 50%. */
+  setTouchQuality(): void {
+    this.prCap = 1.5;
+    this.scaleFloor = 0.5;
+    this.renderScale = Math.min(this.renderScale, 0.8);
+    this.resize();
+  }
+
   /**
    * Keep frame rate on weaker GPUs: below ~50 fps for a second, drop the 3D
    * resolution 10% (floor 60%); above ~58 fps for three seconds, raise it again.
@@ -133,7 +144,7 @@ export class App {
     this.frameMsEma += (dt - this.frameMsEma) * 0.05;
     this.scaleHold += dt;
     let next = this.renderScale;
-    if (this.frameMsEma > 20 && this.scaleHold > 1000) next = Math.max(0.6, this.renderScale - 0.1);
+    if (this.frameMsEma > 20 && this.scaleHold > 1000) next = Math.max(this.scaleFloor, this.renderScale - 0.1);
     else if (this.frameMsEma < 17.2 && this.scaleHold > 3000) next = Math.min(1, this.renderScale + 0.1);
     if (next !== this.renderScale) {
       this.renderScale = Math.round(next * 10) / 10;

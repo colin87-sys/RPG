@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { readParams } from './core/params';
 import { App } from './core/app';
 import { Input } from './core/input';
+import { TouchControls } from './core/touch';
 import { Game } from './game/game';
 import { View, STORY_CAMERAS, type StoryCamera } from './game/view';
 import { HudAdapter } from './game/hudAdapter';
@@ -14,7 +15,7 @@ import { installErrorCapture, type GameDebugAPI } from './debug/api';
 import { post as postTok } from './style/tokens';
 import { PostStack, POST_VARIANTS } from './gen/vfx/post';
 import { Hud } from './gen/ui/hud';
-import { drawTitle, drawResults, drawGameOver, drawPause, drawStageCard, setScreenStyle, type Rank } from './gen/ui/screens';
+import { drawTitle, drawResults, drawGameOver, drawPause, drawStageCard, setScreenStyle, setTouchPrompts, type Rank } from './gen/ui/screens';
 import { GLYPH_STYLES } from './gen/ui/font';
 import { AudioEngine } from './gen/audio/engine';
 import { bindGameAudio } from './gen/audio/bind';
@@ -27,6 +28,13 @@ const game = new Game(params.seed, input);
 const view = new View(game);
 const hudAdapter = new HudAdapter(game, view);
 const hud = new Hud('C');
+// touch controls: created up front, shown after the first touch (never in det/capture mode)
+if (!params.det) {
+  const touch = new TouchControls();
+  input.touch = touch;
+  touch.onActivate = () => { setTouchPrompts(true); hudAdapter.touchText = true; app.setTouchQuality(); hud.showPilot = false; touch.setPlaying(game.state === 'play'); };
+  game.events.on('stateChanged', ({ to }) => touch.setPlaying(to === 'play'));
+}
 setScreenStyle(GLYPH_STYLES.C);
 const postStack = new PostStack(app.renderer, { clean: params.clean, params: POST_VARIANTS.A });
 // count draw calls/triangles for the whole frame (scene + all post passes), not just the last pass

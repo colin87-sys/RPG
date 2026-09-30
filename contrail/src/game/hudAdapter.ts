@@ -5,6 +5,7 @@ import { createHudState, type HudState, type HudTarget } from '../gen/ui/hud';
 import type { Game } from './game';
 import type { View } from './view';
 import { T } from '../data/tuning';
+import { touchPrompt } from '../core/touch';
 
 const KIND_LABEL: Record<string, string> = { caltrop: 'CALTROP', dart: 'DART', sniper: 'LANCER', strider: 'STRIDER', bulwark: 'BULWARK' };
 
@@ -12,6 +13,9 @@ export class HudAdapter {
   readonly s: HudState = createHudState();
   private hazardT = 0;
   private targets: HudTarget[] = [];
+
+  /** touch play: tutorial prompts name the on-screen buttons */
+  touchText = false;
 
   constructor(private game: Game, private view: View) {}
 
@@ -68,7 +72,7 @@ export class HudAdapter {
     s.danger = Math.max(0, Math.min(1, (40 - p.shield) / 40));
     s.combatText = g.combatText.map((c) => ({ text: c.text, kind: c.kind, age: c.age })) as HudState['combatText'];
     s.speed = p.boost > 0 ? 0.95 : p.braking ? 0.2 : 0.55;
-    s.prompts = g.prompts.filter((pr) => pr.age < 4).map((pr) => ({ text: pr.text }));
+    s.prompts = g.prompts.filter((pr) => pr.age < 4).map((pr) => ({ text: this.touchText ? touchPrompt(pr.text) : pr.text }));
     s.skyLuma = g.stage.id === 'wreckfield' ? 0 : g.stage.id === 'violetTide' ? 0.3 : 1;
     s.paused = g.paused;
     s.time = time;

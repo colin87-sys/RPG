@@ -228,6 +228,8 @@ function chipPath(g: CanvasRenderingContext2D, x: number, y: number, w: number, 
 export class Hud {
   readonly variant: HudVariant;
   portrait: PortraitDrawer | null;
+  /** false in touch play: the on-screen buttons sit where the pilot frame is */
+  showPilot = true;
 
   // colours (precomputed strings)
   private readonly cBacking: string;
@@ -409,7 +411,7 @@ export class Hud {
     this.drawTop(g, w, s);
     this.drawBottom(g, w, h, s);
     this.drawLadder(g, s);
-    this.drawPilot(g, s);
+    if (this.showPilot) this.drawPilot(g, s);
     if (s.hazard.on) this.drawHazard(g, w, s);
     if (!s.paused) {
       this.drawTargets(g, s);

@@ -77,6 +77,12 @@ export interface StageCardData {
 
 /** Screens share the HUD variant's glyph face; set once at startup. */
 export const screenStyle: { glyph: GlyphStyle; chamfer: number; lineMul: number } = { glyph: GLYPH_STYLES.A, chamfer: 14, lineMul: 1 };
+/** touch play: prompts say TAP instead of naming keys */
+let touchPrompts = false;
+export function setTouchPrompts(on: boolean): void {
+  touchPrompts = on;
+}
+
 export function setScreenStyle(glyph: GlyphStyle, chamfer = 14, lineMul = 1): void {
   screenStyle.glyph = glyph;
   screenStyle.chamfer = chamfer;
@@ -318,7 +324,7 @@ export function drawTitle(g: CanvasRenderingContext2D, w: number, h: number, st:
 
   if (!st.showMenu) {
     const blink = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(st.time * 4));
-    txt(g, 'PRESS ENTER / START', cx, h * 0.7, 30 * k, C.value, { align: 'center', alpha: blink, tracking: 0.15, glow: 0.3 });
+    txt(g, touchPrompts ? 'TAP TO START' : 'PRESS ENTER / START', cx, h * 0.7, 30 * k, C.value, { align: 'center', alpha: blink, tracking: 0.15, glow: 0.3 });
   } else {
     const items = st.items ?? ['CAMPAIGN', 'CARAVAN', 'SETTINGS'];
     menu(g, cx, h * 0.56, items, st.selected, k, st.time, st.tags);
@@ -389,7 +395,7 @@ export function drawResults(g: CanvasRenderingContext2D, w: number, h: number, d
     txt(g, RANK_WORD[d.rank], rx + rs / 2, ry + rs * 1.28, 20 * k, col, { align: 'center', tracking: 0.25 });
     g.globalAlpha = 1;
   }
-  txt(g, '[ENTER] CONTINUE    [R] RETRY', px + pw - 40 * k, py + ph - 40 * k, 14 * k, C.text, { align: 'right' });
+  txt(g, touchPrompts ? 'TAP TO CONTINUE' : '[ENTER] CONTINUE    [R] RETRY', px + pw - 40 * k, py + ph - 40 * k, 14 * k, C.text, { align: 'right' });
   g.restore();
 }
 
@@ -404,7 +410,7 @@ export function drawPause(g: CanvasRenderingContext2D, w: number, h: number, d: 
   panel(g, px, py, pw, ph, k);
   txt(g, 'PAUSED', w / 2, py + 70 * k, 50 * k, C.value, { align: 'center', tracking: 0.3, weight: 1.2, glow: 0.3 });
   txt(g, `// HOLDING PATTERN${d.stage ? ` - ${d.stage}` : ''} //`, w / 2, py + 120 * k, 14 * k, C.text, { align: 'center', tracking: 0.1 });
-  menu(g, w / 2, py + 190 * k, d.items ?? ['RESUME', 'RESTART STAGE', 'QUIT TO TITLE'], d.selected, k, d.t);
+  menu(g, w / 2, py + 190 * k, d.items ?? (touchPrompts ? ['TAP II TO RESUME'] : ['RESUME', 'RESTART STAGE', 'QUIT TO TITLE']), d.selected, k, d.t);
   g.restore();
 }
 
@@ -437,7 +443,7 @@ export function drawGameOver(g: CanvasRenderingContext2D, w: number, h: number, 
   const pr = Math.round(clamp01(d.progress ?? 0) * 100);
   txt(g, `KESTREL DOWN  //  ${d.stage}  //  ROUTE ${pr}%  //  SCORE ${String(Math.round(d.score)).padStart(7, '0')}`, w / 2, cy + size * 0.5 + 60 * k, 16 * k, C.text, { align: 'center', tracking: 0.05 });
   menu(g, w / 2, h * 0.64, d.items ?? ['RETRY', 'QUIT TO TITLE'], d.selected ?? 0, k, d.t);
-  txt(g, '[ENTER] / START  RETRY FROM ROUTE START', w / 2, h * 0.64 + 150 * k, 14 * k, C.text, { align: 'center', alpha: 0.85 });
+  txt(g, touchPrompts ? 'TAP TO RETRY FROM ROUTE START' : '[ENTER] / START  RETRY FROM ROUTE START', w / 2, h * 0.64 + 150 * k, 14 * k, C.text, { align: 'center', alpha: 0.85 });
   g.restore();
 }
 

@@ -25,6 +25,10 @@ Owner: "the plane feels slow and unresponsive and doesn't feel like it moves all
 - **Controls** (implemented, agent-verified; feel pending owner review): input now drives the craft directly (was: input moved a reticle the craft trailed at 0.18 s). Lateral speed 22 -> 44 m/s, 0.07 s acceleration, flight window 16x9 -> 19x10 m, camera follows 0.72 -> 0.45 of the craft offset so the craft really travels across the screen (x = 19 m in 0.67 s). Details: `Docs/DECISIONS.md` 13:10Z.
 - **Graphics** (implemented, pending owner review): displaced 3D cloud sea with rounded cumulus lumps, self-shadow and sky bounce (was a flat noise plane); cauliflower cumulus towers filling Cloudgate and rim-lit towers on the Violet Tide horizon; smooth asteroids with procedural rock relief and a nebula fill light; wingtip vapour trails that brighten with manoeuvres; clear-coat reflections on the Kestrel; larger caltrop drones with brighter eyes; BULWARK vent volley as a chevron wave instead of a wall. Live play scales the 3D resolution down on slow GPUs. Details: `Docs/DECISIONS.md` 13:40Z onward.
 
+## Mobile and web link (2026-09-30)
+- **Touch controls** (implemented, agent-verified in an emulated phone; feel pending owner review): left-thumb stick, auto-fire cannon, MSL hold/release, roll, boost, brake, drift and wingtrail buttons, pause, tap to start/continue. Best in landscape.
+- **Play in a browser**: https://claude.ai/artifact/2FV292XrHEo7CC3hkM2syM (private: open it while signed in to claude.ai; share it from the page's Share menu). Rebuild with `npm run build && npm run webpage`, then republish dist-web/.
+
 ## How to run
 ```
 cd contrail
@@ -69,7 +73,7 @@ Calibration passed (art-directed > planted-defect > naive; both planted defects 
 - Hooks load only when Claude Code is started inside `contrail/`.
 
 ## What was cut and why
-Roguelite mode, cockpit camera, touch controls, livery swap (P2, out of time for this chunk). Hangar screen (P1) not built. Story, voiced cutscenes, faces, online features: out of scope by design.
+Roguelite mode, cockpit camera, livery swap (P2, out of time for this chunk). Hangar screen (P1) not built. Story, voiced cutscenes, faces, online features: out of scope by design.
 
 ## Privacy
 The owner's reference pack (`Docs/refs/`) is **never committed** (the host repo is public). `npm run refcheck` checks exact hashes and perceptual hashes (`tools/refs.manifest.json`, `tools/refs.phash.json`, hashes only) against the build and the repo; `npm run prepush` runs it before pushing.
@@ -78,4 +82,4 @@ The owner's reference pack (`Docs/refs/`) is **never committed** (the host repo 
 1. Owner: play it, listen to it, and judge the look against `look/approved/` (visual and audio claims are pending owner review).
 2. Close the look gate: T039-T042 (strider framing, lock language, Cloudgate cumulus, boss volley shape).
 3. Balance Violet Tide and Wreckfield (T037); measure fps on a GPU (T036).
-4. P2 items if wanted: roguelite, cockpit camera, touch.
+4. P2 items if wanted: roguelite, cockpit camera.

@@ -32,6 +32,8 @@ export function emptyFrame(): InputFrame {
   };
 }
 
+import type { TouchControls } from './touch';
+
 export type InputScript = (frame: number) => Partial<InputFrame>;
 
 const STICK_DEAD_ZONE = 0.18;
@@ -48,6 +50,8 @@ export class Input {
   cur: InputFrame = emptyFrame();
   /** true when the latest human input came from a gamepad (HUD prompts) */
   usingGamepad = false;
+  /** on-screen touch controls (merged into the frame once a touch has been seen) */
+  touch: TouchControls | null = null;
 
   constructor(private target: HTMLElement | null) {
     if (typeof window === 'undefined') return;
@@ -63,6 +67,7 @@ export class Input {
     });
     const el = target ?? window;
     el.addEventListener('mousemove', (e: Event) => {
+      if (this.touch?.active) return; // phones emit compatibility mouse events from taps
       const m = e as MouseEvent;
       const w = window.innerWidth, h = window.innerHeight;
       this.mouseNdc = { x: (m.clientX / w) * 2 - 1, y: -((m.clientY / h) * 2 - 1) };
@@ -70,6 +75,7 @@ export class Input {
       this.usingGamepad = false;
     });
     el.addEventListener('mousedown', (e: Event) => {
+      if (this.touch?.active) return;
       this.mouseButtons.add((e as MouseEvent).button);
       this.mouseMovedAt = performance.now();
     });
@@ -138,6 +144,22 @@ export class Input {
       if (b(13)) my = -1;
       if (b(14)) mx = -1;
       if (b(15)) mx = 1;
+    }
+    // touch: stick + buttons; the cannon auto-fires
+    if (this.touch?.active) {
+      const t = this.touch.read();
+      if (Math.abs(t.moveX) > Math.abs(mx)) mx = t.moveX;
+      if (Math.abs(t.moveY) > Math.abs(my)) my = t.moveY;
+      f.fire = true;
+      f.lock ||= t.lock;
+      f.rollLeft ||= t.rollLeft;
+      f.rollRight ||= t.rollRight;
+      f.boost ||= t.boost;
+      f.brake ||= t.brake;
+      f.drift ||= t.drift;
+      f.wingtrail ||= t.wingtrail;
+      f.confirm ||= t.confirm;
+      f.pause ||= t.pause;
     }
     f.moveX = Math.max(-1, Math.min(1, mx));
     f.moveY = Math.max(-1, Math.min(1, my));

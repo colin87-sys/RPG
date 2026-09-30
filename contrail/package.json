@@ -20,7 +20,8 @@
     "readability": "node tools/readability.mjs",
     "timelapse": "node tools/timelapse.mjs",
     "acceptance": "node tools/acceptance.mjs",
-    "prepush": "node tools/prepush.mjs"
+    "prepush": "node tools/prepush.mjs",
+    "webpage": "node tools/webpage.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"
