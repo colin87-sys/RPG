@@ -35,7 +35,7 @@ See `checks.json` for the latest machine-readable run. Table (TASK.md section 4)
 
 | ID | Requirement | Result | Evidence |
 |---|---|---|---|
-| A1 | Stage 1 completes | **pass** (Cloudgate, rank A, shield 77, 188 s) | goldpath |
+| A1 | Stage 1 completes | **pass** (Cloudgate, rank S, shield 72, 186 s, after the controls rework) | goldpath |
 | A2 | All mechanics fire | **pass** (cannon, missiles, missile kills, parry, drift, wingtrail, shield refill all > 0) | goldpath counts |
 | A3 | 60 fps on a real GPU | **pending owner review** (no GPU here). Software GL: 35-37 draw calls, 51-64k triangles at peak (budgets 250 / 450k); 0.4-0.6 fps relative in SwiftShader | perf |
 | A4 | Offline, 0 external requests | **pass** (0 of 49 requests external) | netcheck |
@@ -44,10 +44,10 @@ See `checks.json` for the latest machine-readable run. Table (TASK.md section 4)
 | A7 | Look match (Reviewer avg >= 7) | **not passed**: plateau 6.5-6.7 over six rounds (no axis < 5) | `Docs/reviews/M2_M4_round6.md` |
 | A8 | Budgets | **pass** (draw calls/triangles; 47 files in dist, 0 images/audio) | perf, build |
 | A9 | Readability deltaE >= 25 | Cloudgate **pass** (CIEDE2000 median 25.4 at t=150); Violet Tide **fail** (21.2: orange rounds on the sunset horizon, T024); Wreckfield inconclusive (too few rounds in sampled frames; mask counts a round occluded by the boss) | readability |
-| A10 | Stages 2-3 + boss | **pass** (Cloudgate, rank A, shield 77, 188 s)0 | goldpath --stage |
-| A11 | Caravan | **pass** (Cloudgate, rank A, shield 77, 188 s)1 | goldpath --mode caravan |
+| A10 | Stages 2-3 + boss | **pass** (Violet Tide and Wreckfield cleared, BULWARK defeated) | goldpath --stage |
+| A11 | Caravan | **pass** (120 s run completes with a score) | goldpath --mode caravan |
 | A12 | Audio health | pass numerically; pending owner review | audiocheck |
-| A13 | Retry < 2 s | **pass** (Cloudgate, rank A, shield 77, 188 s)3 | goldpath --gameover |
+| A13 | Retry < 2 s | **pass** (0.82 s game over -> play) | goldpath --gameover |
 | A14 | Roguelite mode | cut for this chunk (P2) | |
 | A15 | Challenge (shield < 90, >= 3 hits on Cloudgate) | agent-verified (bot ends ~56-78 shield) | goldpath |
 

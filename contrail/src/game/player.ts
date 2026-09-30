@@ -99,40 +99,43 @@ export function updatePlayer(
   const M = T.move;
   const steer = p.drift > 0 ? T.drift.steering : 1;
 
-  // --- reticle ---
+  // --- direct craft control (owner feedback: old reticle-first steering felt slow) ---
+  // Stick/keys set a target velocity; the craft reaches it in ~accelTime. The mouse sets a
+  // target position that the craft chases hard. The reticle then leads the craft.
+  let dvx: number, dvy: number;
   if (inp.aim && aimToRail) {
     const target = aimToRail(inp.aim.x, inp.aim.y);
-    const k = approach(0.05, dt);
-    p.rx += (clamp(target.x, -M.reticleWindowX, M.reticleWindowX) - p.rx) * k * steer;
-    p.ry += (clamp(target.y, -M.reticleWindowY, M.reticleWindowY) - p.ry) * k * steer;
+    const txm = clamp((target.x / M.reticleWindowX) * M.windowX, -M.windowX, M.windowX);
+    const tym = clamp((target.y / M.reticleWindowY) * M.windowY, -M.windowY, M.windowY);
+    dvx = clamp((txm - p.x) / M.mouseChase, -M.maxLateralSpeed, M.maxLateralSpeed);
+    dvy = clamp((tym - p.y) / M.mouseChase, -M.maxLateralSpeed, M.maxLateralSpeed);
   } else {
-    p.rx += inp.moveX * M.reticleSpeed * dt * steer;
-    p.ry += inp.moveY * M.reticleSpeed * dt * steer;
+    dvx = inp.moveX * M.maxLateralSpeed;
+    dvy = inp.moveY * M.maxLateralSpeed * M.verticalSpeedMul;
   }
-  p.rx = clamp(p.rx, -M.reticleWindowX, M.reticleWindowX);
-  p.ry = clamp(p.ry, -M.reticleWindowY, M.reticleWindowY);
-
-  // --- craft follows the reticle (lag 0.18 s), lateral speed capped ---
-  const tx = (p.rx / M.reticleWindowX) * M.windowX;
-  const ty = (p.ry / M.reticleWindowY) * M.windowY;
-  const k = approach(M.craftLag, dt);
-  let nvx = ((tx - p.x) * k) / dt;
-  let nvy = ((ty - p.y) * k) / dt;
-  const sp = Math.hypot(nvx, nvy);
-  if (sp > M.maxLateralSpeed) {
-    nvx *= M.maxLateralSpeed / sp;
-    nvy *= M.maxLateralSpeed / sp;
-  }
+  const accel = approach(M.accelTime, dt);
+  p.vx += (dvx * steer - p.vx) * accel;
+  p.vy += (dvy * steer - p.vy) * accel;
   // roll adds a sideways burst
-  if (p.rolling > 0) nvx += p.rollDir * T.roll.lateralBurst * Math.sin((p.rollAge / T.roll.duration) * Math.PI);
-  p.vx = nvx;
-  p.vy = nvy;
-  p.x = clamp(p.x + p.vx * dt, -M.windowX, M.windowX);
-  p.y = clamp(p.y + p.vy * dt, -M.windowY, M.windowY);
+  const burst = p.rolling > 0 ? p.rollDir * T.roll.lateralBurst * Math.sin((p.rollAge / T.roll.duration) * Math.PI) : 0;
+  p.x += (p.vx + burst) * dt;
+  p.y += p.vy * dt;
+  // soft walls: stop velocity into the edge
+  if (p.x > M.windowX) { p.x = M.windowX; if (p.vx > 0) p.vx = 0; }
+  if (p.x < -M.windowX) { p.x = -M.windowX; if (p.vx < 0) p.vx = 0; }
+  if (p.y > M.windowY) { p.y = M.windowY; if (p.vy > 0) p.vy = 0; }
+  if (p.y < -M.windowY) { p.y = -M.windowY; if (p.vy < 0) p.vy = 0; }
+  // reticle: ahead of the craft, leading in the direction of motion
+  const sx = M.reticleWindowX / M.windowX, sy = M.reticleWindowY / M.windowY;
+  const rtx = clamp(p.x * sx + p.vx * M.reticleLead, -M.reticleWindowX, M.reticleWindowX);
+  const rty = clamp(p.y * sy + p.vy * M.reticleLead, -M.reticleWindowY, M.reticleWindowY);
+  const rk = approach(0.05, dt);
+  p.rx += (rtx - p.rx) * rk;
+  p.ry += (rty - p.ry) * rk;
 
   // --- bank & pitch (spring-ish smoothing toward targets) ---
   const bankTarget = clamp(p.vx * M.bankPerLateralSpeed, -M.bankMax, M.bankMax);
-  p.bank += (bankTarget - p.bank) * approach(0.12, dt);
+  p.bank += (bankTarget - p.bank) * approach(0.08, dt);
   const pitchTarget = clamp(p.vy * M.pitchPerVerticalSpeed, -0.35, 0.35);
   p.pitch += (pitchTarget - p.pitch) * approach(0.15, dt);
 

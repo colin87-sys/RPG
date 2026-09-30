@@ -8,8 +8,8 @@ export const T = {
     back: 20, // m behind the craft [A: seed said 9; refs show craft at ~15-20% of frame width]
     up: 5, // m above [A]
     fov: 68, // deg [A]
-    followX: 0.72, // camera follows this fraction of the craft's lateral offset
-    followY: 0.72,
+    followX: 0.45, // camera follows this fraction of the craft's lateral offset (was 0.72: craft stuck mid-screen)
+    followY: 0.5,
     lag: 0.12, // s time constant of camera follow
     rollFraction: 0.3, // camera rolls 30% of craft bank [O/A]
     lookAhead: 42, // m ahead the camera looks at
@@ -24,16 +24,20 @@ export const T = {
     stageLength: 8100, // m (~180 s at baseline) [A]
   },
   move: {
-    windowX: 16, // +/- m around the rail [A]
-    windowY: 9, // +/- m [A]
-    maxLateralSpeed: 22, // m/s [A]
+    windowX: 19, // +/- m around the rail [A] (was 16: craft could not reach the screen edges; 22 hid under the HUD portrait)
+    windowY: 10, // +/- m [A] (was 9; 13 climbed to camera height)
+    maxLateralSpeed: 44, // m/s [A] (was 22: owner said the plane felt slow)
+    verticalSpeedMul: 0.85, // vertical speed as a fraction of lateral
+    accelTime: 0.07, // s to reach stick velocity (snappy, still eased)
+    mouseChase: 0.09, // s: mouse target position time constant
+    reticleLead: 0.35, // s of velocity the reticle leads the craft by
     reticleDist: 60, // m ahead where the reticle sits
-    reticleWindowX: 24, // +/- m at reticleDist
-    reticleWindowY: 14,
-    reticleSpeed: 34, // m/s reticle travel under full stick
-    craftLag: 0.18, // s time constant: craft trails the reticle [O]
+    reticleWindowX: 30, // +/- m at reticleDist
+    reticleWindowY: 18,
+    reticleSpeed: 34, // unused since 2026-09-30T13:10Z (direct craft control)
+    craftLag: 0.18, // unused since 2026-09-30T13:10Z (direct craft control)
     bankMax: (65 * Math.PI) / 180, // [O/A]
-    bankPerLateralSpeed: 0.045, // rad per m/s of lateral velocity
+    bankPerLateralSpeed: 0.03, // rad per m/s of lateral velocity (faster craft: less per m/s)
     pitchPerVerticalSpeed: 0.02,
   },
   cannon: {
