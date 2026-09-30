@@ -84,7 +84,7 @@ runTool(TOOL, async () => {
       ref_files_in_build: inBuild.length + dataImages.length + textHits.length,
       images_in_build: images.length,
       ref_files_in_repo: inRepo.length,
-      manifest_entries: refs.size && (manifest.files || []).length,
+      manifest_entries: (manifest.files || []).length,
       refs_local: existsSync(refsDir) ? local.length : null,
       refs_not_in_manifest: notInManifest,
       manifest_missing_locally: missingLocally,

@@ -1,6 +1,6 @@
 {
-  "utc": "2026-09-30T05:39:09Z",
-  "commit": "e2e4dfe",
+  "utc": "2026-09-30T05:40:04Z",
+  "commit": "00112c4",
   "milestone": "P1",
   "goldpath": {
     "passed": false,
@@ -32,8 +32,22 @@
     "status": "not run"
   },
   "refcheck": {
-    "ref_files_in_build": null,
-    "status": "not run"
+    "utc": "2026-09-30T05:40:04Z",
+    "passed": true,
+    "status": "pass",
+    "ref_files_in_build": 0,
+    "images_in_build": 0,
+    "ref_files_in_repo": 0,
+    "manifest_entries": 121,
+    "refs_local": 121,
+    "refs_not_in_manifest": [],
+    "manifest_missing_locally": [],
+    "dist_files": 8,
+    "dist_game_built": true,
+    "lab_only_build": false,
+    "data_image_literals": 0,
+    "text_snippets_checked": 14,
+    "matches": []
   },
   "audio": {
     "clipping": null,
