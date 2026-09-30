@@ -1,15 +1,15 @@
 {
-  "utc": "2026-09-30T14:34:37Z",
-  "commit": "45b0954",
+  "utc": "2026-09-30T14:41:33Z",
+  "commit": "767a61e",
   "milestone": "M2",
   "goldpath": {
-    "utc": "2026-09-30T14:33:00Z",
+    "utc": "2026-09-30T14:41:33Z",
     "passed": true,
     "status": "pass",
     "stage": "cloudgate",
     "seed": 1,
     "duration_s": 186,
-    "wall_s": 701.3,
+    "wall_s": 379,
     "final": {
       "state": "results",
       "results": {
@@ -80,10 +80,10 @@
     },
     "failures": [],
     "captures": [
-      "Docs/progress/goldpath/20260930T142118Z_p25.png",
-      "Docs/progress/goldpath/20260930T142118Z_p50.png",
-      "Docs/progress/goldpath/20260930T142118Z_p75.png",
-      "Docs/progress/goldpath/20260930T142118Z_results.png"
+      "Docs/progress/goldpath/20260930T143512Z_p25.png",
+      "Docs/progress/goldpath/20260930T143512Z_p50.png",
+      "Docs/progress/goldpath/20260930T143512Z_p75.png",
+      "Docs/progress/goldpath/20260930T143512Z_results.png"
     ],
     "steps": [
       {
@@ -502,7 +502,7 @@
         "missing_refs": 0
       },
       "goldpath": {
-        "utc": "2026-09-30T14:33:00Z",
+        "utc": "2026-09-30T14:41:33Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -517,7 +517,7 @@
         "missing_refs": 0
       },
       "readability": {
-        "utc": "2026-09-30T12:00:11Z",
+        "utc": "2026-09-30T14:34:59Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -903,11 +903,6 @@
     ]
   },
   "captures": [
-    "Docs/progress/goldpath/20260930T113923Z_p50.png",
-    "Docs/progress/goldpath/20260930T113923Z_p75.png",
-    "Docs/progress/goldpath/20260930T113923Z_results.png",
-    "Docs/captures/readability/20260930T114533Z_cloudgate_t150.png",
-    "Docs/progress/goldpath/20260930T114534Z_p25.png",
     "Docs/progress/goldpath/20260930T114534Z_p50.png",
     "Docs/progress/goldpath/20260930T114534Z_p75.png",
     "Docs/progress/goldpath/20260930T114534Z_results.png",
@@ -1002,7 +997,12 @@
     "Docs/progress/goldpath/20260930T142118Z_p25.png",
     "Docs/progress/goldpath/20260930T142118Z_p50.png",
     "Docs/progress/goldpath/20260930T142118Z_p75.png",
-    "Docs/progress/goldpath/20260930T142118Z_results.png"
+    "Docs/progress/goldpath/20260930T142118Z_results.png",
+    "Docs/captures/readability/20260930T143459Z_cloudgate_t150.png",
+    "Docs/progress/goldpath/20260930T143512Z_p25.png",
+    "Docs/progress/goldpath/20260930T143512Z_p50.png",
+    "Docs/progress/goldpath/20260930T143512Z_p75.png",
+    "Docs/progress/goldpath/20260930T143512Z_results.png"
   ],
   "capture": {
     "utc": "2026-09-30T13:44:06Z",
@@ -1042,72 +1042,133 @@
     "problems": []
   },
   "readability": {
-    "utc": "2026-09-30T12:00:11Z",
+    "utc": "2026-09-30T14:34:59Z",
     "passed": false,
-    "status": "no hostile projectiles in mask",
-    "stage": "wreckfield",
-    "t": 170,
+    "status": "fail",
+    "stage": "cloudgate",
+    "t": 150,
     "cam": "play",
-    "projectiles": 0,
-    "deltaE_median": null,
-    "deltaE_p10": null,
+    "projectiles": 10,
+    "deltaE_median": 24.7,
+    "deltaE_p10": 9.58,
     "threshold": 25,
     "method": "CIEDE2000 between mean CIELAB (D65) of projectile pixels and a local ring (1 px gap, 3-12 px wide, other projectiles excluded); object-ID mask from __game.readabilityMasks()",
-    "overlay": "Docs/captures/readability/20260930T120011Z_wreckfield_t170.png",
-    "worst": []
+    "overlay": "Docs/captures/readability/20260930T143459Z_cloudgate_t150.png",
+    "worst": [
+      {
+        "x": 999,
+        "y": 506,
+        "area": 1094,
+        "deltaE": 3.1
+      },
+      {
+        "x": 971,
+        "y": 534,
+        "area": 1229,
+        "deltaE": 10.3
+      },
+      {
+        "x": 1061,
+        "y": 526,
+        "area": 1533,
+        "deltaE": 18.37
+      },
+      {
+        "x": 977,
+        "y": 470,
+        "area": 2916,
+        "deltaE": 19.9
+      },
+      {
+        "x": 917,
+        "y": 535,
+        "area": 920,
+        "deltaE": 24.01
+      },
+      {
+        "x": 1479,
+        "y": 557,
+        "area": 367,
+        "deltaE": 25.4
+      },
+      {
+        "x": 1053,
+        "y": 458,
+        "area": 368,
+        "deltaE": 26.23
+      },
+      {
+        "x": 979,
+        "y": 571,
+        "area": 367,
+        "deltaE": 26.37
+      },
+      {
+        "x": 846,
+        "y": 498,
+        "area": 370,
+        "deltaE": 27.25
+      },
+      {
+        "x": 890,
+        "y": 482,
+        "area": 363,
+        "deltaE": 27.84
+      }
+    ]
   },
   "acceptance": {
-    "utc": "2026-09-30T11:45:34Z",
+    "utc": "2026-09-30T14:34:59Z",
     "passed": true,
     "rows": [
       {
         "step": "build",
         "pri": "P0",
         "status": "pass",
-        "secs": 3,
+        "secs": 2,
         "note": ""
       },
       {
         "step": "netcheck",
         "pri": "P0",
         "status": "pass",
-        "secs": 39,
+        "secs": 76,
         "note": "0 external request(s) of 49 on 3 page(s)"
       },
       {
         "step": "refcheck",
         "pri": "P0",
         "status": "pass",
-        "secs": 46,
+        "secs": 119,
         "note": "0 reference files, 0 images, 0 audio files in dist/ (47 files), 0 copies outside Docs/refs/, 0 perceptual matc"
       },
       {
         "step": "goldpath",
         "pri": "P0",
         "status": "pass",
-        "secs": 291,
-        "note": "cleared cloudgate in 188 s (rank A, score 49370, shield 77), all 7 mechanics fired"
+        "secs": 703,
+        "note": "cleared cloudgate in 186 s (rank S, score 57290, shield 72), all 7 mechanics fired"
       },
       {
         "step": "perf",
         "pri": "P0",
         "status": "pass",
-        "secs": 48,
-        "note": "budgets ok (draw calls max 37/250, triangles max 51306/450000); fps 0.6 median / 0.5 1% low is software-GL rel"
+        "secs": 78,
+        "note": "budgets ok (draw calls max 45/250, triangles max 154882/450000); fps 0.3 median / 0.3 1% low is software-GL re"
       },
       {
         "step": "audiocheck",
         "pri": "P0",
         "status": "pass",
-        "secs": 21,
+        "secs": 19,
         "note": "25 item(s) within thresholds; spectrograms in Docs/captures/audio/ (pending owner review)"
       },
       {
         "step": "readability",
         "pri": "P1",
         "status": "FAIL",
-        "secs": 12,
-        "note": "19 projectile(s), dE00 median 24.3 / p10 13.3 (need median >= 25); overlay Docs/captures/readability/20260930T"
+        "secs": 21,
+        "note": "10 projectile(s), dE00 median 24.7 / p10 9.6 (need median >= 25); overlay Docs/captures/readability/20260930T1"
       }
     ]
   },

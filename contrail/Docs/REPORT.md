@@ -48,7 +48,7 @@ See `checks.json` for the latest machine-readable run. Table (TASK.md section 4)
 | A6 | Clean console | **pass** (0 console errors) | goldpath errors |
 | A7 | Look match (Reviewer avg >= 7) | **not passed**: plateau 6.5-6.7 over six rounds (no axis < 5) | `Docs/reviews/M2_M4_round6.md` |
 | A8 | Budgets | **pass** (draw calls/triangles; 47 files in dist, 0 images/audio) | perf, build |
-| A9 | Readability deltaE >= 25 | Cloudgate **pass** (CIEDE2000 median 25.4 at t=150); Violet Tide **fail** (21.2: orange rounds on the sunset horizon, T024); Wreckfield inconclusive (too few rounds in sampled frames; mask counts a round occluded by the boss) | readability |
+| A9 | Readability deltaE >= 25 | Cloudgate **fail by 0.3** after the graphics pass (median 24.7 at t=150; low scores are orbs overlapping orbs in a cluster, T035; was 25.4); Violet Tide **fail** (21.2: orange rounds on the sunset horizon, T024); Wreckfield inconclusive (too few rounds in sampled frames; mask counts a round occluded by the boss) | readability |
 | A10 | Stages 2-3 + boss | **pass** (Violet Tide and Wreckfield cleared, BULWARK defeated) | goldpath --stage |
 | A11 | Caravan | **pass** (120 s run completes with a score) | goldpath --mode caravan |
 | A12 | Audio health | pass numerically; pending owner review | audiocheck |

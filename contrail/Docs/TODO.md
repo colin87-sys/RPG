@@ -36,7 +36,7 @@
 | T032 | P1 | Director | Specify + build Violet Tide and Wreckfield stage scripts, new enemy mixes (M3) | open |
 | T033 | P1 | Director | BULWARK boss phases 1-3 script + goldpath (M4) | open |
 | T034 | P1 | Director | Caravan mode (120 s) (A11) | open |
-| T035 | P1 | VFX/Director | Readability cloudgate t=150: dE00 median 25.3 (barely passes), p10 20.7; low cases are overlapping bullet clusters; raise contrast margin | open |
+| T035 | P1 | VFX/Director | Readability cloudgate t=150: dE00 median 25.3 (barely passes), p10 20.7; low cases are overlapping bullet clusters; raise contrast margin. 2026-09-30T14:35Z after the graphics pass: median 24.7 (FAIL by 0.3), p10 9.6 - the red boxes are orbs overlapping other orbs in a strider cluster, not orbs on cloud | open |
 | T036 | P1 | Director | Wreckfield boss frames cost ~1.5x Cloudgate in software GL (overdraw: big beams + bloom); a 1080p goldpath screenshot timed out once; measure on a real GPU / cap beam overdraw | open |
 | T037 | P1 | Gameplay | Violet Tide and Wreckfield too easy for the bot (shield 100 at the end); tune like Cloudgate (A15) | open |
 | T038 | P1 | UI | Font: 8 reads as 0 at HUD sizes (Reviewer read 'HULL -8' as 'HULL -0'); give 8 a clear waist or use a slashed zero | open |
