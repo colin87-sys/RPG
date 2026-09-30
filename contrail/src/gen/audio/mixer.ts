@@ -20,7 +20,7 @@ export interface MixLevels {
 export const MIX_LEVELS: MixLevels = {
   sfx: 0.8,
   ui: 0.6,
-  music: 0.5,
+  music: 0.36,
   reverbReturn: 0.5,
   sfxReverbSend: 0.12,
   musicReverbSend: 1.0,

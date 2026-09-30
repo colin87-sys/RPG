@@ -17,3 +17,5 @@
 | T013 | P1 | Director | HUD wiring: parry/refill combat text must use kind 'good' (green); only damage lines red | open |
 | T014 | P1 | World | vista-cloudgate B: near-white cloud sea fills the lower ~40% and reads flat; add value variation / cool shadows in the near sea | open |
 | T015 | P2 | World | Cloudgate sun inset horizon sparkle; sea diagonal streaks near frame bottom | open |
+| T016 | P1 | Entities | enemies C: dart and strider read weakly on spaceDeep; raise marker intensity / rim wrap for Wreckfield | open |
+| T017 | P1 | Entities | BULWARK reads bronze under Wreckfield key; boss must stay dark with rows of vents (M4) | open |
