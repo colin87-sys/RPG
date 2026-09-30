@@ -1,0 +1,38 @@
+{
+  "ring": {
+    "aspect": 1.85,
+    "thicknessFrac": 0.03,
+    "rgbOffsetFrac": 0.03,
+    "startScale": 0.3,
+    "minThicknessPx": 3,
+    "minOffsetPx": 3,
+    "intensity": 1.6,
+    "occlusion": 0.6,
+    "growPower": 3,
+    "fadeTailFrac": 0.3,
+    "echo": 0,
+    "echoScale": 0.9,
+    "spectral": 1,
+    "glow": 0.2,
+    "foreshorten": 0.5,
+    "tiltToWorld": 1
+  },
+  "spawn": {
+    "center": [
+      0,
+      4.5,
+      -40
+    ],
+    "maxRadius": 29,
+    "duration": 1
+  },
+  "post": "POST_VARIANTS.A",
+  "keyframes": [
+    0,
+    0.15,
+    0.35,
+    0.55,
+    0.8,
+    1
+  ]
+}
