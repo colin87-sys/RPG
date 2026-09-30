@@ -30,8 +30,8 @@
 | T026 | P1 | Director | Re-review M1 look after fixes (enemy readability, bullets, chroma, smoke, title) | open |
 | T027 | P1 | Director | Difficulty: bot takes ~1 hit per minute; tune toward DESIGN peak 60-90 live hostile projectiles, meaningful shield loss (M5) | open |
 | T028 | P0 | Director | Re-run npm run acceptance + perf --t 150 on the integrated build; update STATS.json | done |
-| T029 | P1 | Harness | refcheck: perceptual hash for resized/cropped reference frames; audio files banned in dist; run before push | open |
-| T030 | P1 | Harness | goldpath --gameover: force shield 0, confirm retry, measure time to flying (A13) | open |
+| T029 | P1 | Harness | refcheck: perceptual hash for resized/cropped reference frames; audio files banned in dist; run before push | done |
+| T030 | P1 | Harness | goldpath --gameover: force shield 0, confirm retry, measure time to flying (A13) | done |
 | T031 | P1 | Director | Move ENEMY_DEFS and behaviour numbers into src/data/tuning.ts (single source) | open |
 | T032 | P1 | Director | Specify + build Violet Tide and Wreckfield stage scripts, new enemy mixes (M3) | open |
 | T033 | P1 | Director | BULWARK boss phases 1-3 script + goldpath (M4) | open |

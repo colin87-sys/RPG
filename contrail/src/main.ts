@@ -148,6 +148,7 @@ if (params.debug) {
     },
     setPost(clean) { postStack.setClean(clean); },
     setHud(on) { hudOn = on; },
+    forceGameOver() { game.forceGameOver(); },
     async readabilityMasks() {
       app.step(0, true);
       const frame = app.glCanvas.toDataURL('image/png');

@@ -87,6 +87,8 @@ export interface GameDebugAPI {
   setHud(on: boolean): void;
   /** S6 readability: GL frame (no HUD) + hostile-projectile mask (white on black), same camera/size */
   readabilityMasks(): Promise<{ frame: string; mask: string }>;
+  /** end the current run immediately (A13 retry timing) */
+  forceGameOver(): void;
 }
 
 declare global {

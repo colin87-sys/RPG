@@ -85,3 +85,6 @@ Fixed: stage/mode false passes, stale DESIGN/STYLE_BIBLE (current-value tables),
 - Bot [A]: parry miss 30% -> 40%, beam reaction delay 0.22-0.52 s (seeded), beam dodge by clearance search over the window (handles sweeps and the boss wall), weak-point targeting with sway lead.
 - Caravan: stage forced to Cloudgate; timer is real play time (120 s) so drift does not stretch it; wave list re-timed x1.4 = the density factor; no shield pickups, parries give no shield.
 - Title confirm now starts `mode: 'campaign'` explicitly so a previous Caravan run does not leak into the campaign.
+
+## 2026-09-30T10:23Z — Quick retry: 0.8 s relaunch after game over (title launch stays 2.5 s)
+A13 measured 2.53 s confirm->play with the full launch; now 0.82 s simulated (1.58 s from key press incl. the 0.8 s anti-mash lockout). forceGameOver() added to the debug API for the harness.

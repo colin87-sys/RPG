@@ -372,7 +372,7 @@ export class View {
     let back: number = T.camera.back, up: number = T.camera.up, cx = c.x, cy = c.y, lookU: number = T.camera.lookAhead;
     let lx = c.x + (p.rx - c.x) * 0.3, ly = c.y + (p.ry - c.y) * 0.3, roll = c.roll;
     if (g.state === 'launch') {
-      const t = Math.min(1, g.stateT / 2.5), e = 1 - Math.pow(1 - t, 3);
+      const t = Math.min(1, g.stateT / g.launchS), e = 1 - Math.pow(1 - t, 3);
       back = -30 + (T.camera.back + 30) * e; up = 6 - (6 - T.camera.up) * e; lx = p.x; ly = p.y; lookU = e * lookU; roll = 0;
     }
     switch (this.storyCam) {

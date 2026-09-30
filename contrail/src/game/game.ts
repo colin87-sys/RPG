@@ -335,7 +335,7 @@ export class Game implements Combat {
         if (this.stateT > 1.5 && this.input.pressed('confirm')) this.setState('title');
         return;
       case 'gameover':
-        if (this.stateT > 0.8 && this.input.pressed('confirm')) this.start({});
+        if (this.stateT > 0.8 && this.input.pressed('confirm')) { this.start({}); this.launchS = 0.8; } // quick retry (A13 < 2 s)
         return;
       default:
         return;
@@ -343,12 +343,24 @@ export class Game implements Combat {
   }
 
   frameCounter = 0;
+  /** launch intro length: 2.5 s from the title, 0.8 s on a retry */
+  launchS = 2.5;
+
+  /** debug: end the run now (harness A13 retry timing) */
+  forceGameOver(): void {
+    if (this.state !== 'play' && this.state !== 'launch') return;
+    this.player.shield = 0;
+    this.player.alive = false;
+    this.setState('gameover');
+    this.events.emit('playerDown', {});
+  }
 
   private updateLaunch(dt: number): void {
     // the craft settles into the chase position while the camera swoops in
-    this.s += T.rail.speed * dt * Math.min(1, this.stateT / 2.4);
+    this.s += T.rail.speed * dt * Math.min(1, this.stateT / (this.launchS - 0.1));
     this.cam.x += (0 - this.cam.x) * approach(0.3, dt);
-    if (this.stateT >= 2.5) {
+    if (this.stateT >= this.launchS) {
+      this.launchS = 2.5;
       this.setState('play');
     }
   }
