@@ -1,0 +1,7 @@
+{
+  "updated_utc": "2026-09-30T04:55:00Z", "elapsed_h": 0.2, "commits": 0, "loc": 0,
+  "modules": {"entities": {"attempted": 0, "accepted": 0, "rejected": 0}, "world": {"attempted": 0, "accepted": 0, "rejected": 0}, "ui": {"attempted": 0, "accepted": 0, "rejected": 0}, "vfx": {"attempted": 0, "accepted": 0, "rejected": 0}, "audio": {"attempted": 0, "accepted": 0, "rejected": 0}},
+  "bugs_fixed": 0, "reviews": 0,
+  "perf": {"fps_median": 0, "fps_p1_low": 0, "draw_calls": 0, "scene": "", "method": ""},
+  "external_requests": 0
+}
