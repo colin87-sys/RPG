@@ -1,0 +1,38 @@
+{
+  "name": "AudioEngine + Mixer",
+  "seed": 1,
+  "params": {
+    "busLevels": {
+      "sfx": 0.8,
+      "ui": 0.6,
+      "music": 0.36,
+      "reverbReturn": 0.5,
+      "sfxReverbSend": 0.12
+    },
+    "master": "HP 18 Hz -> comp -6 dB 16:1 -> ceiling 0.89 (-1 dBFS)",
+    "maxVoices": 48,
+    "autoDuck": {
+      "warning": [
+        -8,
+        1.0
+      ],
+      "explosionBig": [
+        -6,
+        0.7
+      ],
+      "parry": [
+        -5,
+        0.35
+      ]
+    }
+  },
+  "tokensUsed": [],
+  "notes": "WebAudio only; muted => no AudioContext. Status: pending owner review (not audible to the agent).",
+  "triangles": 0,
+  "drawCalls": 0,
+  "boundsMetres": [
+    0,
+    0,
+    0
+  ]
+}
