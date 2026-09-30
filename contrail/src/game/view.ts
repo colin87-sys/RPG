@@ -243,7 +243,8 @@ export class View {
     craft.update(dt, {
       time: this.time, bank: p.bank + p.spin, pitch: p.pitch,
       throttle: p.boost > 0 ? 1.6 : p.braking ? 0.5 : 1, boost: p.boost > 0, drift: p.drift > 0,
-      hitFlash: p.hitFlash + (p.invuln > 0 ? 0.25 * (Math.sin(this.time * 40) > 0 ? 1 : 0) : 0),
+      // cap the damage flash so the hull keeps its shading and livery (M2 round-6 D-1)
+      hitFlash: Math.min(0.45, p.hitFlash * 0.45 + (p.invuln > 0 ? 0.15 * (Math.sin(this.time * 40) > 0 ? 1 : 0) : 0)),
     });
 
     // enemies

@@ -40,3 +40,7 @@
 | T036 | P1 | Director | Wreckfield boss frames cost ~1.5x Cloudgate in software GL (overdraw: big beams + bloom); a 1080p goldpath screenshot timed out once; measure on a real GPU / cap beam overdraw | open |
 | T037 | P1 | Gameplay | Violet Tide and Wreckfield too easy for the bot (shield 100 at the end); tune like Cloudgate (A15) | open |
 | T038 | P1 | UI | Font: 8 reads as 0 at HUD sizes (Reviewer read 'HULL -8' as 'HULL -0'); give 8 a clear waist or use a slashed zero | open |
+| T039 | P1 | Director/Gameplay | Cloudgate strider partly buried by its own stream at chase distance; vary strider height/offset from the reticle line | open |
+| T040 | P1 | UI/Director | Lock language in play: show lockable hints more strongly and hold brackets briefly after release | open |
+| T041 | P2 | World | Cloudgate hero frames in the hull section show a flat sea; add cumulus towers beyond the hull on the open side | open |
+| T042 | P1 | Gameplay | BULWARK vent volley reads as a rigid 11x2 wall; stagger/arc it | open |

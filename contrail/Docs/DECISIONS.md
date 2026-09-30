@@ -103,3 +103,6 @@ Cloudgate goldpath after the change: rank A, shield 56 (A15 challenge still met)
 ## 2026-09-30T11:29Z — Round-5: chroma hit/ring 0.006/0.008 -> 0.003/0.004 (fringing too heavy in hero shots); Violet Tide sea lit mix 0.3 -> 0.16, backlit 0.5 -> 0.3, fog #5E3A74 -> #3E2656 (dark-sunset rule)
 
 ## 2026-09-30T11:35Z — Strider fires from arm guns (+/-5.5 m) so its stream no longer covers its body; combat camera on a boss stage waits (up to 6 s) for a firing boss beam
+
+## 2026-09-30T11:37Z — M2/M4 gates: plateau at 6.5-6.7 after six review rounds; recorded as NOT PASSED, pending owner review
+Rounds (Docs/reviews/): W3 6.4; M1 6.17; M2/M4 r1 6.33/6.00, r2 6.33/6.00, r3 6.50/6.50, r4 6.50/6.50, r5 6.67/6.50, r6 6.67/6.50. No axis below 5 since r2. Fixes that moved scores: effects pile-up bug, missile regen, bullet fade, chroma restraint, boss framing, peak-moment camera. Remaining carried-over defects (T039-T042): Cloudgate strider still partly buried by its stream, no lock-bracket language in captures, Cloudgate hero frame shows the flat sea (hull section), boss volley reads as a rigid wall. Per CLAUDE.md 45-minute rule: logged, queued, moving to wrap-up (P5) so the owner can judge the build; the gate stays open.
