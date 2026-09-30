@@ -1,6 +1,6 @@
 {
-  "utc": "2026-09-30T14:19:18Z",
-  "commit": "f06a75e",
+  "utc": "2026-09-30T14:21:18Z",
+  "commit": "38ed7b5",
   "milestone": "M2",
   "goldpath": {
     "utc": "2026-09-30T14:17:40Z",
@@ -566,7 +566,7 @@
     }
   },
   "refcheck": {
-    "utc": "2026-09-30T12:02:22Z",
+    "utc": "2026-09-30T14:21:18Z",
     "passed": true,
     "status": "pass",
     "ref_files_in_build": 0,
@@ -577,7 +577,7 @@
     "phash": {
       "status": "checked",
       "ref_hashes": 114,
-      "images_checked": 265,
+      "images_checked": 336,
       "near_flat_skipped": 0,
       "max_distance": 6,
       "dirs": [
