@@ -193,7 +193,9 @@
       "rimFocus": 3,
       "opacity": 0.95,
       "drift": 0,
-      "soft": 1.5
+      "soft": 4,
+      "floorY": -48,
+      "floorFade": 30
     }
   }
 }
