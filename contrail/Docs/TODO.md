@@ -22,3 +22,4 @@
 | T018 | P1 | Director | Debug API: add readabilityMasks() (frame + hostile-projectile mask PNGs, same camera) for npm run readability (S6) | open |
 | T019 | P1 | Director | Wire setPost() once the post stack is integrated (capture --clean) | open |
 | T020 | P2 | Director | palette board crops 2 of 5 spheres per cell; widen camera | open |
+| T021 | P1 | Audio | laserFire has no cue; music loudness flat 0.6->1.0 (intensity = density only) - owner to judge | open |
