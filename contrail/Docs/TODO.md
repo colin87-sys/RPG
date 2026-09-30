@@ -39,3 +39,4 @@
 | T035 | P1 | VFX/Director | Readability cloudgate t=150: dE00 median 25.3 (barely passes), p10 20.7; low cases are overlapping bullet clusters; raise contrast margin | open |
 | T036 | P1 | Director | Wreckfield boss frames cost ~1.5x Cloudgate in software GL (overdraw: big beams + bloom); a 1080p goldpath screenshot timed out once; measure on a real GPU / cap beam overdraw | open |
 | T037 | P1 | Gameplay | Violet Tide and Wreckfield too easy for the bot (shield 100 at the end); tune like Cloudgate (A15) | open |
+| T038 | P1 | UI | Font: 8 reads as 0 at HUD sizes (Reviewer read 'HULL -8' as 'HULL -0'); give 8 a clear waist or use a slashed zero | open |

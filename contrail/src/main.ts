@@ -134,6 +134,15 @@ if (params.debug) {
       if ((STORY_CAMERAS as readonly string[]).includes(name)) {
         view.storyCam = name as StoryCamera;
         hudOn = !['hero', 'vista'].includes(name);
+        if (name === 'combat' && game.state === 'play') {
+          // peak-moment camera: advance (max 3 s) to the next beam firing or big kill
+          const k0 = (game.events.counts.laserFire ?? 0) + (game.stats['killed:strider'] ?? 0);
+          for (let i = 0; i < 180 && game.state === 'play'; i++) {
+            app.step(1, false);
+            if ((game.events.counts.laserFire ?? 0) + (game.stats['killed:strider'] ?? 0) > k0) { app.step(8, false); break; }
+          }
+          app.step(0, true);
+        }
       }
     },
     cameras: () => [...STORY_CAMERAS],

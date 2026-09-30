@@ -1,15 +1,15 @@
 {
-  "utc": "2026-09-30T11:11:38Z",
-  "commit": "32346ec",
+  "utc": "2026-09-30T11:20:20Z",
+  "commit": "bab7bc3",
   "milestone": "M2",
   "goldpath": {
-    "utc": "2026-09-30T11:09:12Z",
+    "utc": "2026-09-30T11:19:21Z",
     "passed": true,
     "status": "pass",
     "stage": "wreckfield",
     "seed": 1,
     "duration_s": 185,
-    "wall_s": 273.8,
+    "wall_s": 276.1,
     "final": {
       "state": "results",
       "results": {
@@ -87,9 +87,9 @@
     },
     "failures": [],
     "captures": [
-      "Docs/progress/goldpath/20260930T110437Z_p25.png",
-      "Docs/progress/goldpath/20260930T110437Z_p50.png",
-      "Docs/progress/goldpath/20260930T110437Z_results.png"
+      "Docs/progress/goldpath/20260930T111442Z_p25.png",
+      "Docs/progress/goldpath/20260930T111442Z_p50.png",
+      "Docs/progress/goldpath/20260930T111442Z_results.png"
     ],
     "steps": [
       {
@@ -494,12 +494,12 @@
         "missing_refs": 0
       },
       "capture": {
-        "utc": "2026-09-30T11:11:38Z",
+        "utc": "2026-09-30T11:20:20Z",
         "console": 0,
         "missing_refs": 0
       },
       "goldpath": {
-        "utc": "2026-09-30T11:09:12Z",
+        "utc": "2026-09-30T11:19:21Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -900,14 +900,6 @@
     ]
   },
   "captures": [
-    "Docs/progress/goldpath/20260930T054149Z_p25.png",
-    "Docs/progress/goldpath/20260930T054149Z_p50.png",
-    "Docs/progress/goldpath/20260930T054149Z_p75.png",
-    "Docs/progress/goldpath/20260930T054149Z_results.png",
-    "Docs/progress/goldpath/20260930T083737Z_p25.png",
-    "Docs/progress/goldpath/20260930T083737Z_p50.png",
-    "Docs/progress/goldpath/20260930T083737Z_p75.png",
-    "Docs/progress/goldpath/20260930T083737Z_results.png",
     "Docs/progress/goldpath/20260930T084708Z_p25.png",
     "Docs/progress/goldpath/20260930T084708Z_p50.png",
     "Docs/progress/goldpath/20260930T084708Z_p75.png",
@@ -999,10 +991,18 @@
     "Docs/progress/m2/20260930T111044Z_hero.png",
     "Docs/progress/m2/20260930T111044Z_hud.png",
     "Docs/progress/m2/20260930T111114Z_combat.png",
-    "Docs/progress/m2/20260930T111124Z_combat.png"
+    "Docs/progress/m2/20260930T111124Z_combat.png",
+    "Docs/progress/goldpath/20260930T111442Z_p25.png",
+    "Docs/progress/goldpath/20260930T111442Z_p50.png",
+    "Docs/progress/goldpath/20260930T111442Z_results.png",
+    "Docs/progress/m2/20260930T111922Z_combat.png",
+    "Docs/progress/m2/20260930T111922Z_hero.png",
+    "Docs/progress/m2/20260930T111922Z_hud.png",
+    "Docs/progress/m2/20260930T111951Z_combat.png",
+    "Docs/progress/m2/20260930T112002Z_combat.png"
   ],
   "capture": {
-    "utc": "2026-09-30T11:11:38Z",
+    "utc": "2026-09-30T11:20:20Z",
     "passed": true,
     "cams": [
       "combat"
@@ -1014,15 +1014,15 @@
     "h": 1080,
     "feature": "m2",
     "files": [
-      "Docs/progress/m2/20260930T111124Z_combat.png"
+      "Docs/progress/m2/20260930T112002Z_combat.png"
     ],
     "stats": {
       "combat": {
         "state": "play",
-        "time": 152.54,
-        "luma_mean": 55.8,
-        "luma_std": 46.4,
-        "colors": 635,
+        "time": 155.54,
+        "luma_mean": 51.6,
+        "luma_std": 37.6,
+        "colors": 620,
         "size": "1920x1080"
       }
     },

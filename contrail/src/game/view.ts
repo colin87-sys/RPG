@@ -310,7 +310,10 @@ export class View {
     let n = 0;
     for (const b of g.bullets) {
       if (!b.alive) continue;
-      this.hostile.setInstance(n++, this.railToWorld(b.u, b.x, b.y, V), b.radius * 1.4, 1);
+      // rounds that have passed the craft shrink and fade instead of filling the lens (M2 re-gate D-2)
+      const past = b.u < 4 ? Math.max(0, Math.min(1, (b.u + 6) / 10)) : 1;
+      if (past <= 0.02) continue;
+      this.hostile.setInstance(n++, this.railToWorld(b.u, b.x, b.y, V), b.radius * 1.4 * (0.5 + 0.5 * past), past);
     }
     this.shots.clear();
     n = 0;

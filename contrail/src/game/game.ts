@@ -129,7 +129,9 @@ export class Game implements Combat {
     const def = STAGES[id];
     if (!def) throw new Error(`unknown stage '${id}' (defined: ${Object.keys(STAGES).join(', ')})`);
     this.stage = def;
-    this.rail = new Rail({ length: def.lengthS * T.rail.speed, wanderX: 60, wanderY: 18, wavelength: 900, seed: def.railSeed });
+    // Wreckfield debris keeps a clear corridor around the world axis: its rail must stay near it
+    const wander = def.id === 'wreckfield' ? { x: 5, y: 3 } : def.id === 'violetTide' ? { x: 35, y: 10 } : { x: 60, y: 18 };
+    this.rail = new Rail({ length: def.lengthS * T.rail.speed, wanderX: wander.x, wanderY: wander.y, wavelength: 900, seed: def.railSeed });
   }
 
   /** Reset everything for a fresh run of the current stage. */
@@ -349,6 +351,7 @@ export class Game implements Combat {
   }
 
   frameCounter = 0;
+  private hullAcc = 0;
   /** launch intro length: 2.5 s from the title, 0.8 s on a retry */
   launchS = 2.5;
 
@@ -962,8 +965,9 @@ export class Game implements Combat {
     this.events.emit('playerHit', { damage: d, source, pos: scratchV.set(p.x, p.y, 0) });
     // one live hull line: continuous damage (lasers) accumulates instead of stacking lines
     const prev = this.combatText.find((c) => c.text.startsWith('HULL -') && c.age < 0.8);
-    if (prev) { prev.text = `HULL -${Math.round(Number(prev.text.slice(6)) + d)}`; prev.age = 0; }
-    else this.combatText.push({ text: `HULL -${Math.round(d)}`, kind: 'hot', age: 0 });
+    this.hullAcc = (prev ? this.hullAcc : 0) + d;
+    if (prev) { prev.text = `HULL -${Math.max(1, Math.round(this.hullAcc))}`; prev.age = 0; }
+    else if (this.hullAcc >= 0.5) this.combatText.push({ text: `HULL -${Math.max(1, Math.round(this.hullAcc))}`, kind: 'hot', age: 0 });
     if (p.shield <= 0) {
       p.shield = 0;
       p.alive = false;

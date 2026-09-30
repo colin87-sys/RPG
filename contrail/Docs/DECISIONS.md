@@ -94,3 +94,5 @@ Explosions/smoke spawned while fast-forwarding never aged (no render updates), s
 
 ## 2026-09-30T11:10Z — Juice/readability fixes after M2/M4 review (Docs/reviews/M2_M4.md, 6.33 / 6.00)
 Missile regen 12 s -> 4 s [A] (barrages were rare: 0/6 ammo in every frame; Cloudgate goldpath now 41 missile volleys); strider volleys fire as a serpentine stream (0.045 s per orb) instead of all at once (no on-screen 'coin' columns); BULWARK holds at u 150 (was 195) and 130 in phase 3 for scale; chroma base 0.0015 -> 0.001; play-speed streaks 0.45 -> 0.62; captures step 2.5 s of live effects after a skip.
+
+## 2026-09-30T11:20Z — Round-3 fixes: Wreckfield rail kept near the debris corridor (wander 5/3 m), Violet 35/10, Cloudgate 60/18; rounds past the craft shrink and fade; hull damage lines accumulate; combat story camera advances up to 3 s to the next beam firing or strider kill (peak-moment capture)
