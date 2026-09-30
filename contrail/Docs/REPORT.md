@@ -1,5 +1,7 @@
 # REPORT — CONTRAIL (GAME_FORGE run, first chunk)
 
+Written 2026-09-30T12:01Z (from `date -u`). Run started 2026-09-30T04:41Z.
+
 Status words: **implemented** (code exists) · **agent-verified** (harness or fresh-Reviewer evidence) · **pending owner review** (visual, audio, feel). Nothing here is "accepted" until the owner says so. Audio is always pending owner review (the agent cannot hear).
 
 ## What was built
@@ -33,24 +35,27 @@ See `checks.json` for the latest machine-readable run. Table (TASK.md section 4)
 
 | ID | Requirement | Result | Evidence |
 |---|---|---|---|
-| A1 | Stage 1 completes | ACCEPTANCE_A1 | goldpath |
-| A2 | All mechanics fire | ACCEPTANCE_A2 | goldpath counts |
-| A3 | 60 fps on a real GPU | **pending owner review** (no GPU here). Software GL: CONTRAIL_PERF | perf |
-| A4 | Offline, 0 external requests | ACCEPTANCE_A4 | netcheck |
-| A5 | No reference file in the build | ACCEPTANCE_A5 | refcheck |
-| A6 | Clean console | ACCEPTANCE_A6 | goldpath errors |
+| A1 | Stage 1 completes | **pass** (Cloudgate, rank A, shield 77, 188 s) | goldpath |
+| A2 | All mechanics fire | **pass** (cannon, missiles, missile kills, parry, drift, wingtrail, shield refill all > 0) | goldpath counts |
+| A3 | 60 fps on a real GPU | **pending owner review** (no GPU here). Software GL: 35-37 draw calls, 51-64k triangles at peak (budgets 250 / 450k); 0.4-0.6 fps relative in SwiftShader | perf |
+| A4 | Offline, 0 external requests | **pass** (0 of 49 requests external) | netcheck |
+| A5 | No reference file in the build | **pass** (0 reference files, 0 images/audio in dist, 0 perceptual matches) | refcheck |
+| A6 | Clean console | **pass** (0 console errors) | goldpath errors |
 | A7 | Look match (Reviewer avg >= 7) | **not passed**: plateau 6.5-6.7 over six rounds (no axis < 5) | `Docs/reviews/M2_M4_round6.md` |
-| A8 | Budgets | ACCEPTANCE_A8 | perf, build |
-| A9 | Readability deltaE >= 25 | ACCEPTANCE_A9 | readability |
-| A10 | Stages 2-3 + boss | ACCEPTANCE_A10 | goldpath --stage |
-| A11 | Caravan | ACCEPTANCE_A11 | goldpath --mode caravan |
+| A8 | Budgets | **pass** (draw calls/triangles; 47 files in dist, 0 images/audio) | perf, build |
+| A9 | Readability deltaE >= 25 | Cloudgate **pass** (CIEDE2000 median 25.4 at t=150); Violet Tide **fail** (21.2: orange rounds on the sunset horizon, T024); Wreckfield inconclusive (too few rounds in sampled frames; mask counts a round occluded by the boss) | readability |
+| A10 | Stages 2-3 + boss | **pass** (Cloudgate, rank A, shield 77, 188 s)0 | goldpath --stage |
+| A11 | Caravan | **pass** (Cloudgate, rank A, shield 77, 188 s)1 | goldpath --mode caravan |
 | A12 | Audio health | pass numerically; pending owner review | audiocheck |
-| A13 | Retry < 2 s | ACCEPTANCE_A13 | goldpath --gameover |
+| A13 | Retry < 2 s | **pass** (Cloudgate, rank A, shield 77, 188 s)3 | goldpath --gameover |
 | A14 | Roguelite mode | cut for this chunk (P2) | |
 | A15 | Challenge (shield < 90, >= 3 hits on Cloudgate) | agent-verified (bot ends ~56-78 shield) | goldpath |
 
 ## Reviewer scores (fresh agent each time, paired comparison)
 Calibration passed (art-directed > planted-defect > naive; both planted defects found). Look-dev W3 6.4 -> consistency pass. In-game M2 look lock / M4 peak moment: r1 6.33/6.00, r2 6.33/6.00, r3 6.50/6.50, r4 6.50/6.50, r5 6.67/6.50, r6 6.67/6.50. **The 7.0 gate is not passed.** Remaining defects: T039-T042 in `Docs/TODO.md`.
+
+## Final captures
+`Docs/captures/m2/` (+ `contact.png`), `Docs/captures/latest/`, timelapse `Docs/timelapse.webm` / `Docs/timelapse.html`, readability overlays `Docs/captures/readability/`, audio spectrograms `Docs/captures/audio/`.
 
 ## Known issues
 - A7 look gate open (see above). Violet Tide and Wreckfield are easier than Cloudgate for the bot (T037).

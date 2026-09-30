@@ -10,7 +10,7 @@ Run start: 2026-09-30T04:41Z. Target: 24h, worked in chunks; resume from state f
 | P2 Harness proof & Reviewer calibration | done | stub passes harness; Reviewer ranks naive < art-directed and finds planted defect | checks.json (acceptance on stub), Docs/reviews/calibration_and_M1.md |
 | P3 Kit red-team & freeze | done at this commit | gaps closed or accepted | Docs/KIT_REVIEW.md |
 | P4 Long build M0..M6 | in progress | TASK.md section 6 | below |
-| P5 Wrap-up | pending | GAME_FORGE 16 | |
+| P5 Wrap-up | chunk-1 checkpoint done (REPORT.md, tag contrail-chunk1); full DoD pending look gate + owner review | GAME_FORGE 16 | Docs/REPORT.md |
 
 ## Milestones
 | M | Status | Gate status |

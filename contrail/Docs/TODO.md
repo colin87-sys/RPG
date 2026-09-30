@@ -44,3 +44,4 @@
 | T040 | P1 | UI/Director | Lock language in play: show lockable hints more strongly and hold brackets briefly after release | open |
 | T041 | P2 | World | Cloudgate hero frames in the hull section show a flat sea; add cumulus towers beyond the hull on the open side | open |
 | T042 | P1 | Gameplay | BULWARK vent volley reads as a rigid 11x2 wall; stagger/arc it | open |
+| T043 | P2 | Harness | readability: skip mask discs occluded by geometry (depth test) and sample several times per stage | open |

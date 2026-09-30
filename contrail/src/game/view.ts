@@ -131,6 +131,9 @@ export class View {
       this.scene.add(w.group);
     }
     w.group.visible = true;
+    // bright stage: thicker dark outline + deeper halo so rounds separate from cream cloud (A9)
+    this.hostile.params = id === 'cloudgate' ? { ...HOSTILE_VARIANTS.B, outlineFrac: 0.28, haloDeep: 0.45 } : { ...HOSTILE_VARIANTS.B };
+    this.hostile.applyParams();
     // structures along the rail
     for (const g of this.structures) this.scene.remove(g);
     this.structures = [];
@@ -420,7 +423,8 @@ export class View {
     const g = this.game;
     const fy = h / (2 * Math.tan(((this.camera.fov * Math.PI) / 180) / 2));
     for (const b of g.bullets) {
-      if (!b.alive || b.friendly) continue;
+      // rounds that already passed the craft are faded out on purpose (no longer a threat): not measured
+      if (!b.alive || b.friendly || b.u < 4) continue;
       const q = this.project(b.u, b.x, b.y, w, h);
       if (!q) continue;
       const dist = this.railToWorld(b.u, b.x, b.y, V).distanceTo(this.camera.position);
