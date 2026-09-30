@@ -27,3 +27,5 @@
 | T023 | P1 | VFX | Bullets over the hot sunset horizon: p10 deltaE 20-26; boss telegraph line weak on bright sky | open |
 | T024 | P1 | VFX | Sunset horizon: bullets B p10 deltaE 21 (<25) orange-on-orange; consider cooler halo only in violetTide | open |
 | T025 | P1 | Entities | D-3 residual: dart/strider dim on spaceDeep; judge in-game with bloom, else add Wreckfield marker boost | open |
+| T026 | P1 | Director | Re-review M1 look after fixes (enemy readability, bullets, chroma, smoke, title) | open |
+| T027 | P1 | Director | Difficulty: bot takes ~1 hit per minute; tune toward DESIGN peak 60-90 live hostile projectiles, meaningful shield loss (M5) | open |

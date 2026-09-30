@@ -14,8 +14,8 @@ export interface EnemyDef {
 }
 
 export const ENEMY_DEFS: Record<EnemyKind, EnemyDef> = {
-  caltrop: { hp: 3, radius: 1.1, value: 100, big: false, contactDamage: 10 },
-  dart: { hp: 6, radius: 2.4, value: 200, big: false, contactDamage: 25 },
+  caltrop: { hp: 3, radius: 1.8, value: 100, big: false, contactDamage: 10 },
+  dart: { hp: 10, radius: 3.0, value: 200, big: false, contactDamage: 25 },
   sniper: { hp: 10, radius: 2.8, value: 400, big: false, contactDamage: 25 },
   strider: { hp: 60, radius: 6.0, value: 1500, big: true, contactDamage: 25 },
   bulwark: { hp: 2400, radius: 60, value: 10000, big: true, contactDamage: 40 },
@@ -26,6 +26,9 @@ export interface Combat {
   playerU: number; // always 0 (player sits at u = 0)
   playerX: number;
   playerY: number;
+  /** player lateral velocity (m/s), for leading shots */
+  playerVX: number;
+  playerVY: number;
   fireRateMul: number;
   rng: Rng;
   fireBullet(u: number, x: number, y: number, vu: number, vx: number, vy: number, radius?: number): void;
@@ -39,8 +42,10 @@ const cubic = (a: number, b: number, c: number, d: number, t: number) => {
 };
 
 /** Aim a bullet from (u,x,y) at the player with speed v; returns velocity. */
-function aimAt(c: Combat, u: number, x: number, y: number, v: number, spreadX = 0, spreadY = 0) {
-  const du = c.playerU - u, dx = c.playerX + spreadX - x, dy = c.playerY + spreadY - y;
+function aimAt(c: Combat, u: number, x: number, y: number, v: number, spreadX = 0, spreadY = 0, lead = 0) {
+  // lead: fraction of the player's lateral velocity to anticipate over the flight time
+  const tof = Math.abs(u - c.playerU) / v;
+  const du = c.playerU - u, dx = c.playerX + c.playerVX * tof * lead + spreadX - x, dy = c.playerY + c.playerVY * tof * lead + spreadY - y;
   const l = Math.hypot(du, dx, dy) || 1;
   return { vu: (du / l) * v, vx: (dx / l) * v, vy: (dy / l) * v };
 }
@@ -84,10 +89,19 @@ export function updateEnemy(e: Enemy, dt: number, c: Combat): boolean {
       // enter, hold at a standoff distance while strafing, burst-fire, then peel away
       const holdU = b.p[0], sx = b.p[1], sy = b.p[2], holdT = b.p[3], side = b.p[4];
       if (b.phase === 0) {
+        // approach fire: single aimed shots once within range
+        if (e.u < 190) {
+          b.fireT -= dt * c.fireRateMul;
+          if (b.fireT <= 0) {
+            b.fireT = 1.1;
+            const v = aimAt(c, e.u - 2, e.x, e.y, 60, c.rng.signed() * 1.2, c.rng.signed() * 0.8, 0.8);
+            c.fireBullet(e.u - 2, e.x, e.y, v.vu, v.vx, v.vy);
+          }
+        }
         e.u += (holdU - e.u) * (1 - Math.exp(-dt / 0.6));
         e.x += (sx - e.x) * (1 - Math.exp(-dt / 0.8));
         e.y += (sy - e.y) * (1 - Math.exp(-dt / 0.8));
-        if (Math.abs(e.u - holdU) < 4) { b.phase = 1; b.phaseT = 0; b.fireT = 0.6; }
+        if (Math.abs(e.u - holdU) < 4) { b.phase = 1; b.phaseT = 0; b.fireT = 0.2; }
       } else if (b.phase === 1) {
         b.phaseT += dt;
         const px = e.x;
@@ -106,7 +120,8 @@ export function updateEnemy(e: Enemy, dt: number, c: Combat): boolean {
           if (b.p[7] <= 0) {
             b.p[7] = 0.11;
             b.index--;
-            const v = aimAt(c, e.u - 2, e.x, e.y, 60, c.rng.signed() * 1.5, c.rng.signed() * 1.0);
+            const fan = (b.index - 1) * 3.2; // index 2,1,0 -> -3.2, 0, +3.2 m lateral fan
+            const v = aimAt(c, e.u - 2, e.x, e.y, 60, fan + c.rng.signed() * 0.8, c.rng.signed() * 0.8, 0.8);
             c.fireBullet(e.u - 2, e.x, e.y, v.vu, v.vx, v.vy);
           }
         }
@@ -157,9 +172,9 @@ export function updateEnemy(e: Enemy, dt: number, c: Combat): boolean {
       e.y += (hy + Math.sin(e.age * 1.7 + b.index) * 1.5 - e.y) * (1 - Math.exp(-dt / 0.6));
       b.fireT -= dt * c.fireRateMul;
       if (b.fireT <= 0 && e.age > 1.5) {
-        b.fireT = 2.2;
-        for (let i = -2; i <= 2; i++) {
-          const v = aimAt(c, e.u - 3, e.x, e.y + 2, 45, i * 4.5, Math.abs(i) * -0.8);
+        b.fireT = 1.7;
+        for (let i = -3; i <= 3; i++) {
+          const v = aimAt(c, e.u - 3, e.x, e.y + 2, 45, i * 4.0, Math.abs(i) * -0.7, 0.5);
           c.fireBullet(e.u - 3, e.x, e.y + 2, v.vu, v.vx, v.vy, 0.5);
         }
       }

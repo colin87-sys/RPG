@@ -62,3 +62,9 @@ Winners: hero B, enemies B, vista-cloudgate C, vista-violet C, vista-wreck C, st
 
 ## 2026-09-30T08:55Z — Violet Tide far fog #C0567E -> #5C2A55
 D-1 consistency pass: the bright pink far fog produced a pink strip under the horizon; darker plum keeps the sunset dark (median luminance target < 6%).
+
+## 2026-09-30T11:40Z — M1 look fixes after calibration review (Docs/reviews/calibration_and_M1.md, 6.17 avg)
+Calibration PASSED: blind Reviewer ranked art-directed > planted-defect > naive and found both planted defects. M1 fixes (Director): dart bursts fan laterally (bullets no longer stack into "coins"); caltrop/dart drawn at 1.7x/1.3x with hit radii 1.8/3.0 m for readability; faint contact markers on every enemy within 240 m (HUD, small UI edit by the Integrator); chroma pulses only on big kills/parry/hits and smaller; dotted exhaust contrail removed; title uses its drawn backdrop.
+
+## 2026-09-30T12:00Z — Threat tuning [A]: darts HP 6 -> 10, approach fire, strider 7-orb spread every 1.7 s (was 5 / 2.2 s), aimed shots lead 50-80%
+Probe: only 19 hostile bullets in 66 s and zero player hits over a full run (shield 100 throughout), far below the DESIGN peak target of 60-90 live projectiles. The 14/s cannon killed darts before their first burst. Numbers were [A]; tuned toward the design's density target.

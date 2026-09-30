@@ -1117,10 +1117,11 @@ export class Hud {
           const str = i < this.sTgtCount.length ? this.sTgtCount[i].get(t.lockCount) : String(t.lockCount);
           this.text(g, str, t.x + hb + 6 * k, t.y - hb + L.Ms * 0.5, L.Ms, c.lock, { outline: this.cOutline });
         }
-      } else if (s.lockMode) {
-        // lockable hint: tiny open corner dots (shape differs from lock brackets)
+      } else {
+        // contact marker (always, faint) / lockable hint (brighter in lock mode):
+        // tiny open corner dots, a different shape from lock brackets
         g.fillStyle = c.lock;
-        g.globalAlpha = 0.55;
+        g.globalAlpha = s.lockMode ? 0.7 : 0.35;
         const d = half * 0.7, q = 3 * k;
         g.fillRect(t.x - d - q, t.y - d - q, q * 2, q * 2);
         g.fillRect(t.x + d - q, t.y - d - q, q * 2, q * 2);

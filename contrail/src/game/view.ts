@@ -160,7 +160,7 @@ export class View {
       const size = e.kind === 'strider' ? 9 : e.kind === 'caltrop' ? 1.8 : 3.5;
       this.explosions.spawn(w, { size, kind, seed: e.id });
       if (e.big || e.weapon === 'missile') this.rings.spawn(w, { maxRadius: e.big ? 26 : 12, duration: e.big ? 1.2 : 0.8 });
-      this.chromaPulse = Math.max(this.chromaPulse, e.big ? 1 : 0.5);
+      if (e.big) this.chromaPulse = Math.max(this.chromaPulse, 0.7);
     });
     ev.on('enemyHit', (e) => {
       if (e.weapon === 'cannon' || e.weapon === 'drift') this.pops.spawn(this.railToWorld(e.pos.z, e.pos.x, e.pos.y, new THREE.Vector3()), { scale: 0.8 });
@@ -170,8 +170,8 @@ export class View {
       this.rings.spawn(this.railToWorld(0, p.x, p.y, new THREE.Vector3()), { maxRadius: T.wingtrail.ringMax, duration: 1.0 });
       this.chromaPulse = 1;
     });
-    ev.on('parry', () => { this.chromaPulse = Math.max(this.chromaPulse, 0.6); });
-    ev.on('playerHit', () => { this.flash = 0.35; this.chromaPulse = Math.max(this.chromaPulse, 0.8); });
+    ev.on('parry', () => { this.chromaPulse = Math.max(this.chromaPulse, 0.4); });
+    ev.on('playerHit', () => { this.flash = 0.3; this.chromaPulse = Math.max(this.chromaPulse, 0.5); });
     ev.on('stageStart', () => this.resetFx());
   }
 
@@ -221,9 +221,6 @@ export class View {
       }
     }
     // thin exhaust contrail behind the craft
-    const p = g.player;
-    if (this.exhaustTrailId < 0) this.exhaustTrailId = this.exhaustTrail.startTrail();
-    this.exhaustTrail.emit(this.exhaustTrailId, this.railToWorld(-6.5, p.x, p.y, V), dt);
   }
 
   // ------------------------------------------------------------------ per render
@@ -257,10 +254,10 @@ export class View {
       this.railToWorld(e.u, e.x, e.y, V);
       if (e.kind === 'caltrop') {
         this.railQuat(e.u, 0, e.roll, Q);
-        this.caltrops.set(nc++, V, Q, 1, flash);
+        this.caltrops.set(nc++, V, Q, 1.7, flash); // readability scale (T026)
       } else if (e.kind === 'dart') {
         this.railQuat(e.u, Math.PI, e.roll, Q);
-        this.darts.set(nd++, V, Q, 1, flash);
+        this.darts.set(nd++, V, Q, 1.3, flash);
       } else {
         const pool = e.kind === 'sniper' ? this.snipers : this.striders;
         const used = e.kind === 'sniper' ? usedS : usedT;

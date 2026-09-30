@@ -8,3 +8,6 @@ All 8 lanes + harness + reference analyst finished (after two API session-limit 
 
 ## 2026-09-30T11:20Z — Integration + consistency pass + freeze
 Lane modules wired into the game (view.ts, hudAdapter.ts, main.ts): goldpath passes with real visuals (rank A, 7/7 mechanics). W3 Reviewer: 6.4 avg -> consistency pass by 6 lanes (Violet darker, hull dark, HUD contrast 5.76:1, smoke separates, post keeps sky saturated, boss dark). Boards frozen to look/approved/. In-game t=150 capture (Docs/captures/latest/combat.png): dark ribbed hull + gate arches frame the corridor, banked craft reads, bullets pop. Calibration board built (naive / art-directed / planted defects); blind Reviewer running.
+
+## 2026-09-30T12:25Z — P2 done: calibration passed; M1 fixes; threat retune
+Blind Reviewer ranked art-directed > planted-defect > naive and found both planted defects (clipped craft, low-contrast label): calibration PASS. M1 look scored 6.17 (gate 7): fixed bullet stacking (fanned bursts), enemy readability (scale + contact markers), chroma restraint, title legibility. Probe found only 19 hostile bullets in 66 s and zero player hits: retuned darts/striders and player hitbox [A]; goldpath PASS (rank A, 7/7 mechanics). Lesson re-learned: pgrep/pkill -f patterns match the calling shell; use a [v]ite bracket pattern.

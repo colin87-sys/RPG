@@ -5,11 +5,15 @@
 import type { InputFrame } from '../core/input';
 import type { Game } from './game';
 import { T } from '../data/tuning';
+import { Rng } from '../core/rng';
 
 export class Bot {
   private lockHold = 0;
   private driftHold = 0;
   private lastRoll = -10;
+  /** a human-like bot: misses some parry timings (seeded, deterministic) */
+  private rng = new Rng(97);
+  private skipUntil = -1;
 
   constructor(private g: Game) {}
 
@@ -57,7 +61,8 @@ export class Bot {
       const tHit = -b.u / b.vu;
       if (tHit < 0 || tHit > 0.1) continue;
       const px = b.x + b.vx * tHit, py = b.y + b.vy * tHit;
-      if (Math.hypot(px - p.x, py - p.y) < 2.6 && p.rollCharges > 0 && now - this.lastRoll > 0.5) {
+      if (Math.hypot(px - p.x, py - p.y) < 2.6 && p.rollCharges > 0 && now - this.lastRoll > 0.5 && now > this.skipUntil) {
+        if (this.rng.chance(0.3)) { this.skipUntil = now + 0.3; break; } // reaction missed
         f.rollRight = true;
         this.lastRoll = now;
         break;

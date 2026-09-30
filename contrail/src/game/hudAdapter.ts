@@ -45,10 +45,9 @@ export class HudAdapter {
     this.targets.length = 0;
     let boss: { label: string; hp01: number } | null = null;
     for (const e of g.enemies) {
-      if (!e.alive || e.u < 4 || e.u > 320) continue;
+      if (!e.alive || e.u < 4 || e.u > 240) continue;
       if (e.b.pattern === 'chain' && e.age < e.b.delay) continue;
       const lc = p.lockTargets.reduce((n, id) => n + (id === e.id ? 1 : 0), 0);
-      if (!lc && !e.big) continue;
       const q = this.view.project(e.u, e.x, e.y, w, h);
       if (!q) continue;
       const size = Math.max(14, (e.radius / Math.max(8, e.u + T.camera.back)) * h * 1.2);

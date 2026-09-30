@@ -10,7 +10,7 @@
 - **ffmpeg** — Playwright's ffmpeg only takes `image2pipe` MJPEG in and VP8 WebM out.
 
 ## Shell / process
-- **`pkill -f "vite --port"` killed the calling shell** (pattern matched its own command line; exit 144). Fix: kill by PID from `pgrep` output, never a self-matching pattern.
+- **`pkill -f "vite --port"` (and `pgrep -f` in a loop) killed the calling shell** (the pattern matches its own command line; exit 144). Fix: bracket the first letter, e.g. `pgrep -f "[v]ite --port 5199"`.
 - **API session limits stop background agents** mid-task. Fix: commit partial lane work immediately; resume agents with SendMessage (they keep their transcript).
 
 ## Shaders / three.js

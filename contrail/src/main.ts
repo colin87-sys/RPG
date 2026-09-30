@@ -58,7 +58,7 @@ function drawOverlay(dt: number) {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const st = game.state;
   if (st === 'title') {
-    drawTitle(g, w, h, { time: game.stateT, showMenu: false, selected: 0, backdrop: false, tags: [null, 'SOON', 'SOON'] });
+    drawTitle(g, w, h, { time: params.det ? game.stateT + 6 : game.stateT, showMenu: false, selected: 0, backdrop: true, tags: [null, 'SOON', 'SOON'] });
     return;
   }
   if (st === 'launch') {

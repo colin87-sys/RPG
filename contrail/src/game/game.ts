@@ -18,7 +18,7 @@ import { approach, damageMul, makePlayer, parryOpen, speedMul, updatePlayer, typ
 import type { GameStateName, GameStateSnapshot } from '../debug/api';
 import * as THREE from 'three';
 
-const PLAYER_RADIUS = 1.4;
+const PLAYER_RADIUS = 2.4; // [A] was 1.4: zero hits in a full run; craft half-span is 4.5 m
 const LOCK_ANGLE = 0.075; // rad (~60 px at 1080p, FOV 68)
 const scratchV = new THREE.Vector3();
 
@@ -89,6 +89,8 @@ export class Game implements Combat {
   playerU = 0;
   playerX = 0;
   playerY = 0;
+  playerVX = 0;
+  playerVY = 0;
   fireRateMul = 1;
 
   constructor(seed: number, readonly input: Input) {
@@ -235,6 +237,7 @@ export class Game implements Combat {
     b.alive = true; b.friendly = false;
     b.u = u; b.x = x; b.y = y; b.vu = vu; b.vx = vx; b.vy = vy;
     b.radius = radius; b.age = 0; b.life = 6; b.damage = T.damage.bullet;
+    this.stat('bulletsFired');
   }
 
   startLaser(owner: number, u: number, x: number, y: number, tu: number, tx: number, ty: number, kind: 'laser' | 'boss', sweep?: { dx: number; dy: number }): number {
@@ -316,6 +319,8 @@ export class Game implements Combat {
     const pev = updatePlayer(p, inp, this.edges(), dt, (nx, ny) => this.aimToRail(nx, ny));
     this.playerX = p.x;
     this.playerY = p.y;
+    this.playerVX = p.vx;
+    this.playerVY = p.vy;
     if (pev.rollStarted) this.events.emit('roll', { dir: p.rollDir, parried: false });
     if (pev.driftStarted) { this.events.emit('drift', { active: true }); this.stat('driftStarted'); }
     if (pev.driftEnded) this.events.emit('drift', { active: false });
