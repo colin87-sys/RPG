@@ -118,7 +118,7 @@ export function chaseRig(aspect = 16 / 9): { camera: THREE.PerspectiveCamera; va
 export function craftPlaceholder(): THREE.Group {
   const g = new THREE.Group();
   const hull = toonMaterial({ albedo: palette.armourDark, rim: 1.4 });
-  const panel = toonMaterial({ albedo: palette.armourSteel, rim: 1.2 });
+  const panel = toonMaterial({ albedo: palette.armourDark, rim: 1.2 });
   const insert = toonMaterial({ albedo: palette.accentOrange, emissive: palette.accentOrange, emissiveStrength: 1.4 });
   const glass = toonMaterial({ albedo: palette.canopyBlue, emissive: palette.canopyBlue, emissiveStrength: 0.25 });
   const hot = toonMaterial({ albedo: palette.exhaustCore, emissive: palette.exhaustCore, emissiveStrength: 3.5, fog: false });
@@ -153,6 +153,8 @@ export function craftPlaceholder(): THREE.Group {
   const ex = new THREE.Mesh(new THREE.SphereGeometry(0.36, 12, 8), hot);
   ex.position.set(0, 0, 5.6);
   g.add(ex);
+  // sits ahead of the rig origin so the whole craft is in frame (see chaseRig note)
+  g.position.set(0, 0, -6);
   return g;
 }
 
@@ -222,4 +224,32 @@ export function stageScene(stage: StageId): THREE.Scene {
   const s = new THREE.Scene();
   s.add(makeBackdrop(stage));
   return s;
+}
+
+export interface BlitRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Board compositor: the GL canvas holds one full-size post-processed frame at a time;
+ * copy a source rect of it (canvas px, top-left origin) into a destination rect of the
+ * 2D overlay canvas (scaled with high-quality smoothing when sizes differ).
+ */
+export function blitToOverlay(overlay: CanvasRenderingContext2D, gl: HTMLCanvasElement, src: BlitRect, dst: BlitRect): void {
+  overlay.save();
+  overlay.imageSmoothingEnabled = true;
+  overlay.imageSmoothingQuality = 'high';
+  overlay.drawImage(gl, src.x, src.y, src.w, src.h, dst.x, dst.y, dst.w, dst.h);
+  overlay.restore();
+}
+
+/** Opaque board background on the overlay (so only blitted frames show). */
+export function fillOverlay(overlay: CanvasRenderingContext2D, w: number, h: number): void {
+  overlay.save();
+  overlay.fillStyle = palette.spaceDeep;
+  overlay.fillRect(0, 0, w, h);
+  overlay.restore();
 }

@@ -2,7 +2,7 @@
  * VFX strip: missile smoke over time (5 frames: t = 0.5, 1.5, 2.5, 3.5, 4.8 s).
  * Two homing missiles curve from bottom-centre toward a distant target, seen from the chase
  * camera (9 m behind, 2.6 m above, FOV 68, slow bank). Simulated in the rail frame with a fixed
- * 1/120 s step; smoke drifts back at 8 m/s. Top row Wreckfield (near-black), bottom row Cloudgate.
+ * 1/120 s step; smoke drifts back at 2 m/s. Top row Wreckfield (near-black), bottom row Cloudgate.
  */
 import * as THREE from 'three';
 import type { LabContext } from '../context';
@@ -23,7 +23,7 @@ export default async function board(ctx: LabContext) {
   const cam = new THREE.PerspectiveCamera(68, 1, 0.3, 3000);
 
   const smoke = new SmokeTrails(3000, params, 1);
-  smoke.wind.set(0, 0, 8);
+  smoke.wind.set(0, 0, 2);
   scene.add(smoke.group);
   const boom = new Explosions(8, EXPLOSION_VARIANTS[v]);
   scene.add(boom.group);
@@ -38,14 +38,14 @@ export default async function board(ctx: LabContext) {
   for (const r of rows) scene.add(r.bd.group);
 
   // missiles (rail frame: craft at origin flying -Z; target ahead, up-right)
-  const target = new THREE.Vector3(7, 13, -125);
+  const target = new THREE.Vector3(4, 10, -100);
   const missiles = [-1, 1].map((s, k) => ({
     pos: new THREE.Vector3(1.3 * s, -0.5, -1),
-    dir: new THREE.Vector3(0.95 * s, 0.45 + 0.15 * k, -0.35).normalize(),
+    dir: new THREE.Vector3(0.36 * s, 0.1 + 0.08 * k, -0.85).normalize(),
     trail: smoke.startTrail(),
     alive: true,
   }));
-  const speed = 78; // rail-frame speed (110 m/s world minus rail drift, plus curve)
+  const speed = 66; // rail-frame speed (110 m/s world minus rail drift, plus curve)
   const toT = new THREE.Vector3();
   const axis = new THREE.Vector3();
   let t = 0;
@@ -71,7 +71,7 @@ export default async function board(ctx: LabContext) {
       for (const m of missiles) {
         if (!m.alive) continue;
         // homing with a turn rate that ramps up after launch (long graceful curves)
-        const rate = THREE.MathUtils.degToRad(Math.min(150, 25 + 90 * t));
+        const rate = THREE.MathUtils.degToRad(Math.min(140, 20 + 80 * t));
         toT.subVectors(target, m.pos).normalize();
         const ang = m.dir.angleTo(toT);
         if (ang > 1e-4) {
@@ -117,7 +117,7 @@ export default async function board(ctx: LabContext) {
     params,
     frames: FRAMES,
     step: STEP,
-    wind: [0, 0, 8],
+    wind: [0, 0, 2],
     missileSpeedRailFrame: speed,
     target: target.toArray(),
     impactS: impact,

@@ -1,0 +1,138 @@
+{
+  "board": "vista-wreck",
+  "variant": "B",
+  "seed": 7,
+  "camera": {
+    "pos": [
+      0,
+      5,
+      20
+    ],
+    "lookAt": [
+      0,
+      2.2,
+      -60
+    ],
+    "fov": 68
+  },
+  "time": 12,
+  "params": {
+    "sky": {
+      "starCount": 6200,
+      "starBeltFraction": 0.35,
+      "starBrightness": 1,
+      "starSizePx": [
+        0.7,
+        2.4
+      ],
+      "starWarmFraction": 0.22,
+      "twinkle": 0.06,
+      "nebulaStrength": 1.45,
+      "nebulaScale": 2.2,
+      "nebulaTilt": 0.32,
+      "nebulaOffset": -0.08,
+      "nebulaWidth": 0.42,
+      "nebulaWarmth": 0.45,
+      "planetSize": 0.085,
+      "planetPhase": 0.62,
+      "planetBands": 0.6,
+      "planetGlow": 0.35,
+      "planetBrightness": 1,
+      "centreCalm": 0.45
+    },
+    "debris": {
+      "corridor": 20,
+      "sideBias": 0.65,
+      "verticalSquash": 0.75,
+      "fleckCount": 6000,
+      "fleckSize": [
+        0.07,
+        0.5
+      ],
+      "fleckBox": [
+        120,
+        70,
+        230
+      ],
+      "fleckBack": 12,
+      "fleckFarFraction": 0.3,
+      "fleckFarBox": [
+        420,
+        240,
+        650
+      ],
+      "fleckFarSize": [
+        0.6,
+        2.2
+      ],
+      "fleckLightFraction": 0.24,
+      "fleckSpin": 1.6,
+      "streak": 0.022,
+      "streakMax": 1.6,
+      "slabCount": 84,
+      "slabSize": [
+        6,
+        28
+      ],
+      "slabRadial": [
+        24,
+        150
+      ],
+      "slabDepth": 650,
+      "slabLightPanels": 0.12,
+      "asteroidCount": 92,
+      "asteroidSize": [
+        3,
+        34
+      ],
+      "asteroidRadial": [
+        28,
+        330
+      ],
+      "asteroidDepth": 950,
+      "giantCount": 8,
+      "giantSize": [
+        70,
+        140
+      ],
+      "giantRadial": [
+        520,
+        820
+      ],
+      "giantDepth": 1500,
+      "spin": 0.12,
+      "farShift": [
+        45,
+        560
+      ],
+      "farMix": 0.78,
+      "rimBoost": 1.5,
+      "defaultVelocity": [
+        0,
+        0,
+        -45
+      ]
+    }
+  },
+  "stats": {
+    "sky": {
+      "triangles": 320,
+      "points": 6200,
+      "drawCalls": 2
+    },
+    "debris": {
+      "triangles": 34712,
+      "drawCalls": 7,
+      "instances": {
+        "asteroids": 100,
+        "slabs": 84,
+        "flecks": 6000
+      }
+    },
+    "measuredFrame": {
+      "triangles": 35040,
+      "calls": 10,
+      "points": 6200
+    }
+  }
+}

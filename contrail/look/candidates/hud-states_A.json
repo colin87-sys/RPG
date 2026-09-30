@@ -1,0 +1,39 @@
+{
+  "board": "hud-states",
+  "variant": {
+    "id": "A",
+    "lineMul": 1,
+    "backingAlpha": 0.3,
+    "chamfer": 14,
+    "glyph": {
+      "stroke": 0.125,
+      "slant": 0.12,
+      "chamfer": 1,
+      "aspect": 0.9,
+      "gap": 1.8
+    },
+    "outlineAlpha": 0.75
+  },
+  "cells": [
+    {
+      "state": "normal",
+      "backdrop": "cloudgate",
+      "brightBands": true
+    },
+    {
+      "state": "space",
+      "backdrop": "wreckfield",
+      "brightBands": false
+    },
+    {
+      "state": "hazard",
+      "backdrop": "wreckfield",
+      "brightBands": false
+    },
+    {
+      "state": "danger",
+      "backdrop": "violetTide",
+      "brightBands": false
+    }
+  ]
+}

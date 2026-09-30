@@ -1,0 +1,58 @@
+{
+  "board": "hud",
+  "variant": {
+    "id": "B",
+    "lineMul": 0.75,
+    "backingAlpha": 0.2,
+    "chamfer": 8,
+    "glyph": {
+      "stroke": 0.105,
+      "slant": 0,
+      "chamfer": 0.7,
+      "aspect": 0.88,
+      "gap": 1.8
+    },
+    "outlineAlpha": 0.65
+  },
+  "tokens": {
+    "bandTop": 0.085,
+    "bandBottom": 0.09,
+    "backingAlpha": 0.3,
+    "lineWidth": 2
+  },
+  "measured": {
+    "topBandPct": 8.61,
+    "bottomBandPct": 9.07,
+    "smallestTextCapPx": 13,
+    "textCalls": 46
+  },
+  "layout": {
+    "topBand": {
+      "y0": 0,
+      "y1": 91.80000000000001
+    },
+    "bottomBand": {
+      "y0": 982.8,
+      "y1": 1080
+    },
+    "ladder": {
+      "x": 1872,
+      "y0": 151.20000000000002,
+      "y1": 637.1999999999999
+    },
+    "pilot": {
+      "x": 1608.9599999999998,
+      "y": 707.4,
+      "w": 205.44,
+      "h": 264.6
+    },
+    "minText": 12.96
+  },
+  "state": {
+    "score": 124850,
+    "locks": 3,
+    "chain": 6,
+    "refill": true,
+    "shield": 72
+  }
+}

@@ -78,27 +78,27 @@ export const DEBRIS_DEFAULTS: DebrisParams = {
   fleckFarFraction: 0.3,
   fleckFarBox: [420, 240, 650],
   fleckFarSize: [0.6, 2.2],
-  fleckLightFraction: 0.32,
+  fleckLightFraction: 0.24,
   fleckSpin: 1.6,
   streak: 0.022,
   streakMax: 1.6,
   slabCount: 60,
-  slabSize: [5, 22],
+  slabSize: [6, 28],
   slabRadial: [24, 150],
   slabDepth: 650,
-  slabLightPanels: 0.14,
+  slabLightPanels: 0.08,
   asteroidCount: 72,
   asteroidSize: [3, 34],
   asteroidRadial: [28, 330],
   asteroidDepth: 950,
   giantCount: 6,
   giantSize: [70, 140],
-  giantRadial: [260, 480],
-  giantDepth: 1300,
+  giantRadial: [520, 820],
+  giantDepth: 1500,
   spin: 0.12,
-  farShift: [60, 900],
-  farMix: 0.82,
-  rimBoost: 1.7,
+  farShift: [45, 560],
+  farMix: 0.9,
+  rimBoost: 1.5,
   defaultVelocity: [0, 0, -45],
 };
 
@@ -202,20 +202,22 @@ void main() {
   vec3 v = normalize(cameraPosition - vWorldPos);
   vec3 albedo = mix(uAlbedoA, uAlbedoB, vVar);
   #ifdef PANELS
-    vec2 q = vUv * vec2(6.0, 9.0);
+    vec2 q = vUv * vec2(4.0, 6.0);
     q.x += step(1.0, mod(floor(q.y), 2.0)) * 0.5;
     vec2 cell = floor(q);
     vec2 f = fract(q);
     float h = wfHash2(cell + floor(vVar * 97.0));
     albedo *= 0.82 + 0.36 * h;
-    albedo = mix(albedo, uPanelLight, step(1.0 - uLightPanels, fract(h * 7.31)) * 0.85);
+    albedo = mix(albedo, uPanelLight, step(1.0 - uLightPanels, fract(h * 7.31)) * 0.6);
     vec2 fw = fwidth(q);
     vec2 e = smoothstep(vec2(0.035), vec2(0.035) + fw * 1.5, f) * smoothstep(vec2(0.035), vec2(0.035) + fw * 1.5, 1.0 - f);
     float vis = 1.0 - smoothstep(0.2, 0.45, max(fw.x, fw.y));
     albedo *= 1.0 - (1.0 - e.x * e.y) * uSeamDark * vis;
   #endif
   vec3 c = shadeToon(albedo, n);
-  c += rimTerm(n, v) * uRimMul;
+  // shared rim, narrowed to the true silhouette so bodies stay near-black
+  float ndv = clamp(dot(n, v), 0.0, 1.0);
+  c += rimTerm(n, v) * uRimMul * smoothstep(0.45, 0.85, 1.0 - ndv);
   // toon glint toward the planet (key) light
   vec3 hv = normalize(normalize(uKeyDir) + v);
   float sp = pow(max(dot(n, hv), 0.0), uSpecPow);
@@ -257,7 +259,7 @@ export function buildDebrisField(params: Partial<DebrisParams> = {}, seed = 1): 
   const field = { value: new THREE.Vector3() };
   const timeU = { value: 0 };
   const velU = { value: new THREE.Vector3(...p.defaultVelocity) };
-  const farColor = tvec(mix(palette.spaceDeep, palette.spaceNebula, 0.4));
+  const farColor = tvec(shade(palette.spaceDeep, 0.8));
   const common = {
     uField: field,
     uTimeD: timeU,
@@ -269,14 +271,14 @@ export function buildDebrisField(params: Partial<DebrisParams> = {}, seed = 1): 
     uFarRange: { value: new THREE.Vector2(p.farShift[0], p.farShift[1]) },
     uFarMix: { value: p.farMix },
     uSpecPow: { value: shading.specular.power },
-    uGlint: { value: tvec(mix(palette.debrisRim, palette.sunCore, 0.4)) },
+    uGlint: { value: tvec(mix(palette.smokeLit, palette.debrisRim, 0.35)) },
     uSeamDark: { value: shading.seamDarkness },
   };
 
   const asteroidMat = makeMaterial({}, {
     ...common,
-    uAlbedoA: { value: tvec(mix(palette.debrisDark, palette.debrisRim, 0.1)) },
-    uAlbedoB: { value: tvec(mix(palette.debrisDark, palette.armourSteel, 0.4)) },
+    uAlbedoA: { value: tvec(palette.debrisDark) },
+    uAlbedoB: { value: tvec(mix(palette.debrisDark, palette.armourSteel, 0.22)) },
     uPanelLight: { value: tvec(palette.armourSteel) },
     uLightPanels: { value: 0 },
     uRimMul: { value: p.rimBoost },
@@ -284,8 +286,8 @@ export function buildDebrisField(params: Partial<DebrisParams> = {}, seed = 1): 
   }, THREE.FrontSide);
   const slabMat = makeMaterial({ PANELS: '' }, {
     ...common,
-    uAlbedoA: { value: tvec(mix(palette.debrisDark, palette.armourSteel, 0.35)) },
-    uAlbedoB: { value: tvec(mix(palette.armourDark, palette.armourSteel, 0.55)) },
+    uAlbedoA: { value: tvec(mix(palette.debrisDark, palette.armourSteel, 0.2)) },
+    uAlbedoB: { value: tvec(mix(palette.armourDark, palette.armourSteel, 0.4)) },
     uPanelLight: { value: tvec(mix(palette.armourSteel, palette.armourLight, 0.55)) },
     uLightPanels: { value: p.slabLightPanels },
     uRimMul: { value: p.rimBoost * 0.8 },
@@ -294,11 +296,11 @@ export function buildDebrisField(params: Partial<DebrisParams> = {}, seed = 1): 
   const fleckMat = makeMaterial({ WRAP_XYZ: '', STREAK: '', DOUBLE_SIDED: '' }, {
     ...common,
     uAlbedoA: { value: tvec(shade(palette.debrisDark, 1.2)) },
-    uAlbedoB: { value: tvec(mix(palette.armourLight, palette.smokeLit, 0.4)) },
+    uAlbedoB: { value: tvec(mix(palette.armourSteel, palette.armourLight, 0.55)) },
     uPanelLight: { value: tvec(palette.armourLight) },
     uLightPanels: { value: 0 },
-    uRimMul: { value: 1.2 },
-    uSpecStr: { value: 0.9 },
+    uRimMul: { value: 1.0 },
+    uSpecStr: { value: 0.45 },
   }, THREE.DoubleSide);
 
   const layers: { kind: 'asteroid' | 'slab' | 'fleck'; layer: Layer; mesh: THREE.Mesh }[] = [];

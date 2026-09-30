@@ -114,7 +114,7 @@ export class VoiceManager {
     if (rec.dead) return;
     if (rec.voice.release) {
       rec.voice.release(at);
-      rec.end = Math.min(rec.end, at + 0.3);
+      rec.end = Math.min(rec.end, at + 0.35);
     } else this.steal(rec, at);
   }
 
@@ -122,7 +122,8 @@ export class VoiceManager {
     v.gain.gain.cancelScheduledValues(at);
     v.gain.gain.setValueAtTime(v.level, at);
     v.gain.gain.linearRampToValueAtTime(0, at + 0.015);
-    v.end = Math.min(v.end, at + 0.02);
+    v.voice.release?.(at); // sustained sources must also stop
+    v.end = Math.min(v.end, at + 0.02); // silent after the 15 ms fade; sources stop on their own
     this.stats.stolen++;
   }
 

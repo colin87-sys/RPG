@@ -103,9 +103,6 @@ runTool(TOOL, async () => {
     const syn = await synthetic(page);
     const res = await page.evaluate(inPage, { src: SRC, ...syn, opts, ok: th.ok, bad: th.bad });
     // expected: disc vs its own background computed directly from the known colours
-    const px = (rgb) => ({ width: 1, height: 1, data: [...rgb, 255] });
-    const direct = (a, b) => analyzeReadability(px(a), { width: 1, height: 1, data: [255, 255, 255, 255] }, { minArea: 1 }); // not used for ring; see below
-    void direct;
     const expect = await page.evaluate(
       ({ src }) => {
         const analyze = (0, eval)(`(${src})`);

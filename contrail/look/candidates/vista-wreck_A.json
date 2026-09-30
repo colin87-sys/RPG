@@ -65,21 +65,21 @@
         0.6,
         2.2
       ],
-      "fleckLightFraction": 0.32,
+      "fleckLightFraction": 0.24,
       "fleckSpin": 1.6,
       "streak": 0.022,
       "streakMax": 1.6,
       "slabCount": 60,
       "slabSize": [
-        5,
-        22
+        6,
+        28
       ],
       "slabRadial": [
         24,
         150
       ],
       "slabDepth": 650,
-      "slabLightPanels": 0.14,
+      "slabLightPanels": 0.08,
       "asteroidCount": 72,
       "asteroidSize": [
         3,
@@ -96,17 +96,17 @@
         140
       ],
       "giantRadial": [
-        260,
-        480
+        520,
+        820
       ],
-      "giantDepth": 1300,
+      "giantDepth": 1500,
       "spin": 0.12,
       "farShift": [
-        60,
-        900
+        45,
+        560
       ],
-      "farMix": 0.82,
-      "rimBoost": 1.7,
+      "farMix": 0.9,
+      "rimBoost": 1.5,
       "defaultVelocity": [
         0,
         0,

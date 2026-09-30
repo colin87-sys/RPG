@@ -141,6 +141,9 @@ class MusicGraph {
   private master: GainNode;
   private layers: { pad: GainNode; bass: GainNode; perc: GainNode; arp: GainNode };
   private arpIn: GainNode;
+  private kickIn: GainNode;
+  private hatIn: GainNode;
+  private bassIn: GainNode;
   private pad: Pad;
   private g: LayerGains = { pad: 0, bass: 0, perc: 0, arp: 0 };
   private x: number;
@@ -168,6 +171,15 @@ class MusicGraph {
       arp: n(amp(ctx, LAYER_LEVELS.arp * this.g.arp)),
     };
     for (const k of ['pad', 'bass', 'perc', 'arp'] as const) this.layers[k].connect(this.master);
+    // shared per-layer processing (one shaper / panner per layer, not per note)
+    this.kickIn = n(amp(ctx, 1));
+    chain(this.kickIn, n(shaper(ctx, driveCurve(1.6), 'none')), this.layers.perc);
+    this.hatIn = n(amp(ctx, 1));
+    const hp = n(ctx.createStereoPanner());
+    hp.pan.value = 0.25;
+    chain(this.hatIn, hp, this.layers.perc);
+    this.bassIn = n(amp(ctx, 1));
+    chain(this.bassIn, n(shaper(ctx, driveCurve(this.fl.bass.drive), 'none')), this.layers.bass);
     // arp: dotted-8th feedback delay (post layer gain, so it fades with the layer)
     this.arpIn = n(amp(ctx, 1));
     this.arpIn.connect(this.layers.arp);
@@ -232,18 +244,18 @@ class MusicGraph {
     const half = bar >= 8;
     if (g.perc > 0.001) {
       const out = this.layers.perc;
-      if (this.kickMask[s]) kick(ctx, out, s === 0 ? t : T(h[s * 5 + 3]), vel, fl);
+      if (this.kickMask[s]) kick(ctx, this.kickIn, s === 0 ? t : T(h[s * 5 + 3]), vel, fl);
       const fill = x >= 0.7 && ((bar === 15 && s >= 8) || (bar === 7 && s >= 12));
       if (fill) snare(ctx, out, T(h[s * 5 + 1]), 0.35 + 0.45 * ((s - 8) / 7), fl, this.seed + n);
       else if (this.snareMask[s] && x >= 0.42) snare(ctx, out, T(h[s * 5 + 1]), vel, fl, this.seed + n);
       const open = s === 14 && bar % 2 === 1 && x >= 0.6;
-      if (s % 2 === 0) hat(ctx, out, T(h[s * 5]), (s % 4 === 2 ? 0.8 : 0.6) * vel, open, fl, this.seed + n);
-      else if (x >= 0.85) hat(ctx, out, T(h[s * 5]), 0.38 * vel, false, fl, this.seed + n);
+      if (s % 2 === 0) hat(ctx, this.hatIn, T(h[s * 5]), (s % 4 === 2 ? 0.8 : 0.6) * vel, open, fl, this.seed + n);
+      else if (x >= 0.85) hat(ctx, this.hatIn, T(h[s * 5]), 0.38 * vel, false, fl, this.seed + n);
       if (s === 0 && (bar === 0 || bar === 8) && x >= 0.75) crash(ctx, out, t, 0.7, this.seed + n);
     }
     if (g.bass > 0.001 && s % 2 === 0) {
       const pat = x >= 0.75 && half ? fl.bass.hi : fl.bass.pattern;
-      bassNote(ctx, this.layers.bass, s === 0 ? t : T(h[s * 5 + 3]), STEP_S * 2 * 0.82, chord.bass + pat[s >> 1], (s === 0 ? 1 : 0.9) * vel, fl, x);
+      bassNote(ctx, this.bassIn, s === 0 ? t : T(h[s * 5 + 3]), STEP_S * 2 * 0.82, chord.bass + pat[s >> 1], (s === 0 ? 1 : 0.9) * vel, fl, x);
     }
     if (g.arp > 0.001) {
       const k = (half ? fl.arp.b : fl.arp.a)[s];
@@ -283,7 +295,7 @@ function kick(ctx: BaseAudioContext, out: AudioNode, t: number, vel: number, fl:
   g.gain.setValueAtTime(vel, t + 0.03);
   g.gain.exponentialRampToValueAtTime(vel * 1e-3, t + 0.42);
   g.gain.linearRampToValueAtTime(0, t + 0.43);
-  chain(o, g, shaper(ctx, driveCurve(1.6)), out);
+  chain(o, g, out);
   const n = noise(ctx, noiseBank(ctx).white, t, t + 0.03, new Rng((t * 1000) | 0));
   const hp = filt(ctx, 'highpass', 2500, 0.7);
   const ng = amp(ctx);
@@ -312,9 +324,7 @@ function hat(ctx: BaseAudioContext, out: AudioNode, t: number, vel: number, open
   const pk = filt(ctx, 'peaking', 10000, 1, 4);
   const g = amp(ctx);
   envAD(g.gain, t, 0.0005, d, 0.3 * vel);
-  const p = ctx.createStereoPanner();
-  p.pan.value = 0.25;
-  chain(n, hp, pk, g, p, out);
+  chain(n, hp, pk, g, out);
 }
 
 function crash(ctx: BaseAudioContext, out: AudioNode, t: number, vel: number, seed: number): void {
@@ -341,7 +351,7 @@ function bassNote(ctx: BaseAudioContext, out: AudioNode, t: number, dur: number,
   g.gain.linearRampToValueAtTime(0, t + dur + 0.025);
   chain(o, lp);
   chain(sub, sg, lp);
-  chain(lp, shaper(ctx, driveCurve(fl.bass.drive)), g, out);
+  chain(lp, g, out);
 }
 
 function arpNote(ctx: BaseAudioContext, out: AudioNode, t: number, midi: number, vel: number, fl: StageFlavour, energy: number): void {
@@ -455,15 +465,31 @@ export class MusicPlayer {
   };
 }
 
+export interface OfflineMusicOptions {
+  seed?: number;
+  /** context time at which the loop's bar 0 starts (silent pre-roll before it) */
+  startAt?: number;
+  /** called with the mixer before rendering (e.g. to schedule a duck) */
+  onMixer?: (mixer: Mixer) => void;
+}
+
 /**
- * Render `seconds` of the loop (from bar 0) into an OfflineAudioContext through
- * the game's own mixer chain. Returns the rendered buffer.
+ * Render `seconds` of the loop (from bar 0, starting at opts.startAt) into an
+ * OfflineAudioContext through the game's own mixer chain. Returns the buffer.
  */
-export async function renderLoopOffline(ctx: OfflineAudioContext, seconds: number, intensity: number, stage: MusicStage, seed = 1): Promise<AudioBuffer> {
+export async function renderLoopOffline(
+  ctx: OfflineAudioContext,
+  seconds: number,
+  intensity: number,
+  stage: MusicStage,
+  opts: OfflineMusicOptions = {},
+): Promise<AudioBuffer> {
+  const t0 = opts.startAt ?? 0;
   const mixer = new Mixer(ctx);
-  const g = new MusicGraph(ctx, mixer.music, mixer.musicReverb, stage, seed, 0, intensity, 0.01);
+  opts.onMixer?.(mixer);
+  const g = new MusicGraph(ctx, mixer.music, mixer.musicReverb, stage, opts.seed ?? 1, t0, intensity, 0.01);
   const steps = Math.ceil(seconds / STEP_S);
-  for (let n = 0; n < steps; n++) g.scheduleStep(n, n * STEP_S);
-  g.fadeOut(Math.max(0, seconds - 0.03), 0.03);
+  for (let n = 0; n < steps; n++) g.scheduleStep(n, t0 + n * STEP_S);
+  g.fadeOut(Math.max(t0, t0 + seconds - 0.03), 0.03);
   return ctx.startRendering();
 }

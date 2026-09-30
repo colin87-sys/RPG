@@ -62,14 +62,14 @@ export default async function board(ctx: LabContext) {
   };
   const pick = (kind: 'asteroid' | 'slab', near: boolean) => {
     const list = world.debris.debugInstances(kind).map((d) => ({ d, s: proj(d.center), dist: d.center.distanceTo(cam.position) }))
-      .filter((e) => e.s.ok && e.dist > 40 && e.s.y > 90);
-    list.sort((a, b) => (near ? a.dist - b.dist : b.d.radius - a.d.radius));
+      .filter((e) => e.s.ok && e.dist > 40 && e.s.y > 90 && e.s.x < ctx.width - 640 && e.s.y < ctx.height - 120);
+    list.sort((a, b) => (near ? a.dist - b.dist : (b.dist < 700 ? 1 : 0) - (a.dist < 700 ? 1 : 0) || b.d.radius - a.d.radius));
     return list[0];
   };
   const slab = pick('slab', true);
   const ast = pick('asteroid', false);
   if (slab) ctx.label(`mid slab ${slab.dist.toFixed(0)} m`, slab.s.x + 10, slab.s.y + 10);
-  if (ast) ctx.label(`far asteroid ${ast.dist.toFixed(0)} m`, ast.s.x + 10, ast.s.y - 30);
+  if (ast) ctx.label(`far asteroid ${ast.dist.toFixed(0)} m`, Math.min(ast.s.x + 10, ctx.width - 260), ast.s.y - 30);
   const pl = proj(cam.position.clone().addScaledVector(world.sky.planetDir, 500));
   ctx.label('planet = key light', Math.min(pl.x - 60, ctx.width - 200), pl.y + 130);
   ctx.label('foreground flecks (streaked)', 24, ctx.height - 120);

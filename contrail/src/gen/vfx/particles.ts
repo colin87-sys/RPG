@@ -206,7 +206,7 @@ export function puffAtlas(): THREE.DataTexture {
         const nz = noise.fbm(x * 3.1 + ox, y * 3.1 + oy, 4);
         const r = Math.hypot(x, y);
         const edgeFade = 1 - Math.min(1, Math.max(0, (r - 0.8) / 0.15)); // keep content inside the cell
-        h[j * CELL + i] = Math.max(0, (hh + (nz - 0.5) * 0.16) * edgeFade);
+        h[j * CELL + i] = hh > 0 ? Math.max(0, (hh + (nz - 0.5) * 0.2) * edgeFade) : 0;
         n2[j * CELL + i] = noise.fbm(x * 6.3 + 17.1, y * 6.3 - 4.2, 3);
       }
     }
@@ -225,7 +225,7 @@ export function puffAtlas(): THREE.DataTexture {
         gx *= nzv;
         gy *= nzv;
         const hk = h[k];
-        const dens = Math.min(1, Math.max(0, hk / 0.15));
+        const dens = Math.min(1, Math.max(0, hk / 0.24));
         const densS = dens * dens * (3 - 2 * dens) * (0.8 + 0.2 * n2[k]);
         const o = ((cy0 + j) * N + (cx0 + i)) * 4;
         data[o] = Math.round((gx * 0.5 + 0.5) * 255);
@@ -345,17 +345,19 @@ vec3 hueOf(vec3 c) {
 }
 
 void main() {
-  float shape = vMisc.y;
+  float shape = floor(vMisc.y + 0.5); // interpolated varying: round before using as an id
   vec2 uv = vUv;
   float dens = 0.0;
   float centre = 0.0;
   float edge = 0.0;
   vec3 N = vToCam;
+  // sample the atlas in uniform control flow (derivatives / mip selection must not follow a discard)
+  float shp = min(shape, 3.0);
+  vec2 cell = vec2(mod(shp, 2.0), floor(shp * 0.5));
+  vec4 tx = texture2D(uPuffTex, (clamp(uv, -1.0, 1.0) * 0.5 + 0.5 + cell) * 0.5);
   if (shape < 3.5) {
     // lumpy puff from the atlas, lit through baked normals
     if (dot(uv, uv) >= 1.0) discard;
-    vec2 cell = vec2(mod(shape, 2.0), floor(shape * 0.5));
-    vec4 tx = texture2D(uPuffTex, (uv * 0.5 + 0.5 + cell) * 0.5);
     dens = clamp(tx.a * uDensity, 0.0, 1.0);
     if (dens < 0.003) discard;
     vec2 nt = tx.rg * 2.0 - 1.0;

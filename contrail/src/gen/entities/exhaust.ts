@@ -82,7 +82,7 @@ void main() {
   } else {
     vec4 wc = modelMatrix * vec4(base + vec3(0.0, 0.0, 0.08), 1.0);
     vec4 vc = viewMatrix * wc;
-    float size = F.y * 3.2 * (0.6 + 0.4 * F.w);
+    float size = F.y * 1.9 * (0.6 + 0.4 * F.w);
     vc.xy += aFlame.xy * size;
     vc.z += 0.15;
     vN = vec3(0.0, 0.0, 1.0);
@@ -113,11 +113,11 @@ void main() {
     float shape = mix(0.35, 1.0, pow(facing, 1.4)) * smoothstep(0.0, 0.35, along) * smoothstep(0.0, 0.08, vT + 0.04);
     float diamonds = 1.0 + uBoost * 0.45 * smoothstep(0.3, 1.0, cos(vT * 26.0 - uTime * 30.0));
     vec3 c = mix(uMid, uCore, core * smoothstep(0.1, 0.8, along) + (1.0 - core) * 0.3 * along * along);
-    col = c * shape * mix(0.55, 1.1, core) * (0.55 + 0.55 * vHeat) * diamonds;
+    col = c * shape * mix(0.4, 0.95, core) * (0.5 + 0.5 * vHeat) * diamonds;
   } else {
     float r2 = dot(vQuad, vQuad);
     float g = exp(-r2 * 4.5) * (1.0 - smoothstep(0.8, 1.0, r2));
-    col = mix(uMid, uCore, exp(-r2 * 14.0)) * g * (0.4 + 0.6 * vHeat) * uGlowK;
+    col = mix(uMid, uCore, exp(-r2 * 14.0)) * g * (0.25 + 0.4 * vHeat) * uGlowK;
   }
   // attenuate by the shared fog amount (applyFog of black -> fog colour * f)
   float f = clamp(length(applyFog(vec3(0.0), vWorldPos)) / max(length(uFogColor), 1e-3), 0.0, 1.0);
@@ -216,6 +216,7 @@ export function buildExhaust(ports: THREE.Vector3[], params: Partial<ExhaustPara
   const boostK = new Spring(8);
   const phases = Array.from({ length: MAX_PORTS }, () => [rng.range(0, 6.28), rng.range(0, 6.28), rng.range(0, 6.28)]);
 
+  const tg = [0, 0, 0, 0];
   const targets = (s: ExhaustState) => {
     const th = Math.max(0, s.throttle);
     let L = P.length * (0.3 + 0.7 * th);
@@ -223,7 +224,8 @@ export function buildExhaust(ports: THREE.Vector3[], params: Partial<ExhaustPara
     let Hh = 0.45 + 0.55 * th;
     if (s.boost) { L *= P.boostStretch; Hh += 0.35; }
     if (s.drift) { L *= P.driftStretch; R *= 1.3; Hh += 0.2; }
-    return [L, R, Hh, s.boost ? 1 : 0];
+    tg[0] = L; tg[1] = R; tg[2] = Hh; tg[3] = s.boost ? 1 : 0;
+    return tg;
   };
   const apply = (time: number) => {
     for (let i = 0; i < n; i++) {

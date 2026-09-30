@@ -71,11 +71,10 @@ export function dartGeometry(p: DartParams, seed: number): DartGeo {
   ]);
   g.loft(rings, (_r, s) => (s === 0 || s === 1 || s === 6 ? body : s === 3 || s === 4 ? panelHi : panel), body, body);
   // nose sensor chevron (red), sits on the upper faces
-  const zc = -1.75, hw = 0.55, hh = 0.36 * H;
+  const zc = -1.75, hh = 0.36 * H;
   g.mirrorX(() => {
     g.quad([0.02, hh + 0.05, zc - 0.18], [0.02, hh + 0.06, zc + 0.02], [0.34, hh * 0.68 + 0.05, zc + 0.3], [0.34, hh * 0.68 + 0.04, zc + 0.1], eye);
   });
-  void hw;
   // spine ridge plate
   g.box(0, H + 0.03, 1.6, 0.16, 0.12, 2.6, panelHi, 0.3, body);
 
@@ -118,8 +117,8 @@ export function dartGeometry(p: DartParams, seed: number): DartGeo {
   const nozzles: THREE.Vector3[] = [];
   g.mirrorX((side) => {
     g.push(new THREE.Matrix4().makeTranslation(0.42, 0.34 * H + 0.05, 0).multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2)));
-    g.cylinder(8, 0.3, 0.27, 2.9, 3.55, body, undefined, undefined, Math.PI / 8);
-    g.cylinder(8, 0.27, 0.19, 3.55, 3.5, nozzleIn, undefined, nozzleCore, Math.PI / 8);
+    g.cylinder(8, 0.3, 0.27, 2.9, 3.55, body, undefined, nozzleIn, Math.PI / 8);
+    g.cylinder(8, 0.16, 0.16, 3.55, 3.57, nozzleCore, undefined, nozzleCore, Math.PI / 8);
     g.pop();
     nozzles.push(new THREE.Vector3(0.42 * side * k, (0.34 * H + 0.05) * k, 3.55 * k));
   });

@@ -1,0 +1,125 @@
+{
+  "board": "hero",
+  "variant": "A",
+  "seed": 7,
+  "params": {
+    "noseStretch": 1,
+    "bodyWidth": 1,
+    "wingSweep": 52,
+    "wingTipX": 4.05,
+    "tipChord": 1,
+    "rootTE": 4.35,
+    "dihedral": -3,
+    "finHeight": 1.25,
+    "finCant": 22,
+    "ventralHeight": 0.55,
+    "ventralCant": 32,
+    "insertGlow": 1,
+    "panelJitter": 0.05,
+    "seamWidth": 0.012,
+    "seamDarkness": 0.55,
+    "rim": 1,
+    "specular": 0.35,
+    "outlineWidth": 0.035,
+    "exhaust": {},
+    "name": "A Gull",
+    "note": "light armour dominant, steel sides, orange grilles + fin bands, outline on",
+    "livery": {
+      "primary": "armourLight",
+      "secondary": "armourSteel",
+      "under": "armourDark",
+      "accent": "accentOrange",
+      "glass": "canopyBlue"
+    },
+    "accentAmount": 0.5,
+    "outline": true
+  },
+  "chaseCamera": {
+    "back": 20,
+    "up": 5,
+    "fov": 68
+  },
+  "stats": {
+    "hullTriangles": 1037,
+    "outlineTriangles": 847,
+    "exhaustTriangles": 580,
+    "triangles": {
+      "hull": 1037,
+      "outline": 847,
+      "exhaust": 580,
+      "total": 2464
+    },
+    "drawCalls": 3,
+    "bounds": [
+      9.08,
+      1.65,
+      12.05
+    ],
+    "radius": 6.7,
+    "measuredRender": {
+      "calls": 3,
+      "triangles": 2464
+    },
+    "pilotTriangles": 294
+  },
+  "ports": {
+    "exhaust": [
+      [
+        0.6,
+        0.008,
+        5.35
+      ],
+      [
+        -0.599,
+        -0.008,
+        5.35
+      ]
+    ],
+    "wingtips": [
+      [
+        4.052,
+        -0.078,
+        3.068
+      ],
+      [
+        -4.047,
+        -0.187,
+        3.068
+      ]
+    ],
+    "missiles": [
+      [
+        1.691,
+        0.312,
+        1.547
+      ],
+      [
+        -1.697,
+        0.267,
+        1.547
+      ],
+      [
+        1.691,
+        0.279,
+        2.346
+      ],
+      [
+        -1.697,
+        0.233,
+        2.346
+      ]
+    ],
+    "muzzles": [
+      [
+        0.453,
+        -0.036,
+        -5
+      ],
+      [
+        -0.451,
+        -0.049,
+        -5
+      ]
+    ]
+  }
+}

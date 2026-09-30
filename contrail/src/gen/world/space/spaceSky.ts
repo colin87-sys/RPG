@@ -327,7 +327,7 @@ export function buildSpaceSky(params: Partial<SpaceSkyParams> = {}, seed = 1): S
     fragmentShader: STAR_FRAG,
     transparent: true,
     blending: THREE.AdditiveBlending,
-    depthTest: false,
+    depthTest: true, // at the far plane (z = w): hidden behind any geometry
     depthWrite: false,
   });
   const stars = new THREE.Points(sg, starMat);

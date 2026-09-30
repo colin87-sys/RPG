@@ -19,7 +19,7 @@ export const WRECK_VARIANTS: Record<'A' | 'B' | 'C', WreckParams> = {
   },
   B: {
     sky: { ...SPACE_SKY_DEFAULTS, nebulaStrength: 1.45, nebulaWidth: 0.42, planetSize: 0.085, planetPhase: 0.62, starCount: 6200, nebulaWarmth: 0.45 },
-    debris: { ...DEBRIS_DEFAULTS, fleckCount: 6000, slabCount: 84, asteroidCount: 92, giantCount: 8, slabLightPanels: 0.2, farMix: 0.78 },
+    debris: { ...DEBRIS_DEFAULTS, fleckCount: 6000, slabCount: 84, asteroidCount: 92, giantCount: 8, slabLightPanels: 0.12, farMix: 0.78 },
   },
   C: {
     sky: { ...SPACE_SKY_DEFAULTS, nebulaStrength: 0.7, planetSize: 0.17, planetPhase: 0.45, planetGlow: 0.5, starCount: 4200, centreCalm: 0.6 },

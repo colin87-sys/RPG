@@ -79,10 +79,10 @@ function bakeCell(v: number, data: Uint8Array): void {
       let px = (i + 0.5) / S - 0.5;
       let py = (j + 0.5) / S - 0.5;
       // billowy domain warp
-      const w1 = sampleNoise(nu + px * 1.3, nv + py * 1.3, 1) - 0.5;
-      const w2 = sampleNoise(nu + 0.5 + px * 1.3, nv + 0.3 + py * 1.3, 1) - 0.5;
-      px += w1 * 0.05;
-      py += w2 * 0.05;
+      const w1 = sampleNoise(nu + px * 1.2, nv + py * 1.2, 0) - 0.5;
+      const w2 = sampleNoise(nu + 0.5 + px * 1.2, nv + 0.3 + py * 1.2, 0) - 0.5;
+      px += w1 * 0.045;
+      py += w2 * 0.045;
       // union of sphere caps
       let hMax = 0, sdMax = -1;
       let bx = 0, by = 0, br = 1, bsy = 1;
@@ -101,7 +101,7 @@ function bakeCell(v: number, data: Uint8Array): void {
       }
       const o = ((cy * S + j) * ATLAS_SIZE + (cx * S + i)) * 4;
       // density with noisy soft edge; softer bottom
-      const en = sampleNoise(nu + px * 3.1, nv + py * 3.1, 2) - 0.5;
+      const en = sampleNoise(nu + px * 1.6, nv + py * 1.6, 1) - 0.5;
       const bottomSoft = py < base + 0.1 ? 0.06 : 0.035;
       let dens = smooth(-0.012, bottomSoft, sdMax + en * 0.035);
       if (!flat) dens *= smooth(base - 0.05, base + 0.07, py);
@@ -115,10 +115,10 @@ function bakeCell(v: number, data: Uint8Array): void {
       const nn = nx * nx + ny * ny;
       if (nn > 1) { const k = 1 / Math.sqrt(nn); nx *= k; ny *= k; }
       // fine billow detail
-      const dnx = sampleNoise(nu + px * 6.0, nv + py * 6.0, 2) - 0.5;
-      const dny = sampleNoise(nu + 0.21 + px * 6.0, nv + 0.63 + py * 6.0, 2) - 0.5;
-      nx = clamp(nx + dnx * 0.35, -0.98, 0.98);
-      ny = clamp(ny + dny * 0.35, -0.98, 0.98);
+      const dnx = sampleNoise(nu + px * 1.5, nv + py * 1.5, 1) - 0.5;
+      const dny = sampleNoise(nu + 0.21 + px * 1.5, nv + 0.63 + py * 1.5, 1) - 0.5;
+      nx = clamp(nx + dnx * 0.3, -0.98, 0.98);
+      ny = clamp(ny + dny * 0.3, -0.98, 0.98);
       const nl = Math.hypot(nx, ny);
       if (nl > 0.98) { nx *= 0.98 / nl; ny *= 0.98 / nl; }
       // baked top light: sky from above, crease occlusion, darker base

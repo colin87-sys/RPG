@@ -18,10 +18,12 @@ import { tvec } from '../../style/color';
 export interface RingParams {
   /** ellipse width / height on screen (1 = circle) */
   aspect: number;
-  /** default band thickness / radius (token 0.03) */
+  /** thickness of ONE colour band / radius (REF_VERIFICATION: 3 bands total ~13% of radius) */
   thicknessFrac: number;
-  /** channel split / radius (token range 0.004-0.008) */
+  /** centre-to-centre spacing of the colour bands / radius (REF_VERIFICATION: ~5%) */
   rgbOffsetFrac: number;
+  /** radius at birth as a fraction of the final radius (ring pops, then keeps growing) */
+  startScale: number;
   minThicknessPx: number;
   minOffsetPx: number;
   /** HDR brightness of the band */
@@ -35,7 +37,7 @@ export interface RingParams {
   /** strength of an inner echo ring (0 = none) and its radius scale */
   echo: number;
   echoScale: number;
-  /** 0 = 3-tap RGB split, 1 = 5-tap spectral split (adds violet / yellow bands) */
+  /** 0 = 3 separated bands red(inner)/green/blue(outer); 1 = 5-band spectral red->yellow->green->cyan->blue */
   spectral: number;
   /** soft glow around the band */
   glow: number;
@@ -48,15 +50,16 @@ export interface RingParams {
 const tok = vfx.shockRing;
 
 export const RING_VARIANTS: Record<'A' | 'B' | 'C', RingParams> = {
-  /** A: token-centred RGB split, mid aspect */
+  /** A: three separated bands (~13% of radius), pops at 45% then grows */
   A: {
-    aspect: 1.7,
-    thicknessFrac: tok.thicknessFrac,
-    rgbOffsetFrac: 0.006,
+    aspect: 1.75,
+    thicknessFrac: 0.042,
+    rgbOffsetFrac: 0.046,
+    startScale: 0.45,
     minThicknessPx: 3,
-    minOffsetPx: 1.5,
-    intensity: 1.35,
-    occlusion: 0.45,
+    minOffsetPx: 3.5,
+    intensity: 1.7,
+    occlusion: 0.55,
     growPower: 2.4,
     fadeTailFrac: tok.fadeTailFrac,
     echo: 0,
@@ -66,15 +69,16 @@ export const RING_VARIANTS: Record<'A' | 'B' | 'C', RingParams> = {
     foreshorten: 0.35,
     tiltToWorld: 1,
   },
-  /** B: rounder, finer split, faint inner echo ring (double-ring read) */
+  /** B: slightly slimmer bands, pops at 60%, faint inner echo ring (double-ring read) */
   B: {
-    aspect: 1.45,
-    thicknessFrac: tok.thicknessFrac,
-    rgbOffsetFrac: tok.rgbOffsetFrac[0],
+    aspect: 1.65,
+    thicknessFrac: 0.036,
+    rgbOffsetFrac: 0.04,
+    startScale: 0.6,
     minThicknessPx: 3,
-    minOffsetPx: 1.2,
-    intensity: 1.5,
-    occlusion: 0.35,
+    minOffsetPx: 3,
+    intensity: 1.8,
+    occlusion: 0.45,
     growPower: 2.0,
     fadeTailFrac: tok.fadeTailFrac,
     echo: 0.45,
@@ -84,15 +88,16 @@ export const RING_VARIANTS: Record<'A' | 'B' | 'C', RingParams> = {
     foreshorten: 0.2,
     tiltToWorld: 1,
   },
-  /** C: flat wide ellipse, max split, 5-tap spectral rainbow */
+  /** C: 5-band spectral rainbow (~15% of radius), widest growth */
   C: {
-    aspect: 2.1,
-    thicknessFrac: tok.thicknessFrac,
-    rgbOffsetFrac: tok.rgbOffsetFrac[1],
-    minThicknessPx: 3.5,
-    minOffsetPx: 1.8,
-    intensity: 1.3,
-    occlusion: 0.55,
+    aspect: 1.85,
+    thicknessFrac: 0.03,
+    rgbOffsetFrac: 0.03,
+    startScale: 0.3,
+    minThicknessPx: 3,
+    minOffsetPx: 3,
+    intensity: 1.6,
+    occlusion: 0.6,
     growPower: 3.0,
     fadeTailFrac: tok.fadeTailFrac,
     echo: 0,
@@ -109,7 +114,7 @@ export interface RingSpawnOpts {
   maxRadius: number;
   /** seconds (design range 0.7-1.3) */
   duration: number;
-  /** band thickness as a fraction of radius (default params.thicknessFrac = 0.03) */
+  /** thickness of one colour band as a fraction of radius (default params.thicknessFrac) */
   thickness?: number;
 }
 
@@ -122,6 +127,7 @@ attribute vec4 aData;       // radius (m), half band (m), alpha, echo radius sca
 uniform vec2 uUpView;
 uniform float uAspect;
 uniform float uMarginK;
+uniform float uOffFracV;
 varying vec2 vLocal;
 varying vec4 vData;
 void main() {
@@ -130,7 +136,7 @@ void main() {
   float Rx = aData.x, Ry = aData.x / uAspect;
   float c = cos(aRing.x), s = sin(aRing.x);
   vec2 n = normalize(vec2(c / Rx, s / Ry));
-  float margin = aData.y * uMarginK;
+  float margin = aData.y * uMarginK + 2.0 * uOffFracV * aData.x + 0.03 * aData.x;
   // strip spans from the echo ring (inside) to the main ring (outside)
   float innerScale = min(aData.w, 1.0);
   vec2 pOut = vec2(Rx * c, Ry * s) + n * margin;
@@ -176,7 +182,7 @@ vec4 ring(float R, float halfBand, float px) {
   vec3 col = uW0 * band(d + 2.0 * off, halfT, aa) + uW1 * band(d + off, halfT, aa) + uW2 * band(d, halfT, aa)
            + uW3 * band(d - off, halfT, aa) + uW4 * band(d - 2.0 * off, halfT, aa);
   float cover = max(max(col.r, col.g), col.b);
-  float glow = exp(-abs(d) / (halfT * 3.0 + 2.0 * px)) * uGlow;
+  float glow = exp(-abs(d) / (halfT * 0.9 + 1.5 * px)) * uGlow;
   return vec4(col + glow, cover);
 }
 
@@ -258,7 +264,8 @@ export class ShockRings {
       uniforms: {
         uUpView: { value: new THREE.Vector2(0, 1) },
         uAspect: { value: 1.7 },
-        uMarginK: { value: 5 },
+        uMarginK: { value: 3 },
+        uOffFracV: { value: 0.046 },
         uOffFrac: { value: 0.006 },
         uMinThickPx: { value: 3 },
         uMinOffPx: { value: 1.5 },
@@ -279,7 +286,7 @@ export class ShockRings {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 30;
     this.group.add(this.mesh);
-    for (let i = 0; i < capacity; i++) this.slots.push({ alive: false, age: 0, duration: 1, maxR: 1, thick: tok.thicknessFrac, x: 0, y: 0, z: 0 });
+    for (let i = 0; i < capacity; i++) this.slots.push({ alive: false, age: 0, duration: 1, maxR: 1, thick: 0.04, x: 0, y: 0, z: 0 });
     this.applyParams();
   }
 
@@ -289,6 +296,7 @@ export class ShockRings {
     const u = this.mat.uniforms;
     u.uAspect.value = p.aspect;
     u.uOffFrac.value = p.rgbOffsetFrac;
+    u.uOffFracV.value = p.rgbOffsetFrac;
     u.uMinThickPx.value = p.minThicknessPx;
     u.uMinOffPx.value = p.minOffsetPx;
     u.uIntensity.value = p.intensity;
@@ -296,15 +304,14 @@ export class ShockRings {
     u.uEcho.value = p.echo;
     u.uGlow.value = p.glow;
     u.uFore.value = p.foreshorten;
-    // channel weights per tap (outermost first); rows sum to white so the overlap is burstWhite
+    // channel weights per tap, W0 innermost .. W4 outermost (REF_VERIFICATION: red inside, blue outside)
     const s = p.spectral;
-    // tap k is evaluated at d + (2-k)*off: W0 peaks innermost, W4 outermost
     const W = [
-      [0.3 * s, 0, 0.55 * s], // innermost: violet
-      [0, 0.25 * s, 1 - 0.55 * s], // blue / cyan
-      [0, 1 - 0.5 * s, 0], // centre: green
-      [1 - 0.65 * s, 0.25 * s, 0], // red / yellow
-      [0.35 * s, 0, 0], // outermost: deep red fringe
+      [0.45 * s, 0, 0], // innermost: deep red (spectral only)
+      [1 - 0.45 * s, 0.3 * s, 0], // red / orange-yellow
+      [0, 1 - 0.6 * s, 0], // green
+      [0, 0.3 * s, 1 - 0.55 * s], // blue / cyan
+      [0.12 * s, 0, 0.55 * s], // outermost: blue-violet (spectral only)
     ];
     (u.uW0.value as THREE.Vector3).set(W[0][0], W[0][1], W[0][2]);
     (u.uW1.value as THREE.Vector3).set(W[1][0], W[1][1], W[1][2]);
@@ -377,7 +384,7 @@ export class ShockRings {
         continue;
       }
       const t = Math.min(1, s.age / s.duration);
-      const grow = 1 - Math.pow(1 - t, p.growPower);
+      const grow = p.startScale + (1 - p.startScale) * (1 - Math.pow(1 - t, p.growPower));
       const R = Math.max(1e-3, s.maxR * grow);
       const f = t <= fadeStart ? 1 : 1 - smooth((t - fadeStart) / Math.max(1e-3, p.fadeTailFrac));
       const born = 1 + 0.6 * Math.max(0, 1 - t / 0.08); // brief birth flash
