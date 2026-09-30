@@ -11,7 +11,7 @@
  */
 import * as THREE from 'three';
 import { palette, shading } from '../../../style/tokens';
-import { mix, shade, tvec } from '../../../style/color';
+import { mix, tvec } from '../../../style/color';
 import { GLSL_LIGHTING, lightUniforms } from '../../common/lighting';
 import { Rng } from '../../../core/rng';
 import { GeoBuilder, faceNormal, type V3 } from '../space/geomKit';
@@ -633,5 +633,3 @@ export function buildHullMass(params: Partial<HullParams> = {}, seed = 1, opts: 
   };
 }
 
-/** Unused-colour guard: keeps shade imported for future tone tweaks without lint noise. */
-export const HULL_SHADOW_HINT = shade(palette.armourDark, 0.8);
