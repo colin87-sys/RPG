@@ -19,7 +19,7 @@
 | T015 | P2 | World | Cloudgate sun inset horizon sparkle; sea diagonal streaks near frame bottom | open |
 | T016 | P1 | Entities | enemies C: dart and strider read weakly on spaceDeep; raise marker intensity / rim wrap for Wreckfield | open |
 | T017 | P1 | Entities | BULWARK reads bronze under Wreckfield key; boss must stay dark with rows of vents (M4) | open |
-| T018 | P1 | Director | Debug API: add readabilityMasks() (frame + hostile-projectile mask PNGs, same camera) for npm run readability (S6) | open |
+| T018 | P1 | Director | Debug API: add readabilityMasks() (frame + hostile-projectile mask PNGs, same camera) for npm run readability (S6) | done |
 | T019 | P1 | Director | Wire setPost() once the post stack is integrated (capture --clean) | open |
 | T020 | P2 | Director | palette board crops 2 of 5 spheres per cell; widen camera | done |
 | T021 | P1 | Audio | laserFire has no cue; music loudness flat 0.6->1.0 (intensity = density only) - owner to judge | open |
@@ -36,3 +36,4 @@
 | T032 | P1 | Director | Specify + build Violet Tide and Wreckfield stage scripts, new enemy mixes (M3) | open |
 | T033 | P1 | Director | BULWARK boss phases 1-3 script + goldpath (M4) | open |
 | T034 | P1 | Director | Caravan mode (120 s) (A11) | open |
+| T035 | P1 | VFX/Director | Readability cloudgate t=150: dE00 median 25.3 (barely passes), p10 20.7; low cases are overlapping bullet clusters; raise contrast margin | open |

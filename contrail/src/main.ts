@@ -148,6 +148,12 @@ if (params.debug) {
     },
     setPost(clean) { postStack.setClean(clean); },
     setHud(on) { hudOn = on; },
+    async readabilityMasks() {
+      app.step(0, true);
+      const frame = app.glCanvas.toDataURL('image/png');
+      const mask = view.readabilityMask(app.glCanvas.width, app.glCanvas.height).toDataURL('image/png');
+      return { frame, mask };
+    },
   };
   window.__game = api;
   if (params.cam) api.setCamera(params.cam);

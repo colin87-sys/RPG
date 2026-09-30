@@ -85,6 +85,8 @@ export interface GameDebugAPI {
   setPost(clean: boolean): void;
   /** HUD visibility (story cameras 'hero'/'vista' hide it) */
   setHud(on: boolean): void;
+  /** S6 readability: GL frame (no HUD) + hostile-projectile mask (white on black), same camera/size */
+  readabilityMasks(): Promise<{ frame: string; mask: string }>;
 }
 
 declare global {

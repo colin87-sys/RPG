@@ -1,6 +1,6 @@
 {
-  "utc": "2026-09-30T09:39:34Z",
-  "commit": "9cfc500",
+  "utc": "2026-09-30T09:41:43Z",
+  "commit": "9b6598b",
   "milestone": "M2",
   "goldpath": {
     "utc": "2026-09-30T09:37:42Z",
@@ -506,6 +506,11 @@
         "utc": "2026-09-30T09:38:53Z",
         "console": 0,
         "missing_refs": 0
+      },
+      "readability": {
+        "utc": "2026-09-30T09:41:43Z",
+        "console": 0,
+        "missing_refs": 0
       }
     }
   },
@@ -919,7 +924,8 @@
     "Docs/progress/goldpath/20260930T093258Z_p25.png",
     "Docs/progress/goldpath/20260930T093258Z_p50.png",
     "Docs/progress/goldpath/20260930T093258Z_p75.png",
-    "Docs/progress/goldpath/20260930T093258Z_results.png"
+    "Docs/progress/goldpath/20260930T093258Z_results.png",
+    "Docs/captures/readability/20260930T094143Z_cloudgate_t150.png"
   ],
   "capture": {
     "utc": "2026-09-30T09:25:56Z",
@@ -949,9 +955,80 @@
     "problems": []
   },
   "readability": {
-    "utc": "2026-09-30T09:38:55Z",
-    "status": "readability API not implemented yet",
-    "passed": null
+    "utc": "2026-09-30T09:41:43Z",
+    "passed": true,
+    "status": "pass",
+    "stage": "cloudgate",
+    "t": 150,
+    "cam": "play",
+    "projectiles": 14,
+    "deltaE_median": 25.34,
+    "deltaE_p10": 20.65,
+    "threshold": 25,
+    "method": "CIEDE2000 between mean CIELAB (D65) of projectile pixels and a local ring (1 px gap, 3-12 px wide, other projectiles excluded); object-ID mask from __game.readabilityMasks()",
+    "overlay": "Docs/captures/readability/20260930T094143Z_cloudgate_t150.png",
+    "worst": [
+      {
+        "x": 1081,
+        "y": 456,
+        "area": 731,
+        "deltaE": 18.07
+      },
+      {
+        "x": 961,
+        "y": 517,
+        "area": 368,
+        "deltaE": 19.15
+      },
+      {
+        "x": 1444,
+        "y": 691,
+        "area": 366,
+        "deltaE": 24.15
+      },
+      {
+        "x": 1103,
+        "y": 526,
+        "area": 366,
+        "deltaE": 24.55
+      },
+      {
+        "x": 722,
+        "y": 282,
+        "area": 367,
+        "deltaE": 24.96
+      },
+      {
+        "x": 1148,
+        "y": 518,
+        "area": 366,
+        "deltaE": 25.24
+      },
+      {
+        "x": 934,
+        "y": 530,
+        "area": 366,
+        "deltaE": 25.33
+      },
+      {
+        "x": 884,
+        "y": 606,
+        "area": 372,
+        "deltaE": 25.34
+      },
+      {
+        "x": 982,
+        "y": 580,
+        "area": 365,
+        "deltaE": 25.67
+      },
+      {
+        "x": 996,
+        "y": 505,
+        "area": 363,
+        "deltaE": 25.71
+      }
+    ]
   },
   "acceptance": {
     "utc": "2026-09-30T09:38:57Z",

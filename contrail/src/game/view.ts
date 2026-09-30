@@ -13,8 +13,8 @@ import { applyStageLook } from '../gen/common/lighting';
 import { toonMaterial } from '../gen/common/materials';
 import { buildKestrel, KESTREL_VARIANTS, type Kestrel } from '../gen/entities/kestrel';
 import {
-  ENEMY_VARIANTS, CaltropSwarm, DartSquadron, buildSniper, buildStrider,
-  type SniperBuild, type StriderBuild,
+  ENEMY_VARIANTS, CaltropSwarm, DartSquadron, buildSniper, buildStrider, buildBulwark,
+  type SniperBuild, type StriderBuild, type BulwarkBuild,
 } from '../gen/entities/enemies';
 import { buildSkyVista } from '../gen/world/sky';
 import { CLOUDGATE_VARIANTS, VIOLET_VARIANTS } from '../gen/world/sky/params';
@@ -57,6 +57,7 @@ export class View {
   private snipers: SniperBuild[] = [];
   private striders: StriderBuild[] = [];
   private bigSlots = new Map<number, number>(); // enemy id -> slot (sniper/strider)
+  private bulwark: BulwarkBuild | null = null;
   readonly hostile: HostileBullets;
   readonly shots: PlayerShots;
   private missileMesh: THREE.InstancedMesh;
@@ -247,6 +248,7 @@ export class View {
     // enemies
     let nc = 0, nd = 0;
     const usedS = new Set<number>(), usedT = new Set<number>();
+    let bossSeen = false;
     for (const e of g.enemies) {
       if (!e.alive) continue;
       if (e.b.pattern === 'chain' && e.age < e.b.delay) continue;
@@ -258,6 +260,19 @@ export class View {
       } else if (e.kind === 'dart') {
         this.railQuat(e.u, Math.PI, e.roll, Q);
         this.darts.set(nd++, V, Q, 1.3, flash);
+      } else if (e.kind === 'bulwark') {
+        if (!this.bulwark) {
+          this.bulwark = buildBulwark(ENEMY_VARIANTS[LOOK.enemies].bulwark, 77);
+          this.scene.add(this.bulwark.root);
+        }
+        bossSeen = true;
+        const b = this.bulwark;
+        b.root.visible = true;
+        b.root.position.copy(V);
+        this.railQuat(e.u, Math.PI + e.yaw, e.roll, b.root.quaternion);
+        let charge = 0;
+        for (const l of g.lasers) if (l.alive && l.owner === e.id && l.state === 'telegraph') charge = Math.max(charge, l.t / l.telegraphS);
+        b.update(dt, { time: this.time, phase: e.b.phase, ventGlow: 0.6 + 0.4 * Math.sin(this.time * 3), hitFlash: flash, emitterCharge: charge });
       } else {
         const pool = e.kind === 'sniper' ? this.snipers : this.striders;
         const used = e.kind === 'sniper' ? usedS : usedT;
@@ -281,6 +296,7 @@ export class View {
         }
       }
     }
+    if (this.bulwark && !bossSeen) this.bulwark.root.visible = false;
     this.snipers.forEach((b, i) => { if (!usedS.has(i)) b.root.visible = false; });
     this.striders.forEach((b, i) => { if (!usedT.has(i)) b.root.visible = false; });
     this.caltrops.setCount(nc);
@@ -381,6 +397,43 @@ export class View {
     const v = this.game.rail.worldOf(this.game.s, u, x, y, V).project(this.camera);
     if (v.z > 1 || v.z < -1) return null;
     return { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h, z: v.z };
+  }
+
+  /**
+   * Object-ID mask for npm run readability (S6): hostile projectiles (bullets, firing
+   * beams) in white on black, same camera and size as the rendered frame. Discs use the
+   * drawn core size (>= 1% of frame height radius, or the projected world radius).
+   */
+  readabilityMask(w: number, h: number): HTMLCanvasElement {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g2 = c.getContext('2d')!;
+    g2.fillStyle = '#000'; // mask colours are data, not look (black/white)
+    g2.fillRect(0, 0, w, h);
+    g2.fillStyle = '#fff';
+    g2.strokeStyle = '#fff';
+    const g = this.game;
+    const fy = h / (2 * Math.tan(((this.camera.fov * Math.PI) / 180) / 2));
+    for (const b of g.bullets) {
+      if (!b.alive || b.friendly) continue;
+      const q = this.project(b.u, b.x, b.y, w, h);
+      if (!q) continue;
+      const dist = this.railToWorld(b.u, b.x, b.y, V).distanceTo(this.camera.position);
+      const r = Math.max(0.01 * h, ((b.radius * 1.4 * 0.46) / dist) * fy);
+      g2.beginPath();
+      g2.arc(q.x, q.y, r, 0, Math.PI * 2);
+      g2.fill();
+    }
+    for (const l of g.lasers) {
+      if (!l.alive || l.state !== 'fire') continue;
+      const a = this.project(l.u0, l.x0, l.y0, w, h);
+      const L = 120;
+      const bq = this.project(l.u0 + l.du * L, l.x0 + l.dx * L, l.y0 + l.dy * L, w, h);
+      if (!a || !bq) continue;
+      g2.lineWidth = Math.max(2, 0.006 * h);
+      g2.beginPath(); g2.moveTo(a.x, a.y); g2.lineTo(bq.x, bq.y); g2.stroke();
+    }
+    return c;
   }
 
   /** NDC of the rail vanishing point, for speed streaks. */

@@ -3,6 +3,9 @@
 // setBot(true) -> start({stage}) -> step(60) (1 simulated second) until state 'results' (pass) or
 // 'gameover' / timeout (fail). NEVER calls setInvulnerable. Asserts every required mechanic fired
 // (counts()), results.cleared === true and zero page errors. Captures at 25/50/75 % and results.
+// --gameover (A13 fast retry): bot off, invulnerability off, idle until 'gameover' (or __game.forceGameOver()
+// if the game provides it), then hold the real confirm key (Enter) and count fixed steps until 'play';
+// pass if confirm -> play < --limit s (default 2). Writes checks.goldpath_gameover (goldpath is untouched).
 import { join } from 'node:path';
 import { collectErrors, launchBrowser, newPage } from './lib/browser.mjs';
 import { updateChecks } from './lib/checks.mjs';
@@ -11,7 +14,7 @@ import { ensureDist, startServer } from './lib/server.mjs';
 import { ROOT, ToolError, list, num, onCleanup, parseArgs, rel, round, runTool, utcIso, utcStamp, verdict, writeFileAtomic } from './lib/util.mjs';
 
 const TOOL = 'goldpath';
-const args = parseArgs(undefined, { booleans: ['dev', 'build'] });
+const args = parseArgs(undefined, { booleans: ['dev', 'build', 'gameover'] });
 export const DEFAULT_MECHANICS = ['cannonFire', 'missileFire', 'enemyKilled:missile', 'parry', 'drift', 'wingtrail', 'shieldRefill'];
 
 runTool(TOOL, async () => {
@@ -33,6 +36,7 @@ runTool(TOOL, async () => {
   await waitGame(page);
   const missing = await missingApi(page, ['setBot', 'start', 'step', 'state', 'counts', 'errors']);
   if (missing.length) throw new ToolError(`__game lacks ${missing.join(', ')}`);
+  if (args.gameover) return gameoverRun({ page, errs, stage, mode, seed, stamp, timeout: num(args.timeout, 300), limit: num(args.limit, 2) });
   await page.evaluate(({ stage, mode }) => {
     const g = window.__game;
     g.setBot(true);
@@ -128,3 +132,81 @@ runTool(TOOL, async () => {
   verdict(TOOL, passed, passed ? `cleared ${stage} in ${sim} s (rank ${s.results?.rank}, score ${s.score}, shield ${Math.round(s.shield)}), all ${required.length} mechanics fired` : failures.join('; '));
   return passed ? 0 : 1;
 });
+
+/** A13: force a game over, then time confirm -> 'play'. Uses only the public API + real key input. */
+async function gameoverRun({ page, errs, stage, mode, seed, stamp, timeout, limit }) {
+  const hasForce = await page.evaluate(() => typeof window.__game.forceGameOver === 'function');
+  await page.evaluate(({ stage, mode }) => {
+    const g = window.__game;
+    g.setBot(false);
+    g.start({ stage, mode });
+    g.setBot(false);
+    g.setInvulnerable(false); // make sure nothing keeps the craft alive
+  }, { stage, mode });
+  let s, sim = 0;
+  if (hasForce) s = await page.evaluate(() => (window.__game.forceGameOver(), window.__game.step(1), window.__game.state()));
+  // Idle (no input) until the stage's enemies take the shield to 0.
+  while (!s || s.state !== 'gameover') {
+    s = await page.evaluate(() => (window.__game.step(60), window.__game.state()));
+    sim += 1;
+    if (s.state === 'results' || sim >= timeout)
+      throw new ToolError(`could not force a game over by idling (state ${s.state} after ${sim} s, shield ${Math.round(s.shield)}); the game needs __game.forceGameOver(): void (set shield 0 -> 'gameover')`);
+  }
+  const deathAt = sim;
+  const shot = async (label) => rel(await writeFileAtomic(join(ROOT, 'Docs', 'progress', 'goldpath', `${stamp}_${label}.png`), await page.screenshot({ type: 'png' })));
+  const captures = [await shot('gameover')];
+  // Hold the real confirm key; the game samples input once per fixed step (edge = one press).
+  const t0 = Date.now();
+  await page.keyboard.down('Enter');
+  let accepted = -1, playAt = -1, n = 0, via = 'keyboard Enter';
+  const maxSteps = 60 * 10;
+  while (n < maxSteps) {
+    s = await page.evaluate(() => (window.__game.step(1), window.__game.state()));
+    n++;
+    if (accepted < 0 && s.state !== 'gameover') accepted = n;
+    if (s.state === 'play') {
+      playAt = n;
+      break;
+    }
+  }
+  await page.keyboard.up('Enter');
+  if (accepted < 0) {
+    // Input path did not restart: fall back to the API so the rest of the loop can still be timed.
+    via = '__game.start() fallback (confirm key was not accepted)';
+    await page.evaluate(({ stage, mode }) => window.__game.start({ stage, mode }), { stage, mode });
+    accepted = n;
+    while (n < maxSteps * 2) {
+      s = await page.evaluate(() => (window.__game.step(1), window.__game.state()));
+      n++;
+      if (s.state === 'play') {
+        playAt = n;
+        break;
+      }
+    }
+  }
+  const wall = (Date.now() - t0) / 1000;
+  captures.push(await shot('retry_play'));
+  const confirmToPlay = playAt > 0 ? (playAt - accepted + 1) / 60 : null; // simulated s, first accepted step included
+  const pressToPlay = playAt > 0 ? playAt / 60 : null; // includes the game-over input lockout
+  const gErr = await gameErrors(page);
+  const errList = errs.list(gErr.map((e) => `game: ${e}`));
+  const failures = [];
+  if (playAt < 0) failures.push(`never returned to 'play' within ${n} steps after confirm`);
+  else if (confirmToPlay >= limit) failures.push(`confirm -> play took ${confirmToPlay.toFixed(2)} s (limit ${limit} s)`);
+  if (s.stage !== stage) failures.push(`restarted stage '${s.stage}', expected '${stage}'`);
+  if (!via.startsWith('keyboard')) failures.push('confirm key did not restart the game (API fallback used)');
+  if (errList.length) failures.push(`${errList.length} page error(s): ${errList.slice(0, 2).join(' | ')}`);
+  const passed = failures.length === 0;
+  await updateChecks(
+    {
+      goldpath_gameover: {
+        utc: utcIso(), passed, status: passed ? 'pass' : 'fail', criterion: 'A13 game over -> flying again', stage, mode, seed,
+        death_at_s: deathAt, forced_via: hasForce ? '__game.forceGameOver()' : 'idle, bot off', restart_via: via,
+        confirm_to_play_s: round(confirmToPlay, 3), press_to_play_s: round(pressToPlay, 3), wall_s: round(wall, 2), limit_s: limit, failures, captures,
+      },
+    },
+    { errors: { tool: 'goldpath:gameover', ...errs.counts(gErr) }, captures },
+  );
+  verdict('goldpath --gameover', passed, passed ? `died at ${deathAt} s; confirm -> play ${confirmToPlay.toFixed(2)} s simulated (${pressToPlay.toFixed(2)} s from key press incl. lockout, ${wall.toFixed(1)} s wall) via ${via}` : failures.join('; '));
+  return passed ? 0 : 1;
+}
