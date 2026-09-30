@@ -149,27 +149,32 @@ async function gameoverRun({ page, errs, stage, mode, seed, stamp, timeout, limi
   while (!s || s.state !== 'gameover') {
     s = await page.evaluate(() => (window.__game.step(60), window.__game.state()));
     sim += 1;
+    if (sim % 15 === 0) console.log(`idle t=${sim}s state=${s.state} shield=${Math.round(s.shield)} progress=${(s.progress * 100).toFixed(0)}%`);
     if (s.state === 'results' || sim >= timeout)
       throw new ToolError(`could not force a game over by idling (state ${s.state} after ${sim} s, shield ${Math.round(s.shield)}); the game needs __game.forceGameOver(): void (set shield 0 -> 'gameover')`);
   }
   const deathAt = sim;
+  if (process.env.HARNESS_DEBUG) console.log('dead at', sim);
   const shot = async (label) => rel(await writeFileAtomic(join(ROOT, 'Docs', 'progress', 'goldpath', `${stamp}_${label}.png`), await page.screenshot({ type: 'png' })));
   const captures = [await shot('gameover')];
-  // Hold the real confirm key; the game samples input once per fixed step (edge = one press).
+  // Tap the real confirm key (Enter): down -> step(1) -> up -> step(1). The game reads confirm as a
+  // press edge and ignores it during the game-over lockout, so a held key would be consumed early.
   const t0 = Date.now();
-  await page.keyboard.down('Enter');
   let accepted = -1, playAt = -1, n = 0, via = 'keyboard Enter';
   const maxSteps = 60 * 10;
+  const step1 = () => page.evaluate(() => (window.__game.step(1), window.__game.state()));
   while (n < maxSteps) {
-    s = await page.evaluate(() => (window.__game.step(1), window.__game.state()));
+    const tap = accepted < 0 && n % 2 === 0;
+    if (tap) await page.keyboard.down('Enter');
+    s = await step1();
     n++;
+    if (tap) await page.keyboard.up('Enter');
     if (accepted < 0 && s.state !== 'gameover') accepted = n;
     if (s.state === 'play') {
       playAt = n;
       break;
     }
   }
-  await page.keyboard.up('Enter');
   if (accepted < 0) {
     // Input path did not restart: fall back to the API so the rest of the loop can still be timed.
     via = '__game.start() fallback (confirm key was not accepted)';

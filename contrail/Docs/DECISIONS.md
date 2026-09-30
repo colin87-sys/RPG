@@ -74,3 +74,14 @@ DECISIONS entries headed 2026-09-30T10:00Z, 10:40Z, 11:40Z and 12:00Z were estim
 
 ## 2026-09-30T09:32Z — Kit frozen after red-team (Docs/KIT_REVIEW.md)
 Fixed: stage/mode false passes, stale DESIGN/STYLE_BIBLE (current-value tables), testability of A7-A13, A15 challenge row, root CLAUDE.md, stop-guard window. Accepted for later: perceptual-hash refcheck and pre-push hook (T029), specs for stages 2-3/boss/Caravan (M3/M4), readability API (T018), gameover driver (T030).
+
+## 2026-09-30T10:02Z — Gameplay lane: tuning single source, Violet Tide, Wreckfield, BULWARK, Caravan, difficulty (T027/T031-T034)
+- T031: ENEMY_DEFS and every behaviour number now live in `src/data/tuning.ts` (`T.enemies`, `T.behaviour`, `T.laser`, `T.caravan`); `enemies.ts` re-exports `ENEMY_DEFS = T.enemies`.
+- BULWARK hull radius 60 -> 28 m (core sphere) so shots can reach the weak points, which sit outside it. Options: keep one 60 m sphere (weak points unreachable) / per-part hulls (no view data yet). Chose the core sphere + 3 weak-point spheres (r 6 m, x5 damage).
+- BULWARK HP kept at DESIGN 600/800/1000 (2400); weak-point multiplier tuned 4 -> 6 -> 5 so the bot's fight lasts ~60 s and Wreckfield ends ~185-190 s. The wingtrail ring cannot physically reach a boss 195 m away, so it deals DESIGN's 30 weak-point damage once per ring when it reaches full size [A].
+- Boss escape: reaching the rail end (250 s nominal) with BULWARK alive ends the stage with `cleared: false` (rank C, "BULWARK ESCAPED"). Options: clear anyway / loop the rail. Chose fail so A10 cannot pass without the kill.
+- Drone waves only in phase 2: in phase 3 they fed combo refills that erased all boss damage.
+- T027 [A]: combo refill (+5/s, [R]) plus parry +3 kept the bot at shield 100 whatever it took. Changed: bullet damage 6 -> 8, parry shield 3 -> 1, dart bursts 3 -> 4 every 1.3 s at 50 m/s with a lead bracket, strider 2 staggered rows of 7 every 1.5 s, strider sweeps staggered per squad index (3 synced sweeps stacked 44 damage), Cloudgate finale gets a walker at 145 s, a rearguard trio at 162 s and a sniper crossfire at 167 s (few kills late = damage sticks). Tried and rejected: shorter combo window (1.0-1.6 s; little effect, hurts the combo feel), removing the late chain (more dart kills refilled instead).
+- Bot [A]: parry miss 30% -> 40%, beam reaction delay 0.22-0.52 s (seeded), beam dodge by clearance search over the window (handles sweeps and the boss wall), weak-point targeting with sway lead.
+- Caravan: stage forced to Cloudgate; timer is real play time (120 s) so drift does not stretch it; wave list re-timed x1.4 = the density factor; no shield pickups, parries give no shield.
+- Title confirm now starts `mode: 'campaign'` explicitly so a previous Caravan run does not leak into the campaign.

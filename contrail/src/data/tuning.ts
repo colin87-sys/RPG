@@ -64,7 +64,7 @@ export const T = {
     charges: 3, // [A] fix for spam
     rechargeEach: 2.0, // s [A]
     missRecovery: 0.25, // s [A]
-    parryShield: 3,
+    parryShield: 1, // [A] T027: was 3 (parries alone refilled ~50 shield per run)
     parryScore: 50,
     lateralBurst: 14, // m/s sideways impulse during a roll
   },
@@ -98,7 +98,119 @@ export const T = {
     multPerChain: 0.1,
     multCap: 5,
   },
-  damage: { bullet: 6, collision: 25, laserPerS: 18, bossBeamPerS: 30 },
+  damage: { bullet: 8, collision: 25, laserPerS: 18, bossBeamPerS: 30 },
+  /** hostile beams (sniper, strider sweep, boss) */
+  laser: {
+    telegraph: 0.7, // s thin line before damage [R/A]
+    fire: 0.4, // s beam [A]
+    sweepFire: 1.0, // s a sweeping beam travels [A]
+    width: 1.1, // m hit radius of a small laser
+    bossWidth: 3.2, // m hit radius of a boss beam
+    overshoot: 120, // m the beam extends past its target
+  },
+  /** ENEMY_DEFS: hp, hit radius (m), score value, big (health sliver), contact damage */
+  enemies: {
+    caltrop: { hp: 3, radius: 1.8, value: 100, big: false, contactDamage: 10 }, // r 1.8 readability (T026)
+    dart: { hp: 10, radius: 3.0, value: 200, big: false, contactDamage: 25 },
+    sniper: { hp: 10, radius: 2.8, value: 400, big: false, contactDamage: 25 },
+    strider: { hp: 60, radius: 6.0, value: 1500, big: true, contactDamage: 25 },
+    // BULWARK: 3 phases 600/800/1000 [A]; radius is the core hull sphere (weak points sit outside it)
+    bulwark: { hp: 2400, radius: 28, value: 10000, big: true, contactDamage: 40 },
+  },
+  /** enemy behaviour numbers (src/game/enemies.ts reads these) */
+  behaviour: {
+    dart: {
+      approachRange: 190, // m: single aimed shots start inside this distance
+      approachInterval: 0.9, // s between approach shots (T027: was 1.1)
+      bulletSpeed: 50, // m/s (T027: was 60; slower orbs live longer on screen)
+      lead: 0.0, // approach shots: aimed at where the player is (T027: was 0.8)
+      burstLeadMax: 1.0, // burst shots bracket from lead 0 (first) to this (last): where you are -> where you will be
+      approachJitterX: 1.2, approachJitterY: 0.8, // m aim scatter
+      enterTauU: 0.6, enterTauXY: 0.8, // s approach time constants
+      strafeAmp: 7, strafeFreq: 1.3, bobAmp: 2.5, bobFreq: 0.9,
+      burstInterval: 1.3, // s between bursts [A] (T027: was 1.6)
+      burstCount: 4, // (T027: was 3)
+      burstGap: 0.11, // s between shots in a burst
+      fanStep: 1.6, // m lateral fan between burst shots (T027: was 3.2; the lead bracket separates the shots)
+      burstJitter: 0.8,
+      firstBurst: 0.2, // s after reaching hold
+      peelSpeed: 30, peelAccel: 60, peelClimb: 12, peelSide: 18,
+    },
+    /** Violet Tide: a squadron crossing the corridor line-abreast, firing as it passes */
+    dartStrafe: {
+      speed: 26, // m/s lateral crossing speed
+      spacing: 11, // m between squadron members along the line
+      interval: 0.75, // s between aimed shots per dart while inside the corridor
+      fireHalfWidth: 30, // m: only fires while |x| < this
+      bulletSpeed: 50,
+      lead: 0.3,
+      pairLead: 1.1, // each volley is a pair: one at lead, one at this lead (brackets the player's path)
+      jitter: 1.0,
+      exitX: 75, // m: leaves the field beyond this
+    },
+    sniper: {
+      settle: 1.4, // s between beams (hold before telegraph)
+      cooldown: 1.6, // s after the beam
+      exitSpeed: 40, exitClimb: 10,
+      holdTauU: 0.7, holdTauXY: 0.9, bobAmp: 1.2,
+    },
+    /** Violet Tide / Wreckfield: sniper beam that sweeps horizontally across the window at player height */
+    sniperSweep: { spanX: 26, fire: 1.3 },
+    strider: {
+      warmup: 1.5, // s before the first spread
+      spreadInterval: 1.5, // s [A] (T027: was 1.7)
+      spreadCount: 7,
+      spreadRows: 2, spreadRowDY: 3.2, // T027: two staggered rows (was one row of 7) so a wall cannot be slipped by drifting vertically
+      spreadStepX: 4.0, spreadDropY: 0.7, // m fan
+      bulletSpeed: 45, bulletRadius: 0.5, lead: 0.5,
+      bulletDamage: 8, // T027: big orbs hit harder than dart shots (T.damage.bullet)
+      sweepInterval: 5.5, // s between diagonal laser sweeps
+      sweepStagger: 1.8, // s offset per squad index so sweeps never stack
+      sweepFromX: 22, sweepFromY: -12, sweepSpanMul: 1.6, sweepRise: 20,
+      weakCycle: 7.0, weakOpenAfter: 5.2, // s: back exposed for the last 1.8 s of each cycle
+      weakMul: 2.5,
+      retreatSpeed: 50, retreatClimb: 8,
+    },
+    /** Wreckfield: caltrop net that surrounds the player and closes on where they were */
+    caltropRing: {
+      startU: 230, endU: -20, // m
+      duration: 5.2, // s from startU to endU
+      radius0: 26, // m at startU; shrinks to 0 at u = 0
+      spin: 0.9, // rad/s
+      trackUntilU: 70, // m: centre follows the player until the ring is this close
+      trackTau: 0.5,
+    },
+    bulwark: {
+      arriveU: 420, arriveY: 80, holdU: 195, holdY: 34, // m (rail space)
+      phase3U: 172, phase3Y: 30,
+      arriveTau: 2.2, // s
+      swayX: 9, swayFreq: 0.12, // m, Hz: slow capital-ship drift
+      phaseHp: [1800, 1000], // hp thresholds: phase 2 below 1800, phase 3 below 1000 (600/800/1000)
+      /** beam emitters (du, dx, dy) relative to the boss centre, rail space */
+      emitters: [[-26, -30, -10], [-26, 30, -10], [-34, -12, -16], [-34, 12, -16], [-38, 0, -8]] as readonly (readonly [number, number, number])[],
+      /** weak points (du, dx, dy): two belly reactors + chin core; outside the hull sphere */
+      weakPoints: [[-24, -18, -14], [-24, 18, -14], [-36, 0, -6]] as readonly (readonly [number, number, number])[],
+      weakRadius: 6, // m
+      weakMul: 5, // cannon/missile/parry damage multiplier on a weak point [A]
+      // phase 1: aimed beam volleys
+      p1Beams: 4, p1BeamGap: 0.5, p1Telegraph: 1.0, p1Recover: 2.8,
+      beamLead: 0.5, // s of player lateral velocity the aimed beams anticipate (alternate beams only)
+      // phase 2: fewer beams + vent barrages + drone waves
+      p2Beams: 2, p2Recover: 2.4,
+      ventRows: 2, ventPerRow: 11, ventSpreadX: 5.0, ventRowDY: 3.4, ventSpeed: 40, ventRadius: 0.55, ventInterval: 4.2,
+      waveInterval: 9, waveSize: 8,
+      // phase 3: sweeping wall of beams with one gap
+      p3Beams: 6, p3Spacing: 7.5, p3Gap: 15, p3Sweep: 26, p3Fire: 2.2, p3Telegraph: 1.2, p3Recover: 2.6,
+      p3VentInterval: 5.5,
+      outro: 3.0, // s after the kill before results
+    },
+  },
+  /** Caravan: 120 s score attack over Cloudgate waves (DESIGN Modes) */
+  caravan: {
+    duration: 120, // s real time
+    density: 1.4, // wave schedule compressed by this factor
+    par: 60000, // rank par [A]
+  },
   score: { parry: 50, shieldBonusPerPoint: 10, timeBonusMax: 5000 },
   rank: { S: 0.9, A: 0.7, B: 0.5 }, // fraction of par
   difficulty: {

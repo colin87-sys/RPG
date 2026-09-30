@@ -13,6 +13,16 @@
 | Shock ring | thickness 3% of radius | **3 bands, ~13% of radius total**, still grows | REF_VERIFICATION + originality |
 | Missile smoke emission | 30 puffs/s | **every ~0.62 m (110-180/s), 30/s floor** | gaps at 110 m/s |
 | Stage | Cloudgate only defined in code (`src/game/stages.ts`) | Violet Tide, Wreckfield, BULWARK phases, Caravan: to be specified in M3/M4 | KIT_REVIEW #11 |
+| Tuning source | ENEMY_DEFS in enemies.ts, behaviour numbers inline | **all in `src/data/tuning.ts`** (`T.enemies`, `T.behaviour`, `T.laser`, `T.caravan`) | T031 single source |
+| Dart (T027) | 3-shot bursts / 1.6 s, 60 m/s, lead 0.8 | **4-shot bursts every 1.3 s, 50 m/s; burst lead brackets 0 -> 1.0 (where you are -> where you will be), fan 1.6 m; approach shots every 0.9 s, lead 0** | 350 bullets/run crossed mostly 8-15 m wide of the bot |
+| Strider (T027) | 7 orbs / 1.7 s | **2 staggered rows of 7 (row gap 3.2 m) every 1.5 s**, orb damage 8; squad sweeps staggered 1.8 s per index | walls slipped by drifting vertically; 3 synced sweeps stacked 44 damage |
+| Bullet damage / parry shield (T027) | 6 / +3 | **8 / +1** | combo + parry refill always restored 100 |
+| Cloudgate finale (T027) | chains + darts to 164 | **+ walker at 145; rearguard strider trio 162-176; parting sniper crossfire 167** (few kills = no late refill) | A15: bot ends 62-78 shield over 10 seeds; live hostile 49 at t=150 (seed 1), window peak 53-60 |
+| Violet Tide | - | **180 s, par 48000, railSeed 23**: dart squadrons crossing line-abreast (`strafe`: 26 m/s, a 2-shot pair every 0.75 s at lead 0.3 / 1.1), sniper crossfire pairs, horizontal sweeping sniper beams (+/-26 m over 1.3 s), strider pair at 86 s, last walker at 158 s | M3 |
+| Wreckfield | - | **par 110000, railSeed 37**, BULWARK at 123 s, ends at the kill (~185-190 s); caltrop nets (`ring`: 10-14 drones on a 26 m circle closing to a point at u = 0, tracks the player until u = 70 m), double-weave chains | M3/M4 |
+| BULWARK | 600/800/1000 | **2400 HP, phase 2 < 1800, phase 3 < 1000**; holds u 195 / y 34 (phase 3: 172 / 30); weak points 2 belly reactors + chin core (r 6 m) take **x5**; wingtrail ring deals 30 once per ring; P1 4 aimed beams 0.5 s apart (1.0 s telegraph, odd beams lead 0.5 s), recover 2.8 s; P2 2 beams + vent barrage 2x11 orbs every 4.2 s + 8-drone waves every 9 s; P3 beam wall (6 beams, 15 m gap, sweeps 26 m in 2.2 s, 1.2 s telegraph), recover 2.6 s, vents every 5.5 s, no drones | M4 |
+| Boss escape | - | **rail end (250 s nominal) with BULWARK alive = results, cleared false (rank C)** | honest A10 |
+| Caravan | 120 s, x1.4 | **Cloudgate waves (no prompts, no shield pickups) re-timed x1.4 into a 120 s loop (real time), parry gives no shield, par 60000** | A11 |
 
 # DESIGN SEED — numbers (tune in playtest)
 

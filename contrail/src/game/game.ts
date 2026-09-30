@@ -8,8 +8,8 @@ import { Rng } from '../core/rng';
 import { EventBus, type WeaponKind } from '../core/events';
 import type { Input, InputFrame } from '../core/input';
 import { Rail } from './rail';
-import { STAGES, type StageDef, type StageEvent } from './stages';
-import { ENEMY_DEFS, updateEnemy, type Combat, type SpawnSpec } from './enemies';
+import { CARAVAN_EVENTS, STAGES, type StageDef, type StageEvent } from './stages';
+import { ENEMY_DEFS, updateEnemy, weakPointsOf, type Combat, type SpawnSpec } from './enemies';
 import {
   makeBullet, makeEnemy, makeLaser, makeMissile, makePickup, makeShot, segDistSq,
   type Bullet, type Enemy, type Laser, type Missile, type Pickup, type Shot,
@@ -21,6 +21,9 @@ import * as THREE from 'three';
 const PLAYER_RADIUS = 2.4; // [A] was 1.4: zero hits in a full run; craft half-span is 4.5 m
 const LOCK_ANGLE = 0.075; // rad (~60 px at 1080p, FOV 68)
 const scratchV = new THREE.Vector3();
+const weakScratch: { u: number; x: number; y: number }[] = [];
+/** laser extras kept on the pooled struct: sweep path and emitter offset from its owner */
+type LaserX = Laser & { sweep?: { dx: number; dy: number; tu: number; tx: number; ty: number }; off?: { u: number; x: number; y: number } };
 
 export interface CameraRig {
   x: number;
@@ -70,6 +73,13 @@ export class Game implements Combat {
   readonly lasers: Laser[] = [];
   readonly pickups: Pickup[] = [];
   private nextEvent = 0;
+  /** caravan: loops of the wave list already played */
+  private loopN = 0;
+  /** real seconds in play (caravan timer) */
+  playT = 0;
+  /** boss bookkeeping: seconds since the boss died (-1 = alive / none) */
+  bossDownT = -1;
+  bossSpawned = false;
   private nextId = 1;
   score = 0;
   chain = 0;
@@ -138,6 +148,10 @@ export class Game implements Combat {
     for (const l of this.lasers) { l.alive = false; l.state = 'off'; }
     for (const p of this.pickups) p.alive = false;
     this.nextEvent = 0;
+    this.loopN = 0;
+    this.playT = 0;
+    this.bossDownT = -1;
+    this.bossSpawned = false;
     this.nextId = 1;
     this.score = 0;
     this.chain = 0;
@@ -158,11 +172,13 @@ export class Game implements Combat {
   }
 
   start(opts: { stage?: string; mode?: 'campaign' | 'caravan'; difficulty?: string } = {}): void {
-    if (opts.stage) this.loadStage(opts.stage);
     if (opts.mode) {
-      if (opts.mode !== 'campaign') throw new Error(`mode '${opts.mode}' not implemented yet`);
+      if (opts.mode !== 'campaign' && opts.mode !== 'caravan') throw new Error(`mode '${opts.mode}' not implemented yet`);
       this.mode = opts.mode;
     }
+    // Caravan is a 120 s loop of Cloudgate waves (DESIGN Modes)
+    if (this.mode === 'caravan') this.loadStage('cloudgate');
+    else if (opts.stage) this.loadStage(opts.stage);
     if (opts.difficulty && opts.difficulty in T.difficulty) this.difficulty = opts.difficulty as Difficulty;
     this.resetStage();
     this.setState('launch');
@@ -181,6 +197,7 @@ export class Game implements Combat {
   }
 
   get progress(): number {
+    if (this.mode === 'caravan') return Math.min(1, this.playT / T.caravan.duration);
     return Math.min(1, this.s / (this.stage.lengthS * T.rail.speed));
   }
 
@@ -231,36 +248,69 @@ export class Game implements Combat {
     for (let i = 0; i < b.p.length; i++) b.p[i] = spec.p?.[i] ?? 0;
     b.fireT = 1.0 + this.rng.range(0, 0.8);
     b.phase = 0; b.phaseT = 0; b.ax = 0; b.ay = 0; b.au = 0; b.laserId = -1;
+    if (spec.kind === 'bulwark') this.bossSpawned = true;
     this.spawned++;
     return e;
   }
 
-  fireBullet(u: number, x: number, y: number, vu: number, vx: number, vy: number, radius = 0.4): void {
+  fireBullet(u: number, x: number, y: number, vu: number, vx: number, vy: number, radius = 0.4, damage: number = T.damage.bullet): void {
     const b = this.bullets.find((q) => !q.alive);
     if (!b) return;
     b.alive = true; b.friendly = false;
     b.u = u; b.x = x; b.y = y; b.vu = vu; b.vx = vx; b.vy = vy;
-    b.radius = radius; b.age = 0; b.life = 6; b.damage = T.damage.bullet;
+    b.radius = radius; b.age = 0; b.life = 6; b.damage = damage;
     this.stat('bulletsFired');
   }
 
-  startLaser(owner: number, u: number, x: number, y: number, tu: number, tx: number, ty: number, kind: 'laser' | 'boss', sweep?: { dx: number; dy: number }): number {
-    const l = this.lasers.find((q) => !q.alive);
+  startLaser(
+    owner: number, u: number, x: number, y: number, tu: number, tx: number, ty: number, kind: 'laser' | 'boss',
+    sweep?: { dx: number; dy: number }, opts?: { telegraph?: number; fire?: number },
+  ): number {
+    const l = this.lasers.find((q) => !q.alive) as LaserX | undefined;
     if (!l) return -1;
+    const L = T.laser;
     l.alive = true; l.owner = owner; l.kind = kind;
     l.u0 = u; l.x0 = x; l.y0 = y;
     const du = tu - u, dx = tx - x, dy = ty - y;
     const len = Math.hypot(du, dx, dy) || 1;
     l.du = du / len; l.dx = dx / len; l.dy = dy / len;
-    l.length = len + 120;
+    l.length = len + L.overshoot;
     l.state = 'telegraph'; l.t = 0;
-    l.telegraphS = 0.7;
-    l.fireS = sweep ? 1.0 : 0.4;
-    l.width = kind === 'boss' ? 3.2 : 1.1;
+    l.telegraphS = opts?.telegraph ?? L.telegraph;
+    l.fireS = opts?.fire ?? (sweep ? L.sweepFire : L.fire);
+    l.width = kind === 'boss' ? L.bossWidth : L.width;
     l.damagePerS = kind === 'boss' ? T.damage.bossBeamPerS : T.damage.laserPerS;
-    (l as Laser & { sweep?: { dx: number; dy: number; tu: number; tx: number; ty: number } }).sweep = sweep ? { ...sweep, tu, tx, ty } : undefined;
+    l.sweep = sweep ? { ...sweep, tu, tx, ty } : undefined;
+    // the beam origin rides on its emitter (offset from the owner's centre)
+    const o = owner >= 0 ? this.enemyById(owner) : null;
+    l.off = o ? { u: u - o.u, x: x - o.x, y: y - o.y } : undefined;
     this.events.emit('laserTelegraph', { id: l.id });
     return l.id;
+  }
+
+  spawnWave(specs: SpawnSpec[]): void {
+    for (const sp of specs) this.spawn(sp);
+  }
+
+  bossPhase(phase: number): void {
+    this.events.emit('bossPhase', { phase });
+    this.stat(`bossPhase${phase}`);
+    const text = phase === 1 ? '// BULWARK ENGAGED //' : phase === 2 ? '// BULWARK: VENTS OPEN //' : '// BULWARK: BEAM WALL //';
+    this.warning = { text, age: 0 };
+    this.events.emit('warning', { text, on: true });
+  }
+
+  /** The living boss, if any. */
+  boss(): Enemy | null {
+    for (const e of this.enemies) if (e.alive && e.kind === 'bulwark') return e;
+    return null;
+  }
+
+  /** Rail-space weak points of an enemy (BULWARK only; empty otherwise). */
+  weakPoints(e: Enemy): { u: number; x: number; y: number }[] {
+    if (e.kind !== 'bulwark') return [];
+    const n = weakPointsOf(e, weakScratch);
+    return weakScratch.slice(0, n);
   }
 
   // ------------------------------------------------------------------ update
@@ -270,7 +320,7 @@ export class Game implements Combat {
     this.stateT += dt;
     switch (this.state) {
       case 'title':
-        if (this.input.pressed('confirm')) this.start({ stage: 'cloudgate' });
+        if (this.input.pressed('confirm')) this.start({ stage: 'cloudgate', mode: 'campaign' });
         return;
       case 'launch':
         this.updateLaunch(dt);
@@ -318,6 +368,7 @@ export class Game implements Combat {
     this.worldScale = p.drift > 0 ? T.drift.timeScale : p.wingtrail > 0 ? T.wingtrail.timeScale : 1;
     const wdt = dt * this.worldScale;
     this.stageTime += wdt;
+    this.playT += dt;
 
     // --- player ---
     const pev = updatePlayer(p, inp, this.edges(), dt, (nx, ny) => this.aimToRail(nx, ny));
@@ -340,8 +391,16 @@ export class Game implements Combat {
     this.cam.fovKick += ((p.boost > 0 ? T.camera.fovKickBoost : 0) - this.cam.fovKick) * approach(0.2, dt);
 
     // --- stage script ---
-    const ev = this.stage.events;
-    while (this.nextEvent < ev.length && ev[this.nextEvent].at <= this.nominal) this.runEvent(ev[this.nextEvent++]);
+    if (this.mode === 'caravan') {
+      // 120 s loop of Cloudgate waves at x1.4 density; wraps if the list runs out
+      const ev = CARAVAN_EVENTS.events;
+      const t = this.nominal - this.loopN * CARAVAN_EVENTS.loopS;
+      while (this.nextEvent < ev.length && ev[this.nextEvent].at <= t) this.runEvent(ev[this.nextEvent++]);
+      if (this.nextEvent >= ev.length && t >= CARAVAN_EVENTS.loopS) { this.loopN++; this.nextEvent = 0; }
+    } else {
+      const ev = this.stage.events;
+      while (this.nextEvent < ev.length && ev[this.nextEvent].at <= this.nominal) this.runEvent(ev[this.nextEvent++]);
+    }
 
     // --- weapons ---
     this.updateCannon(dt, inp);
@@ -372,6 +431,20 @@ export class Game implements Combat {
       this.events.emit('playerDown', {});
       return;
     }
+    if (this.mode === 'caravan') {
+      if (this.playT >= T.caravan.duration) this.finishStage();
+      return;
+    }
+    if (this.stage.boss) {
+      // boss stage: ends after the kill (outro), or fails if the rail runs out first (boss escaped)
+      if (this.bossDownT >= 0) {
+        this.bossDownT += dt;
+        if (this.bossDownT >= T.behaviour.bulwark.outro) this.finishStage();
+      } else if (this.s >= this.stage.lengthS * T.rail.speed) {
+        this.finishStage(false);
+      }
+      return;
+    }
     if (this.s >= this.stage.lengthS * T.rail.speed) this.finishStage();
   }
 
@@ -384,6 +457,7 @@ export class Game implements Combat {
     }
     if (e.pickups)
       for (const pk of e.pickups) {
+        if (this.mode === 'caravan' && pk.kind === 'shield') continue; // no shield regen except combo
         const q = this.pickups.find((x) => !x.alive);
         if (!q) continue;
         q.alive = true; q.kind = pk.kind; q.u = 180; q.x = pk.x; q.y = pk.y; q.vu = -30; q.age = 0;
@@ -494,6 +568,12 @@ export class Game implements Combat {
       if (s.travelled > T.cannon.range) { s.alive = false; continue; }
       for (const e of this.enemies) {
         if (!e.alive) continue;
+        if (e.kind === 'bulwark' && this.weakHit(e, s.u - s.vu * dt, s.x - s.vx * dt, s.y - s.vy * dt, s.vu / T.cannon.speed, s.vx / T.cannon.speed, s.vy / T.cannon.speed, T.cannon.speed * dt, T.cannon.radius)) {
+          s.alive = false;
+          this.damageEnemy(e, s.damage * T.behaviour.bulwark.weakMul, 'cannon');
+          this.stat('bossWeakHits');
+          break;
+        }
         const r = e.radius + T.cannon.radius;
         const du = e.u - s.u, dx = e.x - s.x, dy = e.y - s.y;
         // swept test along the shot's last step to avoid tunnelling
@@ -644,7 +724,7 @@ export class Game implements Combat {
     }
     if (!p.rollParried) {
       p.rollParried = true;
-      p.shield = Math.min(T.shield.max, p.shield + T.roll.parryShield);
+      if (this.mode !== 'caravan') p.shield = Math.min(T.shield.max, p.shield + T.roll.parryShield);
       this.score += T.roll.parryScore;
       this.addChain(1);
       this.combatText.push({ text: `PARRY +${T.roll.parryScore}`, kind: 'good', age: 0 });
@@ -660,8 +740,12 @@ export class Game implements Combat {
       l.t += wdt;
       const owner = l.owner >= 0 ? this.enemyById(l.owner) : null;
       if (l.owner >= 0 && !owner && l.state === 'telegraph') { l.alive = false; l.state = 'off'; continue; }
-      if (owner) { l.u0 = owner.u - 2; l.x0 = owner.x; l.y0 = owner.y; }
-      const sw = (l as Laser & { sweep?: { dx: number; dy: number; tu: number; tx: number; ty: number } }).sweep;
+      const lx = l as LaserX;
+      if (owner) {
+        const o = lx.off;
+        l.u0 = owner.u + (o ? o.u : -2); l.x0 = owner.x + (o ? o.x : 0); l.y0 = owner.y + (o ? o.y : 0);
+      }
+      const sw = lx.sweep;
       if (l.state === 'telegraph') {
         if (l.t >= l.telegraphS) {
           l.state = 'fire';
@@ -721,11 +805,16 @@ export class Game implements Combat {
     const p = this.player;
     for (const e of this.enemies) {
       if (!e.alive || e.ringHit === R.id) continue;
+      if (e.kind === 'bulwark') {
+        // the shock ring fills the screen at full size: it strikes the boss weak points once [A]
+        if (R.age >= T.wingtrail.ringGrow) { e.ringHit = R.id; this.damageEnemy(e, T.wingtrail.damageBossWeak, 'wingtrail'); this.stat('bossWeakHits'); }
+        continue;
+      }
       const d = Math.hypot(e.u, e.x - p.x, e.y - p.y);
       if (d - e.radius <= R.radius) {
         e.ringHit = R.id;
         const weak = e.kind === 'strider' && e.b.phase === 1;
-        this.damageEnemy(e, weak || e.kind === 'bulwark' ? T.wingtrail.damageBossWeak : T.wingtrail.damageSmall, 'wingtrail');
+        this.damageEnemy(e, weak ? T.wingtrail.damageBossWeak : T.wingtrail.damageSmall, 'wingtrail');
       }
     }
     for (const b of this.bullets) {
@@ -820,6 +909,12 @@ export class Game implements Combat {
     const p = this.player;
     p.wingKills++;
     if (p.wingKills >= T.wingtrail.killsToCharge) p.wingCharge = 1;
+    if (e.kind === 'bulwark') {
+      this.bossDownT = 0;
+      // the wreck takes its beams with it
+      for (const l of this.lasers) if (l.alive && l.owner === e.id) { l.alive = false; l.state = 'off'; }
+      this.stat('bossKilled');
+    }
     if (e.big) {
       this.hitStop = Math.max(this.hitStop, T.feedback.hitStopBossWeak);
       this.cam.shake = Math.max(this.cam.shake, T.camera.shakeMax);
@@ -854,18 +949,31 @@ export class Game implements Combat {
     }
   }
 
-  private finishStage(): void {
+  /** true when the segment (a + t*d, t in [0,len]) passes within a weak point of boss e */
+  private weakHit(e: Enemy, au: number, ax: number, ay: number, du: number, dx: number, dy: number, len: number, rad: number): boolean {
+    const n = weakPointsOf(e, weakScratch);
+    const r = T.behaviour.bulwark.weakRadius + rad;
+    for (let i = 0; i < n; i++) {
+      const w = weakScratch[i];
+      if (segDistSq(w.u, w.x, w.y, au, ax, ay, du, dx, dy, len) <= r * r) return true;
+    }
+    return false;
+  }
+
+  private finishStage(cleared = true): void {
     const p = this.player;
     const shieldBonus = Math.round(p.shield * T.score.shieldBonusPerPoint);
     const killBonus = Math.round((this.kills / Math.max(1, this.spawned)) * T.score.timeBonusMax);
     const total = this.score + shieldBonus + killBonus;
-    const frac = total / this.stage.par;
+    const par = this.mode === 'caravan' ? T.caravan.par : this.stage.par;
+    const frac = cleared ? total / par : 0;
     const rank = frac >= T.rank.S ? 'S' : frac >= T.rank.A ? 'A' : frac >= T.rank.B ? 'B' : 'C';
     this.results = {
       rank, score: total, baseScore: this.score, shieldBonus, killBonus, bestCombo: this.bestChain,
-      shieldLeft: Math.round(p.shield), timeS: Math.round(this.stageTime * 10) / 10, kills: this.kills, spawned: this.spawned, cleared: true,
+      shieldLeft: Math.round(p.shield), timeS: Math.round((this.mode === 'caravan' ? this.playT : this.stageTime) * 10) / 10, kills: this.kills, spawned: this.spawned, cleared,
     };
-    this.events.emit('stageClear', { stage: this.stage.id });
+    if (cleared) this.events.emit('stageClear', { stage: this.stage.id });
+    else this.warning = { text: '// BULWARK ESCAPED //', age: 0 };
     this.setState('results');
   }
 
@@ -882,6 +990,12 @@ export class Game implements Combat {
     let n = 0;
     for (const e of this.enemies) if (e.alive && !(e.b.pattern === 'chain' && e.age < e.b.delay)) n++;
     return n;
+  }
+
+  private bossSnapshot(): GameStateSnapshot['boss'] {
+    const e = this.boss();
+    if (!e) return null;
+    return { name: 'BULWARK', phase: e.b.phase, hp01: Math.round((Math.max(0, e.hp) / e.maxHp) * 1000) / 1000 };
   }
 
   snapshot(): GameStateSnapshot {
@@ -910,7 +1024,7 @@ export class Game implements Combat {
         rolling: p.rolling > 0, drifting: p.drift > 0, wingtrail: p.wingtrail > 0, boosting: p.boost > 0, braking: p.braking,
         invulnerable: this.invulnerable,
       },
-      boss: null,
+      boss: this.bossSnapshot(),
       results: this.results
         ? { rank: this.results.rank, score: this.results.score, bestCombo: this.results.bestCombo, shieldLeft: this.results.shieldLeft, timeS: this.results.timeS, cleared: this.results.cleared }
         : null,
