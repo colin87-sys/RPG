@@ -52,7 +52,7 @@ export const T = {
     turnRate: (240 * Math.PI) / 180, // rad/s [A]
     damage: 6, // [A]
     ammo: 6, // [A]
-    ammoRegen: 12, // s per missile [A]
+    ammoRegen: 4, // s per missile [A] (was 12: barrages too rare; M2 review had 0/6 ammo in every frame)
     launchStagger: 0.06, // s between missiles in a salvo
     maxFlight: 4.5, // s before self-destruct
   },
@@ -157,6 +157,7 @@ export const T = {
     /** Violet Tide / Wreckfield: sniper beam that sweeps horizontally across the window at player height */
     sniperSweep: { spanX: 26, fire: 1.3 },
     strider: {
+      spreadStagger: 0.045, // s between orbs of one volley (sweeping stream)
       warmup: 1.5, // s before the first spread
       spreadInterval: 1.5, // s [A] (T027: was 1.7)
       spreadCount: 7,
@@ -181,8 +182,8 @@ export const T = {
       trackTau: 0.5,
     },
     bulwark: {
-      arriveU: 420, arriveY: 80, holdU: 195, holdY: 34, // m (rail space)
-      phase3U: 172, phase3Y: 30,
+      arriveU: 420, arriveY: 80, holdU: 150, holdY: 30, // m (rail space)
+      phase3U: 130, phase3Y: 26,
       arriveTau: 2.2, // s
       swayX: 9, swayFreq: 0.12, // m, Hz: slow capital-ship drift
       phaseHp: [1800, 1000], // hp thresholds: phase 2 below 1800, phase 3 below 1000 (600/800/1000)

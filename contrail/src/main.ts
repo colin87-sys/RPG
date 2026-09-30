@@ -97,7 +97,7 @@ app.start({
     postStack.render(view.scene, view.camera, {
       time: renderTime,
       chroma: postTok.chroma.base + (postTok.chroma.ring - postTok.chroma.base) * ring + (postTok.chroma.hit - postTok.chroma.base) * view.chromaPulse,
-      speed01: game.state === 'play' ? (p.boost > 0 ? 1 : p.braking ? 0.15 : 0.45) : 0.2,
+      speed01: game.state === 'play' ? (p.boost > 0 ? 1 : p.braking ? 0.2 : 0.62) : 0.25,
       vanish: view.vanishing(vanish),
       flash: view.flash,
       danger01: Math.max(0, Math.min(1, (40 - p.shield) / 40)),
@@ -127,7 +127,7 @@ if (params.debug) {
       setBot(wasBot);
       // effects spawned during the unrendered skip never aged: drop them, then let one second of live FX build up
       view.resetFx();
-      app.step(60, true);
+      app.step(150, true); // 2.5 s of live effects (smoke, flashes) before the capture
     },
     step(n) { app.step(n, true); },
     setCamera(name) {

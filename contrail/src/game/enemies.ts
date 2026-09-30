@@ -244,13 +244,22 @@ export function updateEnemy(e: Enemy, dt: number, c: Combat): boolean {
       b.fireT -= dt * c.fireRateMul;
       if (b.fireT <= 0 && e.age > S.warmup) {
         b.fireT = S.spreadInterval;
-        const h = (S.spreadCount - 1) / 2;
-        for (let r = 0; r < S.spreadRows; r++) {
-          const ry = (r - (S.spreadRows - 1) / 2) * S.spreadRowDY, rx = r % 2 ? S.spreadStepX / 2 : 0; // staggered rows
-          for (let i = -h; i <= h; i++) {
-            const v = aimAt(c, e.u - 3, e.x, e.y + 2, S.bulletSpeed, i * S.spreadStepX + rx, ry + Math.abs(i) * -S.spreadDropY, S.lead);
-            c.fireBullet(e.u - 3, e.x, e.y + 2, v.vu, v.vx, v.vy, S.bulletRadius, S.bulletDamage);
-          }
+        b.p[9] = S.spreadRows * S.spreadCount; // shots queued for this volley
+        b.p[10] = 0;
+      }
+      // fire the volley as a sweeping stream (one orb every spreadStagger s), so the wall
+      // spreads in depth instead of stacking into one on-screen column (M2 review D-3)
+      if (b.p[9] > 0) {
+        b.p[10] -= dt;
+        while (b.p[9] > 0 && b.p[10] <= 0) {
+          const k = S.spreadRows * S.spreadCount - b.p[9];
+          const r = Math.floor(k / S.spreadCount), col = k % S.spreadCount;
+          const i = (r % 2 ? S.spreadCount - 1 - col : col) - (S.spreadCount - 1) / 2; // serpentine sweep
+          const ry = (r - (S.spreadRows - 1) / 2) * S.spreadRowDY, rx = r % 2 ? S.spreadStepX / 2 : 0;
+          const v = aimAt(c, e.u - 3, e.x, e.y + 2, S.bulletSpeed, i * S.spreadStepX + rx, ry + Math.abs(i) * -S.spreadDropY, S.lead);
+          c.fireBullet(e.u - 3, e.x, e.y + 2, v.vu, v.vx, v.vy, S.bulletRadius, S.bulletDamage);
+          b.p[9]--;
+          b.p[10] += S.spreadStagger;
         }
       }
       if (e.age <= dt) b.phaseT = -(b.index % 3) * S.sweepStagger; // squad members never sweep together

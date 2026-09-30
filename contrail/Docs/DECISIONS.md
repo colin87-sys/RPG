@@ -91,3 +91,6 @@ A13 measured 2.53 s confirm->play with the full launch; now 0.82 s simulated (1.
 
 ## 2026-09-30T10:47Z — Capture fix: setTime() clears effects spawned during the unrendered skip, then steps 1 s live
 Explosions/smoke spawned while fast-forwarding never aged (no render updates), so every capture at t>0 showed a pile-up of a whole minute of fireballs. Earlier M1 review captures were affected. Campaign now advances cloudgate -> violetTide -> wreckfield after a clear; stage cards use each stage's subtitle; BULWARK weak points get HUD markers; results say TARGET ESCAPED on a boss escape.
+
+## 2026-09-30T11:10Z — Juice/readability fixes after M2/M4 review (Docs/reviews/M2_M4.md, 6.33 / 6.00)
+Missile regen 12 s -> 4 s [A] (barrages were rare: 0/6 ammo in every frame; Cloudgate goldpath now 41 missile volleys); strider volleys fire as a serpentine stream (0.045 s per orb) instead of all at once (no on-screen 'coin' columns); BULWARK holds at u 150 (was 195) and 130 in phase 3 for scale; chroma base 0.0015 -> 0.001; play-speed streaks 0.45 -> 0.62; captures step 2.5 s of live effects after a skip.

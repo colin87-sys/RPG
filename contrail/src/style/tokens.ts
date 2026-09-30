@@ -247,7 +247,7 @@ export const post = {
   exposure: 1.0,
   bloom: { threshold: 0.85, strength: 0.6, radius: 0.6 },
   vignette: 0.25,
-  chroma: { base: 0.0015, hit: 0.006, ring: 0.008 },
+  chroma: { base: 0.001, hit: 0.006, ring: 0.008 },
   scanlines: { lines: 540, opacity: 0.06 },
   grain: 0.04,
   grade: { lift: '#0A0C18', gamma: 1.0, gain: '#FFF8EC', saturation: 1.08 },
