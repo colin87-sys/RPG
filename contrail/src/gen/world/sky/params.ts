@@ -339,11 +339,11 @@ const vtSea: CloudSeaParams = {
   scale: 300,
   stretchX: 2.6,
   bump: 12,
-  lit: ['sunsetCloudDark', 'sunsetMagenta', 0.3],
+  lit: ['sunsetCloudDark', 'sunsetMagenta', 0.16],
   mid: 'sunsetCloudDark',
   shadow: ['sunsetCloudDark', 'emblemBlack', 0.5],
   rim: ['sunsetHorizon', 'sunsetMagenta', 0.3],
-  backlit: 0.5,
+  backlit: 0.3,
   drift: 1,
   contrast: 2.0,
 };

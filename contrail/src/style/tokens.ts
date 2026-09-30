@@ -168,7 +168,7 @@ export const stages: Record<'cloudgate' | 'violetTide' | 'wreckfield', StageLook
     ambientSky: '#3A2E6E',
     ambientGround: '#5A2F58',
     ambientIntensity: 0.8,
-    fog: { color: '#5E3A74', density: 0.0014, heightFalloff: 0.025, far: '#5C2A55' },
+    fog: { color: '#3E2656', density: 0.0014, heightFalloff: 0.025, far: '#5C2A55' },
     split: {
       dominant: ['sunsetZenith', 'sunsetIndigo'],
       secondary: ['sunsetCloudDark', 'sunsetMagenta'],
@@ -247,7 +247,7 @@ export const post = {
   exposure: 1.0,
   bloom: { threshold: 0.85, strength: 0.6, radius: 0.6 },
   vignette: 0.25,
-  chroma: { base: 0.001, hit: 0.006, ring: 0.008 },
+  chroma: { base: 0.001, hit: 0.003, ring: 0.004 },
   scanlines: { lines: 540, opacity: 0.06 },
   grain: 0.04,
   grade: { lift: '#0A0C18', gamma: 1.0, gain: '#FFF8EC', saturation: 1.08 },

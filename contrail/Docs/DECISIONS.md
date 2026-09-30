@@ -99,3 +99,5 @@ Missile regen 12 s -> 4 s [A] (barrages were rare: 0/6 ammo in every frame; Clou
 
 ## 2026-09-30T11:27Z — Strider volley one row of 9 (was 2 rows of 7) so fire does not wall off the shooter; combat camera stops on a firing beam or >= 3 locks
 Cloudgate goldpath after the change: rank A, shield 56 (A15 challenge still met).
+
+## 2026-09-30T11:29Z — Round-5: chroma hit/ring 0.006/0.008 -> 0.003/0.004 (fringing too heavy in hero shots); Violet Tide sea lit mix 0.3 -> 0.16, backlit 0.5 -> 0.3, fog #5E3A74 -> #3E2656 (dark-sunset rule)
