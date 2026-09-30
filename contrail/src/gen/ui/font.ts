@@ -54,7 +54,7 @@ export interface TextOpts {
   valign?: 'top' | 'middle' | 'baseline';
   /** dark under-stroke for legibility over bright backgrounds (any CSS colour) */
   outline?: string;
-  /** outline thickness in px on each side (default max(1.5, 0.12 x size)) */
+  /** outline thickness in px on each side (default 0.08 x size, clamped to 1.5..4) */
   outlineWidth?: number;
   /** override the style's slant */
   slant?: number;
@@ -330,7 +330,7 @@ export function drawText(g: CanvasRenderingContext2D, text: string, x: number, y
   g.lineJoin = 'miter';
   g.miterLimit = 2.4;
   if (opts.outline) {
-    const ow = opts.outlineWidth ?? Math.max(1.5, size * 0.12);
+    const ow = opts.outlineWidth ?? Math.max(1.5, Math.min(4, size * 0.08));
     g.globalAlpha = alpha;
     g.lineJoin = 'round';
     g.lineCap = 'round';
@@ -343,12 +343,16 @@ export function drawText(g: CanvasRenderingContext2D, text: string, x: number, y
   g.strokeStyle = opts.color;
   const glow = opts.glow ?? 0;
   if (glow > 0) {
+    g.lineJoin = 'round';
+    g.lineCap = 'round';
     g.globalAlpha = alpha * 0.1 * Math.min(glow, 2);
     g.lineWidth = lw + size * 0.42 * glow;
     g.stroke();
     g.globalAlpha = alpha * 0.2 * Math.min(glow, 2);
     g.lineWidth = lw + size * 0.16 * glow;
     g.stroke();
+    g.lineJoin = 'miter';
+    g.lineCap = 'square';
   }
   g.globalAlpha = alpha;
   g.lineWidth = lw;

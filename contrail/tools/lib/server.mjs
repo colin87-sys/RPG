@@ -63,6 +63,7 @@ export const gameEntryExists = () => existsSync(join(ROOT, 'src', 'main.ts'));
  * dropped and only the Look-Dev Lab page is built (labOnly: true).
  */
 export async function viteBuild() {
+  process.env.VITE_CONFIG_NATIVE_IGNORE_WARNING ??= 'true';
   const { build, loadConfigFromFile } = await import('vite');
   const loaded = await loadConfigFromFile({ command: 'build', mode: 'production' }, join(ROOT, 'vite.config.ts'), ROOT, 'warn');
   const cfg = loaded.config;

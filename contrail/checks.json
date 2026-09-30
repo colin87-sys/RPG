@@ -1,20 +1,145 @@
 {
-  "utc": "2026-09-30T05:40:04Z",
-  "commit": "00112c4",
+  "utc": "2026-09-30T05:42:27Z",
+  "commit": "cdf216d",
   "milestone": "P1",
   "goldpath": {
+    "utc": "2026-09-30T05:42:14Z",
     "passed": false,
-    "duration_s": null,
-    "steps": [],
-    "status": "not run"
+    "status": "fail",
+    "stage": "cloudgate",
+    "seed": 1,
+    "duration_s": 20,
+    "wall_s": 2,
+    "final": {
+      "state": "play",
+      "results": null,
+      "score": 3300,
+      "shield": 100,
+      "kills": 23,
+      "bestCombo": 8
+    },
+    "mechanics": {
+      "parry": 0,
+      "vortexAbsorb": 0
+    },
+    "required": [
+      "parry",
+      "vortexAbsorb"
+    ],
+    "missing_mechanics": [
+      "parry",
+      "vortexAbsorb"
+    ],
+    "counts": {
+      "stateChanged": 2,
+      "stageStart": 1,
+      "cannonFire": 240,
+      "lockAdded": 7,
+      "missileFire": 2,
+      "enemyHit": 70,
+      "comboChanged": 25,
+      "enemyKilled": 23,
+      "missileHit": 5,
+      "missilesFired": 7,
+      "enemyKilled:cannon": 18,
+      "killed:caltrop": 23,
+      "enemyKilled:missile": 5
+    },
+    "failures": [
+      "timeout after 20 simulated s (state play, progress 10%)",
+      "mechanic(s) never fired: parry, vortexAbsorb"
+    ],
+    "captures": [],
+    "steps": [
+      {
+        "t": 1,
+        "state": "launch",
+        "stage_t": 0,
+        "progress": 0.001,
+        "score": 0,
+        "shield": 100,
+        "kills": 0
+      },
+      {
+        "t": 2,
+        "state": "launch",
+        "stage_t": 0,
+        "progress": 0.005,
+        "score": 0,
+        "shield": 100,
+        "kills": 0
+      },
+      {
+        "t": 5,
+        "state": "play",
+        "stage_t": 2.5,
+        "progress": 0.021,
+        "score": 0,
+        "shield": 100,
+        "kills": 0
+      },
+      {
+        "t": 10,
+        "state": "play",
+        "stage_t": 7.3,
+        "progress": 0.048,
+        "score": 1160,
+        "shield": 100,
+        "kills": 8
+      },
+      {
+        "t": 15,
+        "state": "play",
+        "stage_t": 12.3,
+        "progress": 0.076,
+        "score": 2140,
+        "shield": 100,
+        "kills": 15
+      },
+      {
+        "t": 20,
+        "state": "play",
+        "stage_t": 17.2,
+        "progress": 0.103,
+        "score": 3300,
+        "shield": 100,
+        "kills": 23
+      }
+    ]
   },
   "perf": {
-    "scene": "",
-    "fps_median": null,
-    "fps_p1_low": null,
-    "draw_calls": null,
-    "method": "",
-    "status": "not run"
+    "utc": "2026-09-30T05:42:27Z",
+    "passed": true,
+    "status": "pass (budgets)",
+    "scene": "cloudgate",
+    "t": 150,
+    "seconds": 10,
+    "w": 1920,
+    "h": 1080,
+    "frames": 98,
+    "frame_ms_median": 100,
+    "frame_ms_p99": 166.6,
+    "fps_median": 10,
+    "fps_p1_low": 6,
+    "step_ms_median": 0.6,
+    "draw_calls": 9,
+    "draw_calls_max": 9,
+    "triangles": 2520,
+    "triangles_max": 3306,
+    "programs": 4,
+    "textures": 1,
+    "geometries": 13,
+    "enemies_alive": 3,
+    "hostile_projectiles": 6,
+    "sim_state": "play",
+    "bot": true,
+    "budget": {
+      "draw_calls": 250,
+      "triangles": 450000,
+      "ok": true
+    },
+    "method": "software-GL relative (SwiftShader, no GPU)",
+    "failures": []
   },
   "errors": {
     "console": 0,
@@ -24,30 +149,86 @@
         "utc": "2026-09-30T05:39:09Z",
         "console": 0,
         "missing_refs": 0
+      },
+      "netcheck": {
+        "utc": "2026-09-30T05:40:26Z",
+        "console": 0,
+        "missing_refs": 0
+      },
+      "capture": {
+        "utc": "2026-09-30T05:41:39Z",
+        "console": 0,
+        "missing_refs": 0
+      },
+      "goldpath": {
+        "utc": "2026-09-30T05:42:14Z",
+        "console": 0,
+        "missing_refs": 0
+      },
+      "perf": {
+        "utc": "2026-09-30T05:42:27Z",
+        "console": 0,
+        "missing_refs": 0
       }
     }
   },
   "network": {
-    "external_requests": null,
-    "status": "not run"
-  },
-  "refcheck": {
-    "utc": "2026-09-30T05:40:04Z",
+    "utc": "2026-09-30T05:40:26Z",
     "passed": true,
     "status": "pass",
-    "ref_files_in_build": 0,
-    "images_in_build": 0,
+    "external_requests": 0,
+    "requests_total": 11,
+    "hosts": [
+      "127.0.0.1:4173"
+    ],
+    "external": [],
+    "pages": [
+      {
+        "page": "game title",
+        "path": "/",
+        "ok": true,
+        "requests": 4
+      },
+      {
+        "page": "game autopilot 10s",
+        "path": "/?skip=1&bot=1&mute=1",
+        "ok": true,
+        "requests": 4
+      },
+      {
+        "page": "lab index",
+        "path": "/lab/index.html",
+        "ok": true,
+        "requests": 3
+      }
+    ],
+    "pending": [],
+    "lab_only_build": false,
+    "static_url_hosts_in_bundle": {
+      "www.w3.org": 1,
+      "jcgt.org": 1
+    }
+  },
+  "refcheck": {
+    "utc": "2026-09-30T05:40:10Z",
+    "passed": false,
+    "status": "fail",
+    "ref_files_in_build": 1,
+    "images_in_build": 1,
     "ref_files_in_repo": 0,
     "manifest_entries": 121,
     "refs_local": 121,
     "refs_not_in_manifest": [],
     "manifest_missing_locally": [],
-    "dist_files": 8,
+    "dist_files": 9,
     "dist_game_built": true,
     "lab_only_build": false,
     "data_image_literals": 0,
     "text_snippets_checked": 14,
-    "matches": []
+    "matches": [
+      "dist/assets/x.jpg == Docs/refs/owner/18_clean_frontal-silhouette.jpg",
+      "dist/assets/x.jpg (41204 B)"
+    ]
   },
   "audio": {
     "clipping": null,
@@ -58,6 +239,82 @@
   },
   "captures": [
     "look/candidates/palette_A.png",
-    "look/candidates/palette_B.png"
-  ]
+    "look/candidates/palette_B.png",
+    "Docs/progress/general/20260930T054134Z_hero.png",
+    "Docs/progress/general/20260930T054134Z_vista.png",
+    "Docs/progress/general/20260930T054134Z_combat.png",
+    "Docs/progress/general/20260930T054134Z_hud.png",
+    "Docs/progress/general/20260930T054134Z_title.png",
+    "Docs/progress/goldpath/20260930T054149Z_p25.png",
+    "Docs/progress/goldpath/20260930T054149Z_p50.png",
+    "Docs/progress/goldpath/20260930T054149Z_p75.png",
+    "Docs/progress/goldpath/20260930T054149Z_results.png"
+  ],
+  "capture": {
+    "utc": "2026-09-30T05:41:39Z",
+    "passed": true,
+    "cams": [
+      "hero",
+      "vista",
+      "combat",
+      "hud",
+      "title"
+    ],
+    "seed": 1,
+    "t": 12,
+    "stage": "cloudgate",
+    "w": 1920,
+    "h": 1080,
+    "feature": "general",
+    "files": [
+      "Docs/progress/general/20260930T054134Z_hero.png",
+      "Docs/progress/general/20260930T054134Z_vista.png",
+      "Docs/progress/general/20260930T054134Z_combat.png",
+      "Docs/progress/general/20260930T054134Z_hud.png",
+      "Docs/progress/general/20260930T054134Z_title.png"
+    ],
+    "stats": {
+      "hero": {
+        "state": "play",
+        "time": 12.03,
+        "luma_mean": 212.4,
+        "luma_std": 59,
+        "colors": 73,
+        "size": "1920x1080"
+      },
+      "vista": {
+        "state": "play",
+        "time": 12.03,
+        "luma_mean": 181.4,
+        "luma_std": 70.1,
+        "colors": 67,
+        "size": "1920x1080"
+      },
+      "combat": {
+        "state": "play",
+        "time": 12.03,
+        "luma_mean": 185.1,
+        "luma_std": 68.1,
+        "colors": 151,
+        "size": "1920x1080"
+      },
+      "hud": {
+        "state": "play",
+        "time": 12.03,
+        "luma_mean": 188.3,
+        "luma_std": 68.4,
+        "colors": 147,
+        "size": "1920x1080"
+      },
+      "title": {
+        "state": "title",
+        "time": 0,
+        "luma_mean": 202.9,
+        "luma_std": 64,
+        "colors": 75,
+        "size": "1920x1080"
+      }
+    },
+    "problems": []
+  }
 }

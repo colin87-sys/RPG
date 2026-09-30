@@ -1,0 +1,388 @@
+/**
+ * Sky lane parameter types and the named variant sets.
+ * Colours are palette token references (ColorRef), resolved through
+ * src/style/color.ts; no colour literals live in this lane.
+ */
+import { palette, type PaletteKey, type StageId } from '../../../style/tokens';
+import { mix } from '../../../style/color';
+import { tvec } from '../../../style/color';
+import type * as THREE from 'three';
+
+/** A palette token, or a mix of two tokens [a, b, t] (t = 0 -> a). */
+export type ColorRef = PaletteKey | [PaletteKey, PaletteKey, number];
+
+export function resolveColor(c: ColorRef): string {
+  if (typeof c === 'string') return palette[c];
+  return mix(palette[c[0]], palette[c[1]], c[2]);
+}
+export function colorVec(c: ColorRef, k = 1): THREE.Vector3 {
+  return tvec(resolveColor(c), k);
+}
+/** Collect the token names a params object references (for manifests). */
+export function tokensIn(obj: unknown, out = new Set<string>()): Set<string> {
+  if (typeof obj === 'string' && obj in palette) out.add(obj);
+  else if (Array.isArray(obj)) obj.forEach((o) => tokensIn(o, out));
+  else if (obj && typeof obj === 'object') Object.values(obj).forEach((o) => tokensIn(o, out));
+  return out;
+}
+
+export interface SkyDomeParams {
+  /** elevation (sin) width of the horizon colour band */
+  horizonBand: number;
+  /** colour just above the horizon band (blends into sky mid) */
+  bandColor: ColorRef;
+  /** multiplier on stage sky.sunSize (angular radius) */
+  sunScale: number;
+  sunIntensity: number;
+  glowInner: ColorRef;
+  glowOuter: ColorRef;
+  /** angular size (radians) of the outer halo */
+  glowSize: number;
+  /** horizontal stretch of the halo along the horizon (1 = round) */
+  glowStretch: number;
+  /** multiplier on stage sky.sunGlow */
+  glowStrength: number;
+  cirrus: number;
+  cirrusColor: ColorRef;
+  /** painterly soft posterisation 0..1 */
+  banding: number;
+  bandSteps: number;
+  /** gradient wobble from low-frequency noise */
+  wobble: number;
+}
+
+export interface CloudFieldParams {
+  /** wrap window length along -Z (m) and how far behind the camera it starts */
+  depth: number;
+  back: number;
+  fadeFar: number; // fade-in length at the far end (m)
+  fadeNear: number; // puffs closer than this (view depth, m) fade out
+  corridorX: number; // clear half-width around x = 0
+  corridorY: number; // clear half-height around y = 0
+  seaY: number;
+  towersPerKm: number;
+  banksPerKm: number;
+  humpsPerKm: number;
+  wispsPerKm: number;
+  towerHeight: [number, number];
+  towerWidth: [number, number];
+  bankLength: [number, number];
+  bankHeight: [number, number];
+  /** lateral distance of cluster edges beyond the corridor (m) */
+  lateral: [number, number];
+  /** lateral spread of sea humps (m, each side) */
+  humpSpread: number;
+  opacity: number;
+  lit: ColorRef;
+  mid: ColorRef;
+  shadow: ColorRef;
+  rim: ColorRef;
+  /** forward-scatter rim when looking toward the key light (backlit edges) */
+  backlit: number;
+  rimPower: number;
+  /** how much the cluster-level normal overrides the per-puff normal */
+  clusterNormal: number;
+  /** 0 = soft wrap lighting, 1 = shared toon ramp */
+  toon: number;
+  /** headwind (m/s, clouds drift toward +Z) */
+  wind: number;
+  /** per-wrap lateral re-shuffle (m) so the field does not repeat */
+  cycleShift: number;
+}
+
+export interface CloudSeaParams {
+  y: number;
+  size: number; // plane edge (m)
+  scale: number; // metres per noise tile
+  stretchX: number; // >1 stretches features along X (banded sea)
+  bump: number;
+  lit: ColorRef;
+  mid: ColorRef;
+  shadow: ColorRef;
+  rim: ColorRef;
+  backlit: number;
+  drift: number; // m/s of noise advection
+  contrast: number;
+}
+
+export interface CloudBandParams {
+  count: number;
+  /** wrap = bands approach and recycle; follow = fixed distances that follow the camera */
+  mode: 'wrap' | 'follow';
+  spacing: number; // m between bands (wrap) or between follow distances
+  start: number; // first band distance (follow) / near fade distance (wrap)
+  back: number;
+  topY: [number, number];
+  height: number; // body height below the top (m)
+  domeWidth: number; // big dome width (m)
+  domeAmp: number;
+  detailWidth: number;
+  detailAmp: number;
+  body: ColorRef;
+  lit: ColorRef;
+  shadow: ColorRef;
+  rim: ColorRef;
+  rimWidth: number; // m below the silhouette where the rim glows
+  rimStrength: number;
+  /** forward-scatter power toward the key light (azimuth focus of the rim) */
+  rimFocus: number;
+  opacity: number;
+  drift: number;
+}
+
+export interface SkyVistaParams {
+  stage: StageId;
+  sky: SkyDomeParams;
+  clouds: CloudFieldParams;
+  sea: CloudSeaParams;
+  bands: CloudBandParams;
+}
+
+/** In-scatter toward the sun added on top of the shared fog (one per stage). */
+export interface HazeParams {
+  color: ColorRef;
+  strength: number;
+  power: number;
+}
+export const STAGE_HAZE: Record<StageId, HazeParams> = {
+  cloudgate: { color: 'cloudCream', strength: 0.22, power: 6 },
+  violetTide: { color: 'sunsetHorizon', strength: 0.55, power: 5 },
+  wreckfield: { color: 'planetYellow', strength: 0.1, power: 8 },
+};
+
+export type VariantId = 'A' | 'B' | 'C';
+
+// ---------------------------------------------------------------- Cloudgate
+const cgSky: SkyDomeParams = {
+  horizonBand: 0.07,
+  bandColor: ['skyHorizon', 'skyDay', 0.3],
+  sunScale: 1,
+  sunIntensity: 1.5,
+  glowInner: 'sunCore',
+  glowOuter: ['skyHorizon', 'cloudCream', 0.6],
+  glowSize: 0.45,
+  glowStretch: 1,
+  glowStrength: 1,
+  cirrus: 0.35,
+  cirrusColor: 'cloudCream',
+  banding: 0.55,
+  bandSteps: 7,
+  wobble: 0.025,
+};
+
+const cgClouds: CloudFieldParams = {
+  depth: 3200,
+  back: 160,
+  fadeFar: 700,
+  fadeNear: 70,
+  corridorX: 45,
+  corridorY: 25,
+  seaY: -48,
+  towersPerKm: 5,
+  banksPerKm: 6,
+  humpsPerKm: 30,
+  wispsPerKm: 3,
+  towerHeight: [110, 260],
+  towerWidth: [110, 200],
+  bankLength: [180, 420],
+  bankHeight: [35, 80],
+  lateral: [10, 900],
+  humpSpread: 1400,
+  opacity: 1,
+  lit: 'cloudCream',
+  mid: 'cloudMid',
+  shadow: 'cloudShadow',
+  rim: 'sunCore',
+  backlit: 0.25,
+  rimPower: 4,
+  clusterNormal: 0.45,
+  toon: 0.55,
+  wind: 3,
+  cycleShift: 120,
+};
+
+const cgSea: CloudSeaParams = {
+  y: -48,
+  size: 16000,
+  scale: 420,
+  stretchX: 1.0,
+  bump: 2.2,
+  lit: 'cloudCream',
+  mid: ['cloudSea', 'cloudMid', 0.3],
+  shadow: ['cloudShadow', 'cloudMid', 0.35],
+  rim: 'sunCore',
+  backlit: 0.1,
+  drift: 1.5,
+  contrast: 1,
+};
+
+const cgBands: CloudBandParams = {
+  count: 3,
+  mode: 'follow',
+  spacing: 700,
+  start: 2000,
+  back: 0,
+  topY: [60, 200],
+  height: 260,
+  domeWidth: 420,
+  domeAmp: 150,
+  detailWidth: 110,
+  detailAmp: 40,
+  body: 'cloudMid',
+  lit: 'cloudCream',
+  shadow: 'cloudShadow',
+  rim: 'sunCore',
+  rimWidth: 30,
+  rimStrength: 0.15,
+  rimFocus: 3,
+  opacity: 0.95,
+  drift: 0,
+};
+
+export const CLOUDGATE_VARIANTS: Record<VariantId, SkyVistaParams> = {
+  // A: sparse towers, lots of open sky
+  A: {
+    stage: 'cloudgate',
+    sky: { ...cgSky },
+    clouds: { ...cgClouds, towersPerKm: 4, banksPerKm: 1.5, humpsPerKm: 22, wispsPerKm: 1, corridorX: 60, towerHeight: [150, 320], towerWidth: [120, 210], lateral: [20, 1000] },
+    sea: { ...cgSea },
+    bands: { ...cgBands, topY: [30, 120], domeAmp: 110 },
+  },
+  // B: medium banks
+  B: {
+    stage: 'cloudgate',
+    sky: { ...cgSky },
+    clouds: { ...cgClouds },
+    sea: { ...cgSea },
+    bands: { ...cgBands },
+  },
+  // C: dense, narrow corridor
+  C: {
+    stage: 'cloudgate',
+    sky: { ...cgSky, cirrus: 0.2 },
+    clouds: {
+      ...cgClouds,
+      towersPerKm: 9,
+      banksPerKm: 11,
+      humpsPerKm: 45,
+      wispsPerKm: 8,
+      corridorX: 28,
+      towerHeight: [90, 220],
+      towerWidth: [100, 180],
+      lateral: [2, 600],
+    },
+    sea: { ...cgSea, bump: 2.6 },
+    bands: { ...cgBands, topY: [100, 240], domeAmp: 170 },
+  },
+};
+
+// ---------------------------------------------------------------- Violet Tide
+const vtSky: SkyDomeParams = {
+  horizonBand: 0.03,
+  bandColor: ['sunsetMagenta', 'sunsetHorizon', 0.25],
+  sunScale: 1.25,
+  sunIntensity: 2.2,
+  glowInner: ['sunCore', 'sunsetHorizon', 0.35],
+  glowOuter: 'sunsetMagenta',
+  glowSize: 0.55,
+  glowStretch: 0.6,
+  glowStrength: 1,
+  cirrus: 0.18,
+  cirrusColor: ['sunsetMagenta', 'sunsetIndigo', 0.3],
+  banding: 0.6,
+  bandSteps: 8,
+  wobble: 0.02,
+};
+
+const vtClouds: CloudFieldParams = {
+  ...cgClouds,
+  seaY: -58,
+  towersPerKm: 0,
+  banksPerKm: 3,
+  humpsPerKm: 14,
+  wispsPerKm: 0,
+  bankHeight: [18, 40],
+  bankLength: [200, 500],
+  lateral: [30, 900],
+  humpSpread: 1200,
+  corridorX: 50,
+  lit: 'sunsetMagenta',
+  mid: 'sunsetIndigo',
+  shadow: 'sunsetCloudDark',
+  rim: ['sunsetHorizon', 'sunCore', 0.3],
+  backlit: 1.1,
+  rimPower: 5,
+  clusterNormal: 0.35,
+  toon: 0.4,
+  wind: 2,
+};
+
+const vtSea: CloudSeaParams = {
+  y: -58,
+  size: 16000,
+  scale: 380,
+  stretchX: 2.6,
+  bump: 2.0,
+  lit: ['sunsetMagenta', 'sunsetIndigo', 0.35],
+  mid: 'sunsetIndigo',
+  shadow: 'sunsetCloudDark',
+  rim: ['sunsetHorizon', 'sunsetMagenta', 0.3],
+  backlit: 0.8,
+  drift: 1,
+  contrast: 1,
+};
+
+const vtBands: CloudBandParams = {
+  count: 14,
+  mode: 'wrap',
+  spacing: 180,
+  start: 60,
+  back: 40,
+  topY: [-44, -26],
+  height: 70,
+  domeWidth: 90,
+  domeAmp: 16,
+  detailWidth: 28,
+  detailAmp: 6,
+  body: 'sunsetIndigo',
+  lit: 'sunsetMagenta',
+  shadow: 'sunsetCloudDark',
+  rim: ['sunsetHorizon', 'sunsetMagenta', 0.25],
+  rimWidth: 5,
+  rimStrength: 1.3,
+  rimFocus: 2.2,
+  opacity: 1,
+  drift: 1.5,
+};
+
+export const VIOLET_VARIANTS: Record<VariantId, SkyVistaParams> = {
+  // A: medium band spacing, large sun, narrow band
+  A: {
+    stage: 'violetTide',
+    sky: { ...vtSky },
+    clouds: { ...vtClouds },
+    sea: { ...vtSea },
+    bands: { ...vtBands },
+  },
+  // B: tight bands, bigger sun, narrowest horizon band
+  B: {
+    stage: 'violetTide',
+    sky: { ...vtSky, sunScale: 1.6, horizonBand: 0.018, glowSize: 0.65 },
+    clouds: { ...vtClouds },
+    sea: { ...vtSea },
+    bands: { ...vtBands, count: 20, spacing: 120, domeAmp: 12, height: 55 },
+  },
+  // C: wide bold bands, smaller sun, wider horizon band
+  C: {
+    stage: 'violetTide',
+    sky: { ...vtSky, sunScale: 0.95, horizonBand: 0.05, glowSize: 0.45 },
+    clouds: { ...vtClouds, banksPerKm: 2 },
+    sea: { ...vtSea },
+    bands: { ...vtBands, count: 10, spacing: 270, domeAmp: 24, domeWidth: 130, height: 90, rimWidth: 7 },
+  },
+};
+
+export const SKY_VARIANTS: Partial<Record<StageId, Record<VariantId, SkyVistaParams>>> = {
+  cloudgate: CLOUDGATE_VARIANTS,
+  violetTide: VIOLET_VARIANTS,
+};

@@ -37,3 +37,16 @@ First stub capture at 9 m: the 9 m-span craft filled ~75% of the frame width. Ow
 
 ## 2026-09-30T05:50Z — Agent lanes interrupted by an API session limit, resumed
 All 9 background agents stopped at ~05:05Z on an API session limit; the owner asked to try again at ~05:36Z and every lane was resumed from its transcript. Director work (core, simulation, stub) continued inline and was committed.
+
+## 2026-09-30T06:10Z — Reference verification merged (full detail: Docs/REF_VERIFICATION.md, 12 correction entries)
+Adopted:
+- HUD top band 8.5% (was 6.5%), bottom 9% confirmed; bands get a dark scrim (~30% black). Tokens updated.
+- Hostile bullet minimum core size 1.8% of frame height at 60 m (was 0.9%, which would be smaller than the reference); halo ~3.5%.
+- Beam: white core dominates (~65% of width), thin warm edge, red halo.
+- Explosion core grows ~2x in 0.3 s (was 3x), tagged [O].
+- Craft proportions: fins inboard (~55% of half-span), not wingtips; craft size re-evaluated in the lab.
+Deliberately kept different (original design, tagged [A]):
+- HUD colours keep our tokens (#2CA72F lines, #75E845 text, near-white values) rather than the reference's pure #00B809/#02FC03 greens, so the HUD is not a copy.
+- Hazard state keeps diagonal yellow/black stripes plus banner (reference uses blinking solid rails). Stripes add a shape cue beyond colour.
+- Shock rings keep a visible growth (30->65% width) instead of popping at full size, but band thickness is raised toward ~10-14% of radius.
+- Hostile bullets keep the thin dark outline ring (readability upgrade; reference has none).

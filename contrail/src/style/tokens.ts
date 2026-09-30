@@ -237,7 +237,7 @@ export const vfx = {
   shockRing: { thicknessFrac: 0.03, rgbOffsetFrac: [0.004, 0.008] as [number, number], growS: [0.7, 1.3] as [number, number], screenFrac: [0.3, 0.65] as [number, number], fadeTailFrac: 0.3 },
   speedStreaks: { count: 200, color: '#FFFFFF', edgeBoost: 1.8 },
   beam: { coreWidth: 0.6, haloWidth: 3.0, core: palette.burstWhite, haloEnemy: palette.laserRed, haloBoss: palette.burstYellow, telegraphS: 0.7 },
-  hostileBullet: { core: palette.hostileCore, halo: palette.hostileHalo, outline: palette.hostileOutline, minFrameHeightFrac: 0.009, atDistance: 60 },
+  hostileBullet: { core: palette.hostileCore, halo: palette.hostileHalo, outline: palette.hostileOutline, minFrameHeightFrac: 0.018, atDistance: 60 },
   playerShot: { core: palette.playerShotCore, halo: palette.playerShotHalo },
   hitFlashFrames: 2,
 } as const;
@@ -255,7 +255,7 @@ export const post = {
 
 /** HUD layout (fractions of frame) and line weights (px at 1080p, scaled by height/1080). */
 export const hud = {
-  bandTop: 0.065,
+  bandTop: 0.085, // measured 8.5% (REF_VERIFICATION)
   bandBottom: 0.09,
   sideMargin: 0.012,
   ladderX: 0.975,
@@ -263,7 +263,7 @@ export const hud = {
   ladderBottom: 0.59,
   pilotFrame: { x: 0.838, y: 0.655, w: 0.107, h: 0.245 },
   lineWidth: 2,
-  backingAlpha: 0.28,
+  backingAlpha: 0.3, // measured scrim ~0.3 black
   glyphHeightLabel: 0.012, // tiny corner labels
   glyphHeightValue: 0.024, // score, weapon name
   reticleRadius: 0.06, // fraction of frame height
