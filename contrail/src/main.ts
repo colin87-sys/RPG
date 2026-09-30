@@ -1,17 +1,23 @@
 /**
- * CONTRAIL entry: boots the app shell, game simulation, view, placeholder HUD
- * and the window.__game debug API. Owned by the Integrator.
+ * CONTRAIL entry: boots the app shell, simulation, view (lane modules), post
+ * stack, HUD, screens, audio, and the window.__game debug API. Integrator-owned.
  */
+import * as THREE from 'three';
 import { readParams } from './core/params';
 import { App } from './core/app';
 import { Input } from './core/input';
 import { Game } from './game/game';
 import { View, STORY_CAMERAS, type StoryCamera } from './game/view';
+import { HudAdapter } from './game/hudAdapter';
 import { Bot } from './game/bot';
 import { installErrorCapture, type GameDebugAPI } from './debug/api';
-import { palette, hud as hudTok } from './style/tokens';
-import { withAlpha } from './style/color';
-import { T } from './data/tuning';
+import { post as postTok } from './style/tokens';
+import { PostStack, POST_VARIANTS } from './gen/vfx/post';
+import { Hud } from './gen/ui/hud';
+import { drawTitle, drawResults, drawGameOver, drawPause, drawStageCard, setScreenStyle, type Rank } from './gen/ui/screens';
+import { GLYPH_STYLES } from './gen/ui/font';
+import { AudioEngine } from './gen/audio/engine';
+import { bindGameAudio } from './gen/audio/bind';
 
 installErrorCapture();
 const params = readParams();
@@ -19,66 +25,82 @@ const app = new App({ params, container: document.getElementById('stage')! });
 const input = new Input(app.hudCanvas.parentElement);
 const game = new Game(params.seed, input);
 const view = new View(game);
+const hudAdapter = new HudAdapter(game, view);
+const hud = new Hud('C');
+setScreenStyle(GLYPH_STYLES.C);
+const postStack = new PostStack(app.renderer, { clean: params.clean, params: POST_VARIANTS.A });
+app.onResize((w, h) => postStack.setSize(w, h, app.pixelRatio));
+const audio = new AudioEngine({ muted: params.mute, seed: params.seed });
+const audioBind = bindGameAudio(audio, game.events);
+game.events.on('stateChanged', ({ to }) => {
+  if (to === 'play') { audio.music.setStage(game.stage.id as never); audio.music.start(); }
+  if (to === 'title' || to === 'gameover') audio.music.stop(1.5);
+  document.body.classList.toggle('playing', to === 'play');
+});
+
 const bot = new Bot(game);
 let botOn = false;
 let hudOn = true;
 let frameMsAvg = 16;
+let renderTime = 0;
+const vanish = new THREE.Vector2();
 
 function setBot(on: boolean) {
   botOn = on;
   input.setScript(on ? bot.frame : null);
 }
 
-/** Placeholder HUD (UI lane replaces it): perimeter text only, open centre. */
-function drawHud() {
-  const g = app.hudCtx, w = app.hudCanvas.width, h = app.hudCanvas.height;
-  g.clearRect(0, 0, w, h);
+function drawOverlay(dt: number) {
+  const g = app.hudCtx, dpr = app.pixelRatio, w = app.width, h = app.height;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, app.hudCanvas.width, app.hudCanvas.height);
   if (!hudOn) return;
-  const sz = Math.round(h * 0.024);
-  g.font = `${sz}px ui-monospace, Menlo, monospace`;
-  g.textBaseline = 'middle';
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const st = game.state;
   if (st === 'title') {
-    g.fillStyle = palette.hudText; g.textAlign = 'center';
-    g.font = `bold ${sz * 4}px ui-monospace, Menlo, monospace`;
-    g.fillText('CONTRAIL', w / 2, h * 0.4);
-    g.font = `${sz}px ui-monospace, Menlo, monospace`;
-    g.fillStyle = palette.hudValue;
-    g.fillText('PRESS ENTER', w / 2, h * 0.55);
+    drawTitle(g, w, h, { time: game.stateT, showMenu: false, selected: 0, backdrop: false, tags: [null, 'SOON', 'SOON'] });
     return;
   }
-  const p = game.player;
-  g.strokeStyle = palette.hudLine; g.lineWidth = Math.max(1, h / 540);
-  g.strokeRect(w * 0.01, h * 0.01, w * 0.98, h * hudTok.bandTop);
-  g.strokeRect(w * 0.01, h * (0.99 - hudTok.bandBottom), w * 0.98, h * hudTok.bandBottom);
-  g.textAlign = 'left'; g.fillStyle = palette.hudValue;
-  g.fillText(`SCORE ${game.score}`, w * 0.03, h * 0.045);
-  g.fillText(`MSL ${p.missiles}  LOCK ${p.lockTargets.length}  ROLL ${p.rollCharges}`, w * 0.03, h * 0.945);
-  g.textAlign = 'center';
-  g.fillText(`CHAIN ${game.chain}`, w * 0.5, h * 0.945);
-  g.fillStyle = palette.shieldRed; g.textAlign = 'right';
-  g.fillText(`SHIELD ${Math.round(p.shield)}`, w * 0.97, h * 0.945);
-  g.fillStyle = palette.hudText;
-  g.fillRect(w * 0.4, h * 0.035, w * 0.2 * game.progress, h * 0.02);
-  // reticle
-  const r = view.project(T.move.reticleDist, p.rx, p.ry, w, h);
-  if (r) { g.beginPath(); g.arc(r.x, r.y, h * 0.04, 0, Math.PI * 2); g.strokeStyle = palette.hudText; g.stroke(); }
-  if (game.warning) { g.fillStyle = palette.hazardYellow; g.fillText(game.warning.text, w / 2, h * 0.12); }
-  if (st === 'results' && game.results) {
-    g.fillStyle = withAlpha(palette.spaceDeep, 0.7); g.fillRect(0, 0, w, h);
-    g.fillStyle = palette.hudText; g.textAlign = 'center';
-    g.fillText(`STAGE CLEAR  RANK ${game.results.rank}  SCORE ${game.results.score}`, w / 2, h / 2);
+  if (st === 'launch') {
+    drawStageCard(g, w, h, { index: 1, stage: game.stage.name, subtitle: 'CLOUD CORRIDOR', t: game.stateT } as never);
+    return;
   }
-  if (st === 'gameover') { g.fillStyle = palette.shieldRed; g.textAlign = 'center'; g.fillText('SIGNAL LOST - PRESS ENTER', w / 2, h / 2); }
+  if (st === 'play') {
+    hud.draw(g, w, h, hudAdapter.update(w, h, dt, renderTime), dt);
+    if (game.paused) drawPause(g, w, h, { selected: 0, t: renderTime, stage: game.stage.name });
+    return;
+  }
+  if (st === 'results' && game.results) {
+    const r = game.results;
+    drawResults(g, w, h, { stage: game.stage.name, score: r.score, bestChain: r.bestCombo, shieldLeft: r.shieldLeft, timeS: r.timeS, rank: r.rank as Rank, t: game.stateT, bonus: r.shieldBonus + r.killBonus });
+    return;
+  }
+  if (st === 'gameover') drawGameOver(g, w, h, { t: game.stateT, stage: game.stage.name, score: game.score, progress: game.progress });
 }
 
 app.start({
-  update: (dt) => game.update(dt),
+  update: (dt) => {
+    game.update(dt);
+    view.step(dt);
+    audioBind.update(dt);
+  },
   render: () => {
     const t0 = performance.now();
+    const dt = 1 / 60;
+    renderTime += dt;
     view.update(app.width / app.height);
-    app.renderer.render(view.scene, view.camera);
-    drawHud();
+    const p = game.player;
+    const ring = view.rings.intensity();
+    postStack.render(view.scene, view.camera, {
+      time: renderTime,
+      chroma: postTok.chroma.base + (postTok.chroma.ring - postTok.chroma.base) * ring + (postTok.chroma.hit - postTok.chroma.base) * view.chromaPulse,
+      speed01: game.state === 'play' ? (p.boost > 0 ? 1 : p.braking ? 0.15 : 0.45) : 0.2,
+      vanish: view.vanishing(vanish),
+      flash: view.flash,
+      danger01: Math.max(0, Math.min(1, (40 - p.shield) / 40)),
+    });
+    drawOverlay(dt);
+    audioBind.setDanger(1 - p.shield / 100);
     frameMsAvg += (performance.now() - t0 - frameMsAvg) * 0.05;
   },
 });
@@ -88,12 +110,11 @@ if (params.skip) game.start({ stage: params.stage ?? 'cloudgate' });
 
 if (params.debug) {
   const api: GameDebugAPI = {
-    version: '0.1.0',
+    version: '0.2.0',
     ready: false,
     setSeed(seed) { game.seed = seed >>> 0; game.resetStage(); },
     setTime(t) {
-      if (game.state === 'title') game.start({});
-      else game.start({ stage: game.stage.id });
+      game.start({ stage: params.stage ?? game.stage.id });
       const wasBot = botOn;
       setBot(true);
       game.invulnerable = true;
@@ -104,7 +125,12 @@ if (params.debug) {
       app.step(0, true);
     },
     step(n) { app.step(n, true); },
-    setCamera(name) { if ((STORY_CAMERAS as readonly string[]).includes(name)) { view.storyCam = name as StoryCamera; hudOn = !['hero', 'vista'].includes(name); } },
+    setCamera(name) {
+      if ((STORY_CAMERAS as readonly string[]).includes(name)) {
+        view.storyCam = name as StoryCamera;
+        hudOn = !['hero', 'vista'].includes(name);
+      }
+    },
     cameras: () => [...STORY_CAMERAS],
     state: () => game.snapshot(),
     capture: () => app.captureDataURL(),
@@ -117,7 +143,7 @@ if (params.debug) {
       const i = app.renderer.info;
       return { drawCalls: i.render.calls, triangles: i.render.triangles, frameMs: frameMsAvg, programs: i.programs?.length ?? 0, textures: i.memory.textures, geometries: i.memory.geometries, softwareGL: app.softwareGL };
     },
-    setPost() { /* post stack not integrated yet */ },
+    setPost(clean) { postStack.setClean(clean); },
     setHud(on) { hudOn = on; },
   };
   window.__game = api;

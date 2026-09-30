@@ -1,15 +1,15 @@
 {
-  "utc": "2026-09-30T08:38:37Z",
-  "commit": "13004e5",
+  "utc": "2026-09-30T08:51:57Z",
+  "commit": "30851ce",
   "milestone": "P1",
   "goldpath": {
-    "utc": "2026-09-30T08:37:57Z",
+    "utc": "2026-09-30T08:51:57Z",
     "passed": true,
     "status": "pass",
     "stage": "cloudgate",
     "seed": 1,
     "duration_s": 188,
-    "wall_s": 19.4,
+    "wall_s": 287.1,
     "final": {
       "state": "results",
       "results": {
@@ -79,10 +79,10 @@
     },
     "failures": [],
     "captures": [
-      "Docs/progress/goldpath/20260930T083737Z_p25.png",
-      "Docs/progress/goldpath/20260930T083737Z_p50.png",
-      "Docs/progress/goldpath/20260930T083737Z_p75.png",
-      "Docs/progress/goldpath/20260930T083737Z_results.png"
+      "Docs/progress/goldpath/20260930T084708Z_p25.png",
+      "Docs/progress/goldpath/20260930T084708Z_p50.png",
+      "Docs/progress/goldpath/20260930T084708Z_p75.png",
+      "Docs/progress/goldpath/20260930T084708Z_results.png"
     ],
     "steps": [
       {
@@ -501,7 +501,7 @@
         "missing_refs": 0
       },
       "goldpath": {
-        "utc": "2026-09-30T08:37:57Z",
+        "utc": "2026-09-30T08:51:57Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -890,7 +890,11 @@
     "Docs/progress/goldpath/20260930T083737Z_p25.png",
     "Docs/progress/goldpath/20260930T083737Z_p50.png",
     "Docs/progress/goldpath/20260930T083737Z_p75.png",
-    "Docs/progress/goldpath/20260930T083737Z_results.png"
+    "Docs/progress/goldpath/20260930T083737Z_results.png",
+    "Docs/progress/goldpath/20260930T084708Z_p25.png",
+    "Docs/progress/goldpath/20260930T084708Z_p50.png",
+    "Docs/progress/goldpath/20260930T084708Z_p75.png",
+    "Docs/progress/goldpath/20260930T084708Z_results.png"
   ],
   "capture": {
     "utc": "2026-09-30T05:41:39Z",
