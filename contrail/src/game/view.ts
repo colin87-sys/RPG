@@ -139,7 +139,7 @@ export class View {
     }
     w.group.visible = true;
     // bright stage: thicker dark outline + deeper halo so rounds separate from cream cloud (A9)
-    this.hostile.params = id === 'cloudgate' ? { ...HOSTILE_VARIANTS.B, outlineFrac: 0.16, haloDeep: 0.45 } : { ...HOSTILE_VARIANTS.B };
+    this.hostile.params = id === 'cloudgate' ? { ...HOSTILE_VARIANTS.B, outlineFrac: 0.26, haloDeep: 0.45 } : { ...HOSTILE_VARIANTS.B };
     this.hostile.applyParams();
     // structures along the rail
     for (const g of this.structures) this.scene.remove(g);
@@ -448,7 +448,7 @@ export class View {
       const q = this.project(b.u, b.x, b.y, w, h);
       if (!q) continue;
       const dist = this.railToWorld(b.u, b.x, b.y, V).distanceTo(this.camera.position);
-      const r = Math.min(0.018 * h, Math.max(0.004 * h, ((b.radius * 0.58) / dist) * fy));
+      const r = Math.min(0.0072 * h, Math.max(0.003 * h, ((b.radius * 0.4 * 0.78) / dist) * fy)); // drawn white core (coreFrac 0.4 inside the outline)
       g2.beginPath();
       g2.arc(q.x, q.y, r, 0, Math.PI * 2);
       g2.fill();

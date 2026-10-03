@@ -115,7 +115,12 @@ export class Bot {
     }
     // drift when enemies are close
     if (p.drift > 0) { f.drift = this.driftHold++ < 60; }
-    else { this.driftHold = 0; f.drift = (near >= 2 || (near >= 1 && this.threats() >= 3)) && p.driftCharge >= 1; }
+    else {
+      // drift starts on a press edge and not mid-roll/spin: tap (2 on / 2 off) while it is wanted
+      this.driftHold = 0;
+      const want = (near >= 1 || this.threats() >= 2) && p.driftCharge >= 1 && p.rolling <= 0 && p.wingtrail <= 0;
+      f.drift = want && g.frameCounter % 4 < 2;
+    }
     // wingtrail when charged and there is a crowd or a big enemy
     f.wingtrail = p.wingCharge >= 1 && (near >= 2 || this.g.enemies.filter((e) => e.alive && e.u > 0 && e.u < 160).length >= 4 || (tgt?.big ?? false));
     return f;
