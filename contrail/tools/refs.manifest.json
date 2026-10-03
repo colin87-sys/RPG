@@ -1,0 +1,612 @@
+{
+ "note": "SHA-256 of every file in the private reference pack (Docs/refs/, gitignored). Hashes only, no content. Used by npm run refcheck.",
+ "generated_utc": "2026-09-30T04:49:07.557Z",
+ "count": 121,
+ "files": [
+  {
+   "path": "Docs/refs/ANALYSIS.md",
+   "bytes": 8843,
+   "sha256": "97fe9de2447d1bd563cbff3b47e4b11cb4dad9b343b37577173dded740ac2617"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f000_t0.00s.jpg",
+   "bytes": 57377,
+   "sha256": "e0447cf9a59805bf48205dc11abdc6ebcd7ac89fc8ef40b9bfbc4cfa868811ad"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f001_t0.07s.jpg",
+   "bytes": 57064,
+   "sha256": "050bda42f25ec48f6048f466e61adc8b080e16c2ec573259413de67a42e86999"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f002_t0.13s.jpg",
+   "bytes": 57294,
+   "sha256": "d44ae1b11ad4ce82caddbe80b9e9621256612e71ea497764b96b639c495fb149"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f003_t0.20s.jpg",
+   "bytes": 57772,
+   "sha256": "c600426f1a988bdc568097126b7fbf6272f97b53bba1c40a41140a63212c3f77"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f004_t0.27s.jpg",
+   "bytes": 58583,
+   "sha256": "5efdb110b2731c5c4451c6d7e25c8dce53436d99d1b222163ae782b4b30cb786"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f005_t0.33s.jpg",
+   "bytes": 58380,
+   "sha256": "19b96f7ea084a572243a9987fc4de5427fda65730e977ed6d00d4f1d7edcd3eb"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f006_t0.40s.jpg",
+   "bytes": 57355,
+   "sha256": "2cba2ee0669526014866e500197dad4c353a603133bc1053328848dc3a931020"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f007_t0.47s.jpg",
+   "bytes": 56447,
+   "sha256": "c9e335a0a670f3ae05e8c3c90139ef28a077f9220e826efaa32ce864487fce43"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f008_t0.53s.jpg",
+   "bytes": 57093,
+   "sha256": "7f7848ae05fdbd3d1ee3e38f869ed555f3075138422a1800acd60b21ad59c4fd"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f009_t0.60s.jpg",
+   "bytes": 57641,
+   "sha256": "ce82f1d4474015be45957e79fbc36a4d1194b4f38459811ba3ca8a771e3a2c86"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f010_t0.67s.jpg",
+   "bytes": 56924,
+   "sha256": "9faf0321167196c1d20cea86abbbe0da0b29ba626d547521c695fc241225cb2e"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f011_t0.73s.jpg",
+   "bytes": 56496,
+   "sha256": "d3c74ec1d8be36c9325af153f5417c86c4cab5d3e4c9482bcc09fd0367a32e01"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f012_t0.80s.jpg",
+   "bytes": 57360,
+   "sha256": "59615b37c324d055f8dbab426cc409a3523fb15148adbde2af1730c7bf54447d"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f013_t0.87s.jpg",
+   "bytes": 57514,
+   "sha256": "f0b17ac5a9ebf7721353f9c1f661202eebdafd9e58150a9655b4047e0eb045b7"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f014_t0.93s.jpg",
+   "bytes": 58005,
+   "sha256": "4b18c71a0a30447360e96250bd5dac13eee4fdcf67a518a16835fd153129d5a9"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f015_t1.00s.jpg",
+   "bytes": 57977,
+   "sha256": "c8084579bcb9a59af386f4cfce0073a2c4bb88c4f83ac1cdfc5a82ef438c9b77"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f016_t1.07s.jpg",
+   "bytes": 57988,
+   "sha256": "dcf82bce53932e2b5958158a70c77adc86f240fa8c650cd8c5e732ef47a7b5ae"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f017_t1.13s.jpg",
+   "bytes": 58658,
+   "sha256": "fe9c17c371c5c699e6e42b4ec8f705782f67f648a13a90a024e6ba3443888853"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f018_t1.20s.jpg",
+   "bytes": 58443,
+   "sha256": "054f6dde4ca7ff97954ccd5fc43266a5de035c1488b8b1d97e8a3501cacf3ece"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f019_t1.27s.jpg",
+   "bytes": 58396,
+   "sha256": "7c0dfeed60331470fc22eea8a815a604742117e78964dc37989b1ac3b367a155"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f020_t1.33s.jpg",
+   "bytes": 58454,
+   "sha256": "d7547b087b02e1058dedf80c08fa93554dbfac60301d14a8b42d4038e427ab23"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f021_t1.40s.jpg",
+   "bytes": 58276,
+   "sha256": "e54173aaafba9b2bf8919fb201bc4a0ebb4d5914e83670509e75fe1939460a02"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f022_t1.47s.jpg",
+   "bytes": 58805,
+   "sha256": "026130f73c98b1270bf8f175eb623d21515e7f34712852e8e1c501858840e989"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f023_t1.53s.jpg",
+   "bytes": 59118,
+   "sha256": "effb028f63fa6553120861960d8913c7ddfd2b001303d178eb9db4d316570c6e"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f024_t1.60s.jpg",
+   "bytes": 59861,
+   "sha256": "29aaf47b89b8c8a267f032fddbf1224e7a4f4727b560fb3e4c4623488b43268a"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f025_t1.67s.jpg",
+   "bytes": 62156,
+   "sha256": "22ea477bdcd70067040d3f561c9e7742ab6eb4f2cdcf1da4c4fe1558a6b0a7ca"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f026_t1.74s.jpg",
+   "bytes": 63801,
+   "sha256": "e5bcdba1e87fc0f523fe2f6af25502101a3b97e17f3bf04066269f0e4ac7ac84"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f027_t1.80s.jpg",
+   "bytes": 63517,
+   "sha256": "6aa1a3a1b8f4a57c93e54921b0024827c50cc329e100b093f25569750b5938f8"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f028_t1.87s.jpg",
+   "bytes": 63083,
+   "sha256": "9759077baaa4418cb27f31441fa0b56b21c026ceef1dfbbff37e777a57611521"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f029_t1.94s.jpg",
+   "bytes": 63026,
+   "sha256": "846481f8aae6e78a0ac069b0b246cb70178f1c772ff0185c0d692b885f41cf2c"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f030_t2.00s.jpg",
+   "bytes": 62823,
+   "sha256": "b19a529b967d20147a5b745c5ae2163d6c3a367f898f373a2641169c0bac5555"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m1_f031_t2.07s.jpg",
+   "bytes": 63001,
+   "sha256": "b2a2e222a617035cb7b0f0b446263b24260fe3d7768fc3e9747455da7dd1e03c"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f000_t0.00s.jpg",
+   "bytes": 39035,
+   "sha256": "516643988fbce73eca3476fad0b3ae3596a935ccaaea3baa7f314e9a146b2938"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f001_t0.07s.jpg",
+   "bytes": 39052,
+   "sha256": "951b6e411497b99861388d7e59b9bfafe79d1e380f503c225904d64c2706cf02"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f002_t0.13s.jpg",
+   "bytes": 40010,
+   "sha256": "5f2f4f184806e28958c7e788f6b01f7403f5a9952e46504f445126fdedd78729"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f003_t0.20s.jpg",
+   "bytes": 40654,
+   "sha256": "a2ac1c023e6504508a3cc021f09f6cab5536f30997410499bcca386a3921cb2d"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f004_t0.27s.jpg",
+   "bytes": 41139,
+   "sha256": "d50a548b51703171e1f9a6bc3d2f8f4c8a9ad90b8b50af80c47aff6e887cdab0"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f005_t0.33s.jpg",
+   "bytes": 41877,
+   "sha256": "f7121a5a7f9f4ff447f93e2434411e812c6c9f2f4a9d757f0b615fd9f8878877"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f006_t0.40s.jpg",
+   "bytes": 41919,
+   "sha256": "96e08cc0287749804247f9522cd8aeffe1a02a8a6a13037c80963abd827f5a65"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f007_t0.47s.jpg",
+   "bytes": 40118,
+   "sha256": "6bac1d8aa14a8375d8369f84e12336a876d41f18b27d354ac53b2b461cd292fe"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f008_t0.53s.jpg",
+   "bytes": 38355,
+   "sha256": "5f12bd105185ee80b83b6432bdd37334d5e9925f60f5a4fcf6514effdd297068"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f009_t0.60s.jpg",
+   "bytes": 38828,
+   "sha256": "f3b1a5a93c2c1e415d5f814116f8283fb1ff91d115f69fae8417f37088c8fcbd"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f010_t0.67s.jpg",
+   "bytes": 39931,
+   "sha256": "43e128ca5a59ccbe4865f33eab31627d8bf2451d5dec007b8f5082a2bdbf8553"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f011_t0.73s.jpg",
+   "bytes": 38989,
+   "sha256": "d5405d311b1681a0c43ad83230d938850241dbc10deb9c2cef4e9a13d1974f84"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f012_t0.80s.jpg",
+   "bytes": 39344,
+   "sha256": "44fb062dde643bd6c7d7a244355d31966f0ea33ea04a21d51e1919a068b7964d"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m2_f013_t0.87s.jpg",
+   "bytes": 45835,
+   "sha256": "38805ea9d6209559d4e8a0718725a645b8d97f519e5fb5d43517ef967691fed7"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f000_t0.00s.jpg",
+   "bytes": 36237,
+   "sha256": "27e743fa519bb86ab1c4899169047e64bdc7a54588bd4755709071064d763889"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f001_t0.07s.jpg",
+   "bytes": 33093,
+   "sha256": "b463bcf3f5d04babf3ccaaed7e95bf51593a472cfadb936810522d581499fe6d"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f002_t0.13s.jpg",
+   "bytes": 28492,
+   "sha256": "bdbae0eb35b8939e28aaa939a7064d09dd547e00ff36ad49d553c6cbbc32e421"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f003_t0.20s.jpg",
+   "bytes": 26128,
+   "sha256": "5b64a923c3fdacd8ba4b21df7ed348d773f1a551438bf1ea7ad5eb20e28b9fe4"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f004_t0.27s.jpg",
+   "bytes": 33211,
+   "sha256": "ea752f086ae61494f707348e1592561d33f0a4d43151621e914be332d2a5ddd1"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f005_t0.33s.jpg",
+   "bytes": 28029,
+   "sha256": "0565575f9729d0a3ea87d51dfe663fe72d35f3fd3ef275772634de355d230c27"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f006_t0.40s.jpg",
+   "bytes": 33597,
+   "sha256": "c18b4f95fb7219ce135579422acefe1275a4bf94c506acd182b6b563d21952fc"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f007_t0.47s.jpg",
+   "bytes": 32154,
+   "sha256": "8d429ae19170e3b48a605f8bf0fe97ce7b94279a7d5485d2e104c79040418754"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f008_t0.53s.jpg",
+   "bytes": 31472,
+   "sha256": "821e4969e0a56062c15ad21d33408123341f3fcef599544000be44d0db3e4cb5"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f009_t0.60s.jpg",
+   "bytes": 32114,
+   "sha256": "8a950ce15e7bca6c8c7e01ed97693e2d9fa4496d2df0c9dab0766435c2be598c"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f010_t0.67s.jpg",
+   "bytes": 31468,
+   "sha256": "43093f0b1ecd0a5bfbe9200bc1ebad8009843ffeb25d999032b73414888d77df"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f011_t0.73s.jpg",
+   "bytes": 31494,
+   "sha256": "cbde4092986df2c1a68b1f2ea605cdda6482aa43ce84d0b0346019171cb3b042"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f012_t0.80s.jpg",
+   "bytes": 47891,
+   "sha256": "f957e55adbf515f3275ecd9051134794d78fbe19f31a0176744de736853b7c17"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m3_f013_t0.87s.jpg",
+   "bytes": 41615,
+   "sha256": "b7c00d3455c4f5d51bc9093b803489175e5d1400bb9aeb613919cb7080d43abb"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f000_t0.00s.jpg",
+   "bytes": 39824,
+   "sha256": "9eaee8a27b07349a1d961df119eef846dc749758b488b76ee76cfdb83f35fe4d"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f001_t0.07s.jpg",
+   "bytes": 39271,
+   "sha256": "43669997b2f76f94d98e87dc92ef1154dfdd3989300e32766368d8c12324f7d6"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f002_t0.13s.jpg",
+   "bytes": 40931,
+   "sha256": "6c03e14760e6d24e567e2374b979e33bcd3bb6721d89fc6afe35898494845416"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f003_t0.20s.jpg",
+   "bytes": 40214,
+   "sha256": "afdf4bfd5ee0c62a6b710e8127527bbf6feb5cc8f88719cc59ec2b6d56722f11"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f004_t0.27s.jpg",
+   "bytes": 39575,
+   "sha256": "38ff04412f7559fbffee08d1d05d3251ef3219e66ff1039c4cd81ebc306774ec"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f005_t0.33s.jpg",
+   "bytes": 38804,
+   "sha256": "c490963f6193e88d5e4151fafd1aef97f18ee625d70b3fd71b438652f4217ff8"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f006_t0.40s.jpg",
+   "bytes": 38216,
+   "sha256": "d869e7cc026a108603ff54e803cb4b9c1db47190717628190c960d6abb6052cd"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f007_t0.47s.jpg",
+   "bytes": 38118,
+   "sha256": "8bd1b4b41130f33e9f261e6afad4fffd6fcb21fe1a6ba99a1144466090566f86"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f008_t0.53s.jpg",
+   "bytes": 37995,
+   "sha256": "1ee9dec932469e32a20aa2f6df36e8f4b7e0c458ab4910fd319d652ffe8f580e"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f009_t0.60s.jpg",
+   "bytes": 38012,
+   "sha256": "873b6bfeb7a0d7439ab8f88d2dd2377ea1d143688f9e8ba4bebd12a72f866099"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f010_t0.67s.jpg",
+   "bytes": 37285,
+   "sha256": "e2247f71aced9391ea07cc1f30faed946664bb5eb88686100ff5bcbe6a86ceb7"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f011_t0.73s.jpg",
+   "bytes": 37675,
+   "sha256": "427d860916b877747913149019217139b7938fbc49f0e0d63021b29a9b412594"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f012_t0.80s.jpg",
+   "bytes": 38547,
+   "sha256": "b22890e95332e5ae22bbb27993b75ad2871ea213a12f045270db7d584ce33a95"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f013_t0.87s.jpg",
+   "bytes": 38536,
+   "sha256": "268917210bef47fd6b04e721392ccf56485498c4429a8a6220b59f7f5e7b728e"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f014_t0.93s.jpg",
+   "bytes": 39140,
+   "sha256": "25d260c19596544a7a0558c8ff1ab3bad2ebd5bdc75e92a42ed3b1c28fe18ac2"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f015_t1.00s.jpg",
+   "bytes": 38820,
+   "sha256": "d05bc5f2dd679d7a06d6f1bbac506e128bab2f6330557ee6ef203533ff809583"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f016_t1.07s.jpg",
+   "bytes": 40003,
+   "sha256": "420f312acdc92e60cfe2b38aa81f24c3c3e4e1dce5a9ca3c60b4701e3043b104"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f017_t1.13s.jpg",
+   "bytes": 39967,
+   "sha256": "91c6cc4e458b40d6e4ba5fe80a4dd964c3201a13a031fab94ec38b92dda1f792"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f018_t1.20s.jpg",
+   "bytes": 40181,
+   "sha256": "03a45f1fc3bd54215eec34e3392378ceb27d82bd1fc95af7d25df63405248bb3"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f019_t1.27s.jpg",
+   "bytes": 40224,
+   "sha256": "df7ea44ef6a578a141ae76bb531fdea50630b6d87d314107d002f9f7a0a9ec53"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f020_t1.33s.jpg",
+   "bytes": 40135,
+   "sha256": "613bd79b582e1711c69c62e0250ad5f3b60d86c5468ac77f1de26f9f6cfb6cbb"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f021_t1.40s.jpg",
+   "bytes": 39602,
+   "sha256": "4bd995076d0e310d764df35e0ba92424bf321882c2efd34d5de9927417e6b6b3"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f022_t1.47s.jpg",
+   "bytes": 39865,
+   "sha256": "fc10de6a5d3e35c0ea61170d509fcee66e59ed8a1145a21dd55021a5faa50f7b"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f023_t1.53s.jpg",
+   "bytes": 41177,
+   "sha256": "01ae0113232a883f2a6a9cf6743875e59ce1d33fb0f6f94a972e71a7832f5594"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f024_t1.60s.jpg",
+   "bytes": 42622,
+   "sha256": "af4eb3050be77fb3c9d4a294606845047cbd6b517fcdc24f66ca3c9810664ab4"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f025_t1.67s.jpg",
+   "bytes": 45773,
+   "sha256": "2b2bc3a4d2b2fd7e9bab6cb9ba1605cb31f59d0937004cbfaced75af46038c0b"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f026_t1.74s.jpg",
+   "bytes": 46538,
+   "sha256": "a697dc7abea0cee9e45289be5726de37688a6977af658c28911c4487f6e05146"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f027_t1.80s.jpg",
+   "bytes": 46340,
+   "sha256": "73229e972b3a3ee7b89c6e52600aab6e2ae1f55d8afefe3821044b62c484def2"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f028_t1.87s.jpg",
+   "bytes": 45881,
+   "sha256": "1df687e10be34599295044606736ddadb6b1e1aa81ca46d76c5ec1f22fe6bc27"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f029_t1.94s.jpg",
+   "bytes": 44971,
+   "sha256": "e0c31dec7c35daa668fc328c2655139d6c80ea656e12c075e156fc5771e4d8ed"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f030_t2.00s.jpg",
+   "bytes": 46122,
+   "sha256": "beba1f919e4abd88de200ef4f0603363ca580adb0912e2075955ddaa812b529e"
+  },
+  {
+   "path": "Docs/refs/motion/frames/m4_f031_t2.07s.jpg",
+   "bytes": 46651,
+   "sha256": "93c975ff54944788df33592e000ccbcbea393d8cbecdf8daffbc96b14011ed48"
+  },
+  {
+   "path": "Docs/refs/motion/m1_missile-salvo-smoke-ring.mp4",
+   "bytes": 1144371,
+   "sha256": "241baa1b52a571dea64c04e7c4273fcecc794090faefd34ed52566948193d886"
+  },
+  {
+   "path": "Docs/refs/motion/m1_sheet_every6th-frame.jpg",
+   "bytes": 768626,
+   "sha256": "fb74636af107362b3d2072dabf72b0db224d8bb911fdfb49a128b38f912a8ebb"
+  },
+  {
+   "path": "Docs/refs/motion/m2_explosion-lobes-drone-swarm.mp4",
+   "bytes": 519947,
+   "sha256": "c8b1395534723f5ede8471d232bdaf620a45784d7afce59d54b158fe94268db4"
+  },
+  {
+   "path": "Docs/refs/motion/m2_sheet_every3rd-frame.jpg",
+   "bytes": 526332,
+   "sha256": "904a2ef10bcea75f044d1dd466bba6c4076b6cc6efde1a39f6914148906ac100"
+  },
+  {
+   "path": "Docs/refs/motion/m3_drift-bank-then-hazard-cut.mp4",
+   "bytes": 497092,
+   "sha256": "2bfe227c22040581f156fd6fd6796ca1b8452fde6cda7ea43880715ab1d9cc90"
+  },
+  {
+   "path": "Docs/refs/motion/m3_sheet_every3rd-frame.jpg",
+   "bytes": 404695,
+   "sha256": "b32dc4c4cccdbc9a558b1fb2236a9ef403d12d779f97959dce79a7a4ce8eaffe"
+  },
+  {
+   "path": "Docs/refs/motion/m4_cloud-corridor-strider-rings.mp4",
+   "bytes": 1048182,
+   "sha256": "ff60c1935f4b9c45966eb4cf22432f6f9a1fdf529f1353a5df934c0b4a2c2c09"
+  },
+  {
+   "path": "Docs/refs/motion/m4_sheet_every6th-frame.jpg",
+   "bytes": 609037,
+   "sha256": "e545c146c453c3efb97d1aa6d2b2a78be63cf84751e15707a64fce2f39b09c58"
+  },
+  {
+   "path": "Docs/refs/owner_refs.md",
+   "bytes": 9268,
+   "sha256": "9f900c325537a3eb1e954b06d2d2b6a4e4749b829dce5c22f8033a0e058c0f78"
+  },
+  {
+   "path": "Docs/refs/owner/01_sky-bank_banking-pose.jpg",
+   "bytes": 106212,
+   "sha256": "a08f3874b30f7196a7f98fddad24d881996e4a2c626f7fe14419128795147e58"
+  },
+  {
+   "path": "Docs/refs/owner/02_S00_violet-sunset-horizon.jpg",
+   "bytes": 669804,
+   "sha256": "88f0238661ca4782141cde8833ac3c77d8f085b31b8cf92f05d26b7660bea152"
+  },
+  {
+   "path": "Docs/refs/owner/03_S01_missile-paths-dark-space.jpg",
+   "bytes": 894030,
+   "sha256": "5051bc060061aa374a16be77b1a6bc03794d44a6492a1c6c55b4100a3307e517"
+  },
+  {
+   "path": "Docs/refs/owner/04_S11_cloudscape-corridor.jpg",
+   "bytes": 824259,
+   "sha256": "2d3bb1d70712fa7da14a1c2a9f5cc8251bafc870905a2e684bbab1dcbf0ddf67"
+  },
+  {
+   "path": "Docs/refs/owner/05_S09_hot-environment-combat.jpg",
+   "bytes": 816631,
+   "sha256": "4fa6199cd7a81e2fdbda56ebbe3473eccbd7ebadd3a1999e6cc58cc1e49785b3"
+  },
+  {
+   "path": "Docs/refs/owner/06_S06_beam-threat-debris.jpg",
+   "bytes": 873253,
+   "sha256": "a6db3fb55bda926def003bd29509400c5696fe30f487aae28efe48dc3d0edc0c"
+  },
+  {
+   "path": "Docs/refs/owner/07_S07_boss-scale-spectacle.jpg",
+   "bytes": 864214,
+   "sha256": "494423a555e71bbcdbab97b554809e8d436b8865c7926e4d70807a8d133027c2"
+  },
+  {
+   "path": "Docs/refs/owner/08_S10_shock-effect-speed.jpg",
+   "bytes": 996170,
+   "sha256": "9308bed6021d2a98cb362cbb066d4dae5c09958f6accbd60097861a882ac8c11"
+  },
+  {
+   "path": "Docs/refs/owner/09_hud-crop_score-progress.jpg",
+   "bytes": 48853,
+   "sha256": "95acba02d68dfeed7f1fac1e1a8e599fdb11e43a2f329e311bc36db5bc04cb81"
+  },
+  {
+   "path": "Docs/refs/owner/10_hud-crop_weapon-combo-shield.jpg",
+   "bytes": 106904,
+   "sha256": "5019a1a579c3092409ea4f07e92565e821eba998ea36c989ff055690a517f359"
+  },
+  {
+   "path": "Docs/refs/owner/11_S05_craft-hangar-menu.jpg",
+   "bytes": 933390,
+   "sha256": "54467a81be0226f2cd559fb06dba112ad3dfa9ffe87503330366f095e615e799"
+  },
+  {
+   "path": "Docs/refs/owner/12_S04_decals-surface-markings.jpg",
+   "bytes": 751895,
+   "sha256": "573bcaaacac84594f4ac4ab7d78c4285ef9045fde6eb3bbecdaa60b6b8502e80"
+  },
+  {
+   "path": "Docs/refs/owner/13_S02_character-menu-language.jpg",
+   "bytes": 733729,
+   "sha256": "2a28ae818d31c60a709b018d3d3969170a1d28b4d12f33db2d5b532060e7d497"
+  },
+  {
+   "path": "Docs/refs/owner/14_S08_ship-customisation-yellow.jpg",
+   "bytes": 771295,
+   "sha256": "25647fd5e92e4ba994350c204a5b4c5fd5b0420fcfa567caa731c819daaacb1b"
+  },
+  {
+   "path": "Docs/refs/owner/15_clean_hull-closeup.jpg",
+   "bytes": 187165,
+   "sha256": "f137a38cc8a89af0a39e43d1ff6c9209c424b949a4580d4e0b2648ca20b53a74"
+  },
+  {
+   "path": "Docs/refs/owner/16_clean_cockpit.jpg",
+   "bytes": 92453,
+   "sha256": "4b9eaa0ff2de90b094913ae1091e8264bca375c001a25cb4cf1beb70889c9d7f"
+  },
+  {
+   "path": "Docs/refs/owner/17_clean_pilot-in-craft.jpg",
+   "bytes": 136305,
+   "sha256": "257fd16a28e8628a11e774ba4943f5079e75c83f6bf765f727a1ffefc4a4b3a9"
+  },
+  {
+   "path": "Docs/refs/owner/18_clean_frontal-silhouette.jpg",
+   "bytes": 41204,
+   "sha256": "3389761d1ae6ede3ceff34a047f861c381ee8915e39ff51ec6115349c456e4c0"
+  },
+  {
+   "path": "Docs/refs/SOURCES.md",
+   "bytes": 2495,
+   "sha256": "fad8fba3eed9e8665410290de0e24ea6b667e57dadc411065f4232a6c31c38b3"
+  }
+ ]
+}

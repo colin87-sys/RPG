@@ -1,0 +1,104 @@
+{
+  "board": "vfx-explosion",
+  "variant": "A",
+  "params": {
+    "name": "A-anime",
+    "coreStart": 0.42,
+    "heat": [
+      5,
+      2.6,
+      1.7,
+      0.9
+    ],
+    "ramp": [
+      [
+        "#FFFBE6",
+        "#F9EF00"
+      ],
+      [
+        "#F9EF00",
+        "#E16C26"
+      ],
+      [
+        "#e99a19",
+        "#E16C26"
+      ],
+      [
+        "#E16C26",
+        "#854d34"
+      ]
+    ],
+    "lobes": [
+      7,
+      10
+    ],
+    "lobeDist": [
+      1,
+      1.7
+    ],
+    "lobeSize": [
+      1.1,
+      1.7
+    ],
+    "blooms": 22,
+    "bloomSize": [
+      0.3,
+      0.75
+    ],
+    "flakes": 8,
+    "smoke": 9,
+    "smokeLife": [
+      1.2,
+      2.3
+    ],
+    "smokeOpacity": 0.88,
+    "sparks": 30,
+    "flash": 0.8,
+    "fireOcc": 0.8,
+    "look": {
+      "normalStrength": 0.85,
+      "stylize": 0.7,
+      "term": 0.42,
+      "soft": 0.28,
+      "keyTint": 0.3,
+      "ambTint": 0.4,
+      "backlight": 0.3,
+      "rim": 0.15,
+      "edgeDarken": 0.1,
+      "fireCore": 1.4,
+      "nearFade": [
+        0.5,
+        5
+      ]
+    }
+  },
+  "frames": [
+    0.03,
+    0.1,
+    0.2,
+    0.3,
+    0.5,
+    0.9
+  ],
+  "step": 0.004166666666666667,
+  "post": "POST_VARIANTS.A",
+  "backdrop": {
+    "dark": "LabBackdrop wreckfield",
+    "bright": "buildSkyVista(CLOUDGATE_VARIANTS.C, 1)"
+  },
+  "big": {
+    "size": 3.5,
+    "dist": 36
+  },
+  "small": {
+    "size": 1,
+    "dist": 12,
+    "t": 0.2
+  },
+  "boss": {
+    "size": 9,
+    "dist": 95,
+    "t": 0.4
+  },
+  "seed": 1234
+}

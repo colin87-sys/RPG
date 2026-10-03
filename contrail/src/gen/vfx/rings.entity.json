@@ -1,0 +1,10 @@
+{
+  "name": "ShockRings",
+  "seed": 0,
+  "params": ["RING_VARIANTS.A", "RING_VARIANTS.B", "RING_VARIANTS.C"],
+  "triangles": 3072,
+  "drawCalls": 1,
+  "boundsMetres": [58, 33, 0],
+  "tokensUsed": ["palette.burstWhite", "vfx.shockRing.fadeTailFrac"],
+  "notes": "Pool of 16, one instanced annulus strip (96 segments = 192 tris per ring; 3072 max). Premultiplied blend (additive emission + partial occlusion so hue survives white cloud). Bounds shown for the board ring (maxRadius 29 m, aspect 1.75). Band layout follows REF_VERIFICATION (red inner / green / blue outer, ~13% of radius). intensity() gives a 0..1 envelope to drive PostFrame.chroma toward post.chroma.ring."
+}

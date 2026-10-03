@@ -1,0 +1,11 @@
+{
+  "name": "Explosions (core, lobes, blooms, shards, dark smoke + sparks)",
+  "seed": "per spawn (opts.seed) or internal deterministic counter",
+  "params": ["EXPLOSION_VARIANTS.A (preferred)", "EXPLOSION_VARIANTS.B", "EXPLOSION_VARIANTS.C"],
+  "triangles": "2 per live particle; big ~50 particles (+30 sparks) = ~160 tris; boss ~200 particles; capacity 48 x 64 = 3072 particles",
+  "drawCalls": 2,
+  "instanceCapacity": { "fireSmoke": 3072, "sparks": 1920 },
+  "boundsMetres": ["~6 x size", "~6 x size", "~6 x size"],
+  "tokensUsed": ["burstWhite", "burstYellow", "fireOrange", "smokeDark", "smokeShadow", "shieldRed (C ramp)", "vfx.explosion"],
+  "notes": "Core radius 0.42*size grows x3 in 0.3 s; 7-10 lobes cool into smokeDark smoke by ~0.6 s; 13-28 blooms within 0.3 s; HDR fire up to x5 feeds PostStack bloom. kind boss adds 3 staggered sub-bursts."
+}

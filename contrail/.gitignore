@@ -1,0 +1,21 @@
+# --- build / tooling ---
+node_modules/
+dist/
+dist-*/
+.vite/
+test-results/
+playwright-report/
+*.log
+*.tmp
+
+# --- PRIVATE third-party style references: NEVER commit ---
+# The host repo (colin87-sys/RPG) is PUBLIC. The kit rule (GAME_FORGE 4.6) says nothing
+# from Docs/refs/ may appear in any published repo. The whole folder stays local-only.
+# Restore it in a new session by unzipping the owner's contrail-kit.zip (see Docs/DECISIONS.md).
+/Docs/refs/
+
+# Renders that embed reference pixels (side-by-side comparisons with owner stills)
+/private/
+
+# --- run control ---
+/.claude/ALLOW_STOP

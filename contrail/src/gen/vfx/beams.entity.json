@@ -1,0 +1,10 @@
+{
+  "name": "Beams",
+  "seed": 0,
+  "params": ["BEAM_VARIANTS.A", "BEAM_VARIANTS.B", "BEAM_VARIANTS.C"],
+  "triangles": 96,
+  "drawCalls": 1,
+  "boundsMetres": [3, 3, 120],
+  "tokensUsed": ["vfx.beam.haloWidth", "vfx.beam.core", "vfx.beam.haloEnemy", "vfx.beam.haloBoss", "palette.burstYellow", "palette.exhaustCore", "palette.laserRed", "palette.fireOrange", "palette.burstWhite", "palette.hostileOutline"],
+  "notes": "Capacity 48, one instanced draw. Screen-space capsule ribbons (near-plane clipped, px floors). Cross-section W-Y-R per REF_VERIFICATION. Telegraph: thin line + 2 px dark outline, flicker 7->18 Hz. Fire: start flash, tip extends in 0.18 s, tapers last 15%. Off: 0.16 s fade. Boss beams x3 width."
+}

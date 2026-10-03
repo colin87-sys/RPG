@@ -1,0 +1,10 @@
+{
+  "name": "PostStack",
+  "seed": 0,
+  "params": ["POST_VARIANTS.A", "POST_VARIANTS.B", "POST_VARIANTS.C"],
+  "triangles": 1,
+  "drawCalls": 6,
+  "boundsMetres": [0, 0, 0],
+  "tokensUsed": ["post.exposure", "post.bloom", "post.vignette", "post.chroma", "post.scanlines", "post.grain", "post.grade", "palette.shieldRed", "palette.hitFlash", "palette.spaceDeep", "vfx.speedStreaks"],
+  "notes": "Full stack = 6 full-screen passes (prefilter 1/2, down 1/4, down 1/8, up +=1/4, up +=1/2, composite full res); clean = 1 pass. Scene target HalfFloat MSAA 4x (fallback sRGB UnsignedByte, samples clamped to what the format supports). drawCalls = passes, excluding the scene render. Speed streaks (streaks.ts) are evaluated inside the composite pass. Deterministic: grain/streaks use PostFrame.time only."
+}

@@ -1,0 +1,29 @@
+{
+  "name": "strider",
+  "seed": 11,
+  "params": [
+    "ENEMY_VARIANTS.A",
+    "ENEMY_VARIANTS.B",
+    "ENEMY_VARIANTS.C"
+  ],
+  "triangles": 2607,
+  "drawCalls": "2 (body with 14 rigid bones + jet plumes; +1 outline in B/C)",
+  "boundsMetres": [
+    7.85,
+    15.77,
+    6.23
+  ],
+  "tokensUsed": [
+    "enemyBody",
+    "enemyPanel",
+    "enemyMarker",
+    "accentOrange",
+    "armourDark",
+    "bossBody",
+    "bossVent",
+    "enemyRim",
+    "hitFlash",
+    "hazardBlack"
+  ],
+  "notes": "Hovering digitigrade biped with twin-pod jetpack. Leg joints are damped springs driven by the hover bob, the root's world acceleration and idle sway (sub-stepped, no per-frame allocation). Weak point on the back sits behind two shutters that open with weakPointOpen. weakPointLocal and muzzlesLocal[2] are updated in place every frame."
+}

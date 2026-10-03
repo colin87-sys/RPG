@@ -1,0 +1,31 @@
+{
+  "name": "cloudBands",
+  "seed": 1,
+  "params": [
+    "VIOLET_VARIANTS.A|B|C.bands (wrap mode)",
+    "CLOUDGATE_VARIANTS.*.bands (follow mode: horizon banks)"
+  ],
+  "triangles": {
+    "violetA": 28,
+    "violetB": 40,
+    "violetC": 20,
+    "cloudgate": 6
+  },
+  "drawCalls": 1,
+  "boundsMetres": [
+    8000,
+    250,
+    3600
+  ],
+  "tokensUsed": [
+    "sunsetIndigo",
+    "sunsetCloudDark",
+    "sunsetMagenta",
+    "sunsetHorizon",
+    "cloudMid",
+    "cloudCream",
+    "cloudShadow",
+    "sunCore"
+  ],
+  "notes": "Layered cel bands: one camera-wide quad per band, smooth-max dome silhouette in world X, pseudo-normal lit by the key, sun-focused rim (dark bodies, bright rims toward a low sun), fade into the sea. Wrap mode recycles along -Z with a rotated draw order; follow mode = distant Cloudgate horizon banks."
+}

@@ -1,0 +1,29 @@
+{
+  "name": "Generative music",
+  "seed": 1,
+  "params": {
+    "variants": [
+      "cloudgate",
+      "violetTide",
+      "wreckfield"
+    ],
+    "key": "A minor",
+    "bpm": 140,
+    "loopBars": 16,
+    "layers": [
+      "pad",
+      "bass",
+      "perc",
+      "arp"
+    ]
+  },
+  "tokensUsed": [],
+  "notes": "Lookahead scheduler; stage flavours vary timbre/progression. Pending owner review.",
+  "triangles": 0,
+  "drawCalls": 0,
+  "boundsMetres": [
+    0,
+    0,
+    0
+  ]
+}

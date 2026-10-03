@@ -1,0 +1,1067 @@
+{
+  "utc": "2026-10-03T06:56:29Z",
+  "commit": "5f76a57",
+  "milestone": "M2",
+  "goldpath": {
+    "utc": "2026-10-03T06:52:53Z",
+    "passed": true,
+    "status": "pass",
+    "stage": "cloudgate",
+    "seed": 1,
+    "duration_s": 125,
+    "wall_s": 293.3,
+    "final": {
+      "state": "results",
+      "results": {
+        "rank": "S",
+        "score": 84450,
+        "bestCombo": 49,
+        "shieldLeft": 91,
+        "timeS": 120,
+        "cleared": true
+      },
+      "score": 78930,
+      "shield": 90.8,
+      "kills": 214,
+      "bestCombo": 49
+    },
+    "mechanics": {
+      "cannonFire": 1681,
+      "missileFire": 50,
+      "enemyKilled:missile": 39,
+      "parry": 12,
+      "wingtrail": 7,
+      "shieldRefill": 7
+    },
+    "required": [
+      "cannonFire",
+      "missileFire",
+      "enemyKilled:missile",
+      "parry",
+      "wingtrail",
+      "shieldRefill"
+    ],
+    "missing_mechanics": [],
+    "counts": {
+      "stateChanged": 3,
+      "stageStart": 1,
+      "cannonFire": 1681,
+      "lockAdded": 65,
+      "enemyHit": 644,
+      "comboChanged": 234,
+      "enemyKilled": 214,
+      "missileFire": 50,
+      "missileHit": 52,
+      "playerHit": 8,
+      "laserTelegraph": 18,
+      "wingtrail": 7,
+      "shieldRefill": 7,
+      "laserFire": 15,
+      "roll": 10,
+      "parry": 12,
+      "pickup": 1,
+      "warning": 4,
+      "stageClear": 1,
+      "enemyKilled:cannon": 167,
+      "killed:caltrop": 184,
+      "missilesFired": 65,
+      "refillReadyFull": 4433,
+      "enemyKilled:missile": 39,
+      "bulletsFired": 319,
+      "killed:dart": 20,
+      "killed:sniper": 6,
+      "shieldRefilled": 55.083333333333805,
+      "enemyKilled:wingtrail": 4,
+      "parries": 12,
+      "killed:strider": 4,
+      "enemyKilled:parry": 4
+    },
+    "failures": [],
+    "captures": [
+      "Docs/progress/goldpath/20261003T064758Z_p25.png",
+      "Docs/progress/goldpath/20261003T064758Z_p50.png",
+      "Docs/progress/goldpath/20261003T064758Z_p75.png",
+      "Docs/progress/goldpath/20261003T064758Z_results.png"
+    ],
+    "steps": [
+      {
+        "t": 1,
+        "state": "launch",
+        "stage_t": 0,
+        "progress": 0,
+        "score": 0,
+        "shield": 100,
+        "kills": 0
+      },
+      {
+        "t": 2,
+        "state": "launch",
+        "stage_t": 0,
+        "progress": 0,
+        "score": 0,
+        "shield": 100,
+        "kills": 0
+      },
+      {
+        "t": 5,
+        "state": "play",
+        "stage_t": 2.5,
+        "progress": 0.021,
+        "score": 360,
+        "shield": 100,
+        "kills": 3
+      },
+      {
+        "t": 10,
+        "state": "play",
+        "stage_t": 7.4,
+        "progress": 0.062,
+        "score": 2960,
+        "shield": 100,
+        "kills": 16
+      },
+      {
+        "t": 15,
+        "state": "play",
+        "stage_t": 12.3,
+        "progress": 0.103,
+        "score": 5750,
+        "shield": 100,
+        "kills": 25
+      },
+      {
+        "t": 20,
+        "state": "play",
+        "stage_t": 17.3,
+        "progress": 0.144,
+        "score": 9190,
+        "shield": 100,
+        "kills": 30
+      },
+      {
+        "t": 25,
+        "state": "play",
+        "stage_t": 22.3,
+        "progress": 0.186,
+        "score": 10090,
+        "shield": 92,
+        "kills": 33
+      },
+      {
+        "t": 30,
+        "state": "play",
+        "stage_t": 26.8,
+        "progress": 0.227,
+        "score": 13330,
+        "shield": 100,
+        "kills": 47
+      },
+      {
+        "t": 35,
+        "state": "play",
+        "stage_t": 31.7,
+        "progress": 0.268,
+        "score": 15440,
+        "shield": 100,
+        "kills": 54
+      },
+      {
+        "t": 40,
+        "state": "play",
+        "stage_t": 36.6,
+        "progress": 0.309,
+        "score": 18020,
+        "shield": 100,
+        "kills": 66
+      },
+      {
+        "t": 45,
+        "state": "play",
+        "stage_t": 41.1,
+        "progress": 0.35,
+        "score": 21230,
+        "shield": 100,
+        "kills": 74
+      },
+      {
+        "t": 50,
+        "state": "play",
+        "stage_t": 46.1,
+        "progress": 0.392,
+        "score": 27770,
+        "shield": 100,
+        "kills": 87
+      },
+      {
+        "t": 55,
+        "state": "play",
+        "stage_t": 51,
+        "progress": 0.433,
+        "score": 32810,
+        "shield": 100,
+        "kills": 95
+      },
+      {
+        "t": 60,
+        "state": "play",
+        "stage_t": 56,
+        "progress": 0.474,
+        "score": 37250,
+        "shield": 99.3,
+        "kills": 98
+      },
+      {
+        "t": 65,
+        "state": "play",
+        "stage_t": 60.4,
+        "progress": 0.515,
+        "score": 38410,
+        "shield": 100,
+        "kills": 106
+      },
+      {
+        "t": 70,
+        "state": "play",
+        "stage_t": 65.3,
+        "progress": 0.555,
+        "score": 41980,
+        "shield": 100,
+        "kills": 120
+      },
+      {
+        "t": 75,
+        "state": "play",
+        "stage_t": 70.1,
+        "progress": 0.596,
+        "score": 47720,
+        "shield": 100,
+        "kills": 133
+      },
+      {
+        "t": 80,
+        "state": "play",
+        "stage_t": 74.6,
+        "progress": 0.637,
+        "score": 49830,
+        "shield": 100,
+        "kills": 135
+      },
+      {
+        "t": 85,
+        "state": "play",
+        "stage_t": 79.5,
+        "progress": 0.677,
+        "score": 53730,
+        "shield": 98.2,
+        "kills": 137
+      },
+      {
+        "t": 90,
+        "state": "play",
+        "stage_t": 84.5,
+        "progress": 0.719,
+        "score": 53890,
+        "shield": 98.2,
+        "kills": 138
+      },
+      {
+        "t": 95,
+        "state": "play",
+        "stage_t": 89.4,
+        "progress": 0.76,
+        "score": 54940,
+        "shield": 100,
+        "kills": 145
+      },
+      {
+        "t": 100,
+        "state": "play",
+        "stage_t": 93.8,
+        "progress": 0.8,
+        "score": 55920,
+        "shield": 100,
+        "kills": 152
+      },
+      {
+        "t": 105,
+        "state": "play",
+        "stage_t": 98.7,
+        "progress": 0.842,
+        "score": 56100,
+        "shield": 100,
+        "kills": 153
+      },
+      {
+        "t": 110,
+        "state": "play",
+        "stage_t": 103.6,
+        "progress": 0.882,
+        "score": 58090,
+        "shield": 100,
+        "kills": 164
+      },
+      {
+        "t": 115,
+        "state": "play",
+        "stage_t": 108.1,
+        "progress": 0.923,
+        "score": 61380,
+        "shield": 100,
+        "kills": 175
+      },
+      {
+        "t": 120,
+        "state": "play",
+        "stage_t": 112.9,
+        "progress": 0.964,
+        "score": 68540,
+        "shield": 84.8,
+        "kills": 187
+      },
+      {
+        "t": 125,
+        "state": "results",
+        "stage_t": 116.9,
+        "progress": 1,
+        "score": 78930,
+        "shield": 90.8,
+        "kills": 214
+      }
+    ]
+  },
+  "perf": {
+    "utc": "2026-09-30T14:33:49Z",
+    "passed": true,
+    "status": "pass (budgets)",
+    "scene": "cloudgate",
+    "t": 150,
+    "seconds": 10,
+    "w": 1920,
+    "h": 1080,
+    "frames": 3,
+    "frame_ms_median": 3916.5,
+    "frame_ms_p99": 3998.13,
+    "fps_median": 0.3,
+    "fps_p1_low": 0.3,
+    "step_ms_median": 3.6,
+    "draw_calls": 44,
+    "draw_calls_max": 45,
+    "triangles": 154880,
+    "triangles_max": 154882,
+    "programs": 29,
+    "textures": 10,
+    "geometries": 35,
+    "enemies_alive": 14,
+    "hostile_projectiles": 49,
+    "sim_state": "play",
+    "bot": true,
+    "budget": {
+      "draw_calls": 250,
+      "triangles": 450000,
+      "ok": true
+    },
+    "method": "software-GL relative (SwiftShader, no GPU)",
+    "failures": []
+  },
+  "errors": {
+    "console": 0,
+    "missing_refs": 0,
+    "by_tool": {
+      "lab:capture": {
+        "utc": "2026-09-30T08:56:50Z",
+        "console": 0,
+        "missing_refs": 0
+      },
+      "netcheck": {
+        "utc": "2026-09-30T14:19:18Z",
+        "console": 0,
+        "missing_refs": 0
+      },
+      "capture": {
+        "utc": "2026-10-03T01:09:05Z",
+        "console": 0,
+        "missing_refs": 0
+      },
+      "goldpath": {
+        "utc": "2026-10-03T06:52:53Z",
+        "console": 0,
+        "missing_refs": 0
+      },
+      "perf": {
+        "utc": "2026-09-30T14:33:49Z",
+        "console": 0,
+        "missing_refs": 0
+      },
+      "audiocheck": {
+        "utc": "2026-09-30T14:34:37Z",
+        "console": 0,
+        "missing_refs": 0
+      },
+      "readability": {
+        "utc": "2026-10-03T01:38:10Z",
+        "console": 0,
+        "missing_refs": 0
+      },
+      "goldpath:gameover": {
+        "utc": "2026-10-03T06:56:29Z",
+        "console": 0,
+        "missing_refs": 0
+      }
+    }
+  },
+  "network": {
+    "utc": "2026-09-30T14:19:18Z",
+    "passed": true,
+    "status": "pass",
+    "external_requests": 0,
+    "requests_total": 49,
+    "hosts": [
+      "127.0.0.1:4173"
+    ],
+    "external": [],
+    "pages": [
+      {
+        "page": "game title",
+        "path": "/",
+        "ok": true,
+        "requests": 23
+      },
+      {
+        "page": "game autopilot 10s",
+        "path": "/?skip=1&bot=1&mute=1",
+        "ok": true,
+        "requests": 23
+      },
+      {
+        "page": "lab index",
+        "path": "/lab/index.html",
+        "ok": true,
+        "requests": 3
+      }
+    ],
+    "pending": [],
+    "lab_only_build": false,
+    "static_url_hosts_in_bundle": {
+      "www.w3.org": 1,
+      "jcgt.org": 1
+    }
+  },
+  "refcheck": {
+    "utc": "2026-09-30T14:21:18Z",
+    "passed": true,
+    "status": "pass",
+    "ref_files_in_build": 0,
+    "images_in_build": 0,
+    "ref_files_in_repo": 0,
+    "audio_in_build": 0,
+    "phash_matches": 0,
+    "phash": {
+      "status": "checked",
+      "ref_hashes": 114,
+      "images_checked": 336,
+      "near_flat_skipped": 0,
+      "max_distance": 6,
+      "dirs": [
+        "look",
+        "Docs/progress",
+        "Docs/captures",
+        "lab",
+        "src"
+      ]
+    },
+    "manifest_entries": 121,
+    "refs_local": 121,
+    "refs_not_in_manifest": [],
+    "manifest_missing_locally": [],
+    "dist_files": 47,
+    "dist_game_built": true,
+    "lab_only_build": false,
+    "data_image_literals": 0,
+    "text_snippets_checked": 14,
+    "matches": []
+  },
+  "audio": {
+    "utc": "2026-09-30T14:34:37Z",
+    "passed": true,
+    "status": "pending owner review",
+    "clipping": false,
+    "peak_dbfs": -1.09,
+    "rms_dbfs": -16.37,
+    "loop_seam_ok": true,
+    "items": 25,
+    "failures": [],
+    "thresholds": {
+      "peakMax": -1,
+      "dcMax": 0.01,
+      "sfxRms": [
+        -30,
+        -10
+      ],
+      "musicRms": [
+        -24,
+        -12
+      ],
+      "musicIntensity": 0.6
+    },
+    "spectrograms": [
+      "Docs/captures/audio/cannon.png",
+      "Docs/captures/audio/lockTone.png",
+      "Docs/captures/audio/missileLaunch.png",
+      "Docs/captures/audio/missileImpact.png",
+      "Docs/captures/audio/explosionSmall.png",
+      "Docs/captures/audio/explosionBig.png",
+      "Docs/captures/audio/parry.png",
+      "Docs/captures/audio/rollWhoosh.png",
+      "Docs/captures/audio/driftWhine.png",
+      "Docs/captures/audio/wingtrail.png",
+      "Docs/captures/audio/shieldRefill.png",
+      "Docs/captures/audio/hitTaken.png",
+      "Docs/captures/audio/warning.png",
+      "Docs/captures/audio/uiMove.png",
+      "Docs/captures/audio/uiConfirm.png",
+      "Docs/captures/audio/bossBeamCharge.png",
+      "Docs/captures/audio/laserTelegraph.png",
+      "Docs/captures/audio/pickup.png",
+      "Docs/captures/audio/stageClear.png",
+      "Docs/captures/audio/gameOver.png",
+      "Docs/captures/audio/music_cloudgate_x0.25.png",
+      "Docs/captures/audio/music_cloudgate_x0.6.png",
+      "Docs/captures/audio/music_cloudgate_x1.png",
+      "Docs/captures/audio/music_violetTide_x0.6.png",
+      "Docs/captures/audio/music_wreckfield_x0.6.png"
+    ],
+    "table": [
+      {
+        "name": "cannon",
+        "kind": "sfx",
+        "dur": 0.92,
+        "peak": -6.2,
+        "rms": -22.4,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "lockTone",
+        "kind": "sfx",
+        "dur": 0.86,
+        "peak": -5.7,
+        "rms": -18.6,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "missileLaunch",
+        "kind": "sfx",
+        "dur": 1.42,
+        "peak": -3.6,
+        "rms": -18.7,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "missileImpact",
+        "kind": "sfx",
+        "dur": 1.02,
+        "peak": -1.3,
+        "rms": -14.1,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "explosionSmall",
+        "kind": "sfx",
+        "dur": 1.32,
+        "peak": -1.2,
+        "rms": -14.1,
+        "dc": -0.0002,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "explosionBig",
+        "kind": "sfx",
+        "dur": 3.02,
+        "peak": -1.1,
+        "rms": -12,
+        "dc": -0.0005,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "parry",
+        "kind": "sfx",
+        "dur": 1.72,
+        "peak": -1.5,
+        "rms": -15.1,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "rollWhoosh",
+        "kind": "sfx",
+        "dur": 0.97,
+        "peak": -4.1,
+        "rms": -20.9,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "driftWhine",
+        "kind": "sfx",
+        "dur": 1.82,
+        "peak": -7.3,
+        "rms": -18.4,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "wingtrail",
+        "kind": "sfx",
+        "dur": 1.92,
+        "peak": -1.8,
+        "rms": -14.3,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "shieldRefill",
+        "kind": "sfx",
+        "dur": 1.17,
+        "peak": -5.2,
+        "rms": -15.3,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "hitTaken",
+        "kind": "sfx",
+        "dur": 0.97,
+        "peak": -1.5,
+        "rms": -14.8,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "warning",
+        "kind": "sfx",
+        "dur": 1.47,
+        "peak": -3.4,
+        "rms": -12.8,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "uiMove",
+        "kind": "sfx",
+        "dur": 0.48,
+        "peak": -2.4,
+        "rms": -16.2,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "uiConfirm",
+        "kind": "sfx",
+        "dur": 0.74,
+        "peak": -8,
+        "rms": -20.9,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "bossBeamCharge",
+        "kind": "sfx",
+        "dur": 2.42,
+        "peak": -1.6,
+        "rms": -18.4,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "laserTelegraph",
+        "kind": "sfx",
+        "dur": 1.12,
+        "peak": -5.3,
+        "rms": -13.9,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "pickup",
+        "kind": "sfx",
+        "dur": 0.84,
+        "peak": -6.8,
+        "rms": -19.6,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "stageClear",
+        "kind": "sfx",
+        "dur": 3.22,
+        "peak": -2.9,
+        "rms": -16.4,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "gameOver",
+        "kind": "sfx",
+        "dur": 3.42,
+        "peak": -1.6,
+        "rms": -12.6,
+        "dc": 0,
+        "clip": false,
+        "seam": null
+      },
+      {
+        "name": "music cloudgate x0.25",
+        "kind": "music",
+        "dur": 28.43,
+        "peak": -12.1,
+        "rms": -22.1,
+        "dc": 0,
+        "clip": false,
+        "seam": true
+      },
+      {
+        "name": "music cloudgate x0.6",
+        "kind": "music",
+        "dur": 28.43,
+        "peak": -4.4,
+        "rms": -17.4,
+        "dc": 0,
+        "clip": false,
+        "seam": true
+      },
+      {
+        "name": "music cloudgate x1",
+        "kind": "music",
+        "dur": 28.43,
+        "peak": -4.1,
+        "rms": -17.4,
+        "dc": 0,
+        "clip": false,
+        "seam": true
+      },
+      {
+        "name": "music violetTide x0.6",
+        "kind": "music",
+        "dur": 28.43,
+        "peak": -4.5,
+        "rms": -16.9,
+        "dc": 0,
+        "clip": false,
+        "seam": true
+      },
+      {
+        "name": "music wreckfield x0.6",
+        "kind": "music",
+        "dur": 28.43,
+        "peak": -3.8,
+        "rms": -14.9,
+        "dc": 0,
+        "clip": false,
+        "seam": true
+      }
+    ]
+  },
+  "captures": [
+    "Docs/progress/gfx/20260930T134347Z_play.png",
+    "Docs/progress/gfx/20260930T134347Z_hero.png",
+    "Docs/progress/goldpath/20260930T141100Z_p25.png",
+    "Docs/progress/goldpath/20260930T141100Z_p50.png",
+    "Docs/progress/goldpath/20260930T141100Z_p75.png",
+    "Docs/progress/goldpath/20260930T141100Z_results.png",
+    "Docs/progress/goldpath/20260930T142118Z_p25.png",
+    "Docs/progress/goldpath/20260930T142118Z_p50.png",
+    "Docs/progress/goldpath/20260930T142118Z_p75.png",
+    "Docs/progress/goldpath/20260930T142118Z_results.png",
+    "Docs/captures/readability/20260930T143459Z_cloudgate_t150.png",
+    "Docs/progress/goldpath/20260930T143512Z_p25.png",
+    "Docs/progress/goldpath/20260930T143512Z_p50.png",
+    "Docs/progress/goldpath/20260930T143512Z_p75.png",
+    "Docs/progress/goldpath/20260930T143512Z_results.png",
+    "Docs/progress/goldpath/20260930T144134Z_p25.png",
+    "Docs/progress/goldpath/20260930T144134Z_p50.png",
+    "Docs/progress/goldpath/20260930T144134Z_results.png",
+    "Docs/progress/goldpath/20260930T212540Z_p25.png",
+    "Docs/progress/goldpath/20260930T212540Z_p50.png",
+    "Docs/progress/goldpath/20260930T212540Z_p75.png",
+    "Docs/progress/goldpath/20260930T212540Z_results.png",
+    "Docs/progress/bullets/20261003T010516Z_play.png",
+    "Docs/progress/bullets/20261003T010537Z_play.png",
+    "Docs/progress/bullets/20261003T010551Z_play.png",
+    "Docs/progress/bullets/20261003T010603Z_play.png",
+    "Docs/progress/bullets/20261003T010615Z_play.png",
+    "Docs/progress/bullets/20261003T010805Z_play.png",
+    "Docs/progress/bullets/20261003T010817Z_play.png",
+    "Docs/progress/bullets/20261003T010831Z_play.png",
+    "Docs/progress/bullets/20261003T010843Z_play.png",
+    "Docs/progress/bullets/20261003T010855Z_play.png",
+    "Docs/progress/goldpath/20261003T010927Z_p25.png",
+    "Docs/progress/goldpath/20261003T010927Z_p50.png",
+    "Docs/progress/goldpath/20261003T010927Z_p75.png",
+    "Docs/progress/goldpath/20261003T010927Z_results.png",
+    "Docs/progress/goldpath/20261003T011646Z_p25.png",
+    "Docs/progress/goldpath/20261003T011646Z_p50.png",
+    "Docs/progress/goldpath/20261003T011646Z_results.png",
+    "Docs/captures/readability/20261003T012159Z_cloudgate_t150.png",
+    "Docs/progress/goldpath/20261003T012314Z_p25.png",
+    "Docs/progress/goldpath/20261003T012314Z_p50.png",
+    "Docs/progress/goldpath/20261003T012314Z_p75.png",
+    "Docs/progress/goldpath/20261003T012314Z_results.png",
+    "Docs/progress/goldpath/20261003T013029Z_p25.png",
+    "Docs/progress/goldpath/20261003T013029Z_p50.png",
+    "Docs/progress/goldpath/20261003T013029Z_results.png",
+    "Docs/captures/readability/20261003T013545Z_cloudgate_t150.png",
+    "Docs/captures/readability/20261003T013644Z_cloudgate_t150.png",
+    "Docs/captures/readability/20261003T013739Z_cloudgate_t150.png",
+    "Docs/captures/readability/20261003T013810Z_cloudgate_t150.png",
+    "Docs/progress/goldpath/20261003T013843Z_p25.png",
+    "Docs/progress/goldpath/20261003T013843Z_p50.png",
+    "Docs/progress/goldpath/20261003T013843Z_p75.png",
+    "Docs/progress/goldpath/20261003T013843Z_results.png",
+    "Docs/progress/goldpath/20261003T014616Z_p25.png",
+    "Docs/progress/goldpath/20261003T014616Z_p50.png",
+    "Docs/progress/goldpath/20261003T014616Z_p75.png",
+    "Docs/progress/goldpath/20261003T014616Z_results.png",
+    "Docs/progress/goldpath/20261003T021227Z_p25.png",
+    "Docs/progress/goldpath/20261003T021227Z_p50.png",
+    "Docs/progress/goldpath/20261003T021227Z_results.png",
+    "Docs/progress/goldpath/20261003T021752Z_p25.png",
+    "Docs/progress/goldpath/20261003T021752Z_p50.png",
+    "Docs/progress/goldpath/20261003T021752Z_p75.png",
+    "Docs/progress/goldpath/20261003T021752Z_results.png",
+    "Docs/progress/goldpath/20261003T022509Z_p25.png",
+    "Docs/progress/goldpath/20261003T022509Z_p50.png",
+    "Docs/progress/goldpath/20261003T022509Z_results.png",
+    "Docs/progress/goldpath/20261003T023032Z_p25.png",
+    "Docs/progress/goldpath/20261003T023032Z_p50.png",
+    "Docs/progress/goldpath/20261003T023032Z_p75.png",
+    "Docs/progress/goldpath/20261003T023032Z_results.png",
+    "Docs/progress/goldpath/20261003T023802Z_p25.png",
+    "Docs/progress/goldpath/20261003T023802Z_p50.png",
+    "Docs/progress/goldpath/20261003T023802Z_results.png",
+    "Docs/progress/goldpath/20261003T024330Z_p25.png",
+    "Docs/progress/goldpath/20261003T024330Z_p50.png",
+    "Docs/progress/goldpath/20261003T024330Z_p75.png",
+    "Docs/progress/goldpath/20261003T024330Z_results.png",
+    "Docs/progress/goldpath/20261003T025049Z_p25.png",
+    "Docs/progress/goldpath/20261003T025049Z_p50.png",
+    "Docs/progress/goldpath/20261003T025049Z_results.png",
+    "Docs/progress/goldpath/20261003T062831Z_p25.png",
+    "Docs/progress/goldpath/20261003T062831Z_p50.png",
+    "Docs/progress/goldpath/20261003T062831Z_p75.png",
+    "Docs/progress/goldpath/20261003T062831Z_results.png",
+    "Docs/progress/goldpath/20261003T063550Z_p25.png",
+    "Docs/progress/goldpath/20261003T063550Z_p50.png",
+    "Docs/progress/goldpath/20261003T063550Z_p75.png",
+    "Docs/progress/goldpath/20261003T063550Z_results.png",
+    "Docs/progress/goldpath/20261003T064308Z_p25.png",
+    "Docs/progress/goldpath/20261003T064308Z_p50.png",
+    "Docs/progress/goldpath/20261003T064308Z_results.png",
+    "Docs/progress/goldpath/20261003T064758Z_p25.png",
+    "Docs/progress/goldpath/20261003T064758Z_p50.png",
+    "Docs/progress/goldpath/20261003T064758Z_p75.png",
+    "Docs/progress/goldpath/20261003T064758Z_results.png",
+    "Docs/progress/goldpath/20261003T065254Z_gameover.png",
+    "Docs/progress/goldpath/20261003T065254Z_retry_play.png"
+  ],
+  "capture": {
+    "utc": "2026-10-03T01:09:05Z",
+    "passed": true,
+    "cams": [
+      "play"
+    ],
+    "seed": 1,
+    "t": 170,
+    "stage": "wreckfield",
+    "w": 1280,
+    "h": 720,
+    "feature": "bullets",
+    "files": [
+      "Docs/progress/bullets/20261003T010855Z_play.png"
+    ],
+    "stats": {
+      "play": {
+        "state": "results",
+        "time": 154.39,
+        "luma_mean": 33.9,
+        "luma_std": 27.4,
+        "colors": 70,
+        "size": "1280x720"
+      }
+    },
+    "problems": []
+  },
+  "readability": {
+    "utc": "2026-10-03T01:38:10Z",
+    "passed": false,
+    "status": "fail",
+    "stage": "cloudgate",
+    "t": 150,
+    "cam": "play",
+    "projectiles": 11,
+    "deltaE_median": 23.85,
+    "deltaE_p10": 13.59,
+    "threshold": 25,
+    "method": "CIEDE2000 between mean CIELAB (D65) of projectile pixels and a local ring (1 px gap, 3-12 px wide, other projectiles excluded); object-ID mask from __game.readabilityMasks()",
+    "overlay": "Docs/captures/readability/20261003T013810Z_cloudgate_t150.png",
+    "worst": [
+      {
+        "x": 898,
+        "y": 537,
+        "area": 67,
+        "deltaE": 9.81
+      },
+      {
+        "x": 942,
+        "y": 500,
+        "area": 90,
+        "deltaE": 13.59
+      },
+      {
+        "x": 993,
+        "y": 563,
+        "area": 57,
+        "deltaE": 20.01
+      },
+      {
+        "x": 928,
+        "y": 490,
+        "area": 32,
+        "deltaE": 23.07
+      },
+      {
+        "x": 831,
+        "y": 542,
+        "area": 33,
+        "deltaE": 23.72
+      },
+      {
+        "x": 932,
+        "y": 522,
+        "area": 34,
+        "deltaE": 23.85
+      },
+      {
+        "x": 873,
+        "y": 536,
+        "area": 33,
+        "deltaE": 25.12
+      },
+      {
+        "x": 956,
+        "y": 559,
+        "area": 37,
+        "deltaE": 25.99
+      },
+      {
+        "x": 858,
+        "y": 580,
+        "area": 41,
+        "deltaE": 26.09
+      },
+      {
+        "x": 762,
+        "y": 575,
+        "area": 33,
+        "deltaE": 27.13
+      }
+    ]
+  },
+  "acceptance": {
+    "utc": "2026-09-30T14:34:59Z",
+    "passed": true,
+    "rows": [
+      {
+        "step": "build",
+        "pri": "P0",
+        "status": "pass",
+        "secs": 2,
+        "note": ""
+      },
+      {
+        "step": "netcheck",
+        "pri": "P0",
+        "status": "pass",
+        "secs": 76,
+        "note": "0 external request(s) of 49 on 3 page(s)"
+      },
+      {
+        "step": "refcheck",
+        "pri": "P0",
+        "status": "pass",
+        "secs": 119,
+        "note": "0 reference files, 0 images, 0 audio files in dist/ (47 files), 0 copies outside Docs/refs/, 0 perceptual matc"
+      },
+      {
+        "step": "goldpath",
+        "pri": "P0",
+        "status": "pass",
+        "secs": 703,
+        "note": "cleared cloudgate in 186 s (rank S, score 57290, shield 72), all 7 mechanics fired"
+      },
+      {
+        "step": "perf",
+        "pri": "P0",
+        "status": "pass",
+        "secs": 78,
+        "note": "budgets ok (draw calls max 45/250, triangles max 154882/450000); fps 0.3 median / 0.3 1% low is software-GL re"
+      },
+      {
+        "step": "audiocheck",
+        "pri": "P0",
+        "status": "pass",
+        "secs": 19,
+        "note": "25 item(s) within thresholds; spectrograms in Docs/captures/audio/ (pending owner review)"
+      },
+      {
+        "step": "readability",
+        "pri": "P1",
+        "status": "FAIL",
+        "secs": 21,
+        "note": "10 projectile(s), dE00 median 24.7 / p10 9.6 (need median >= 25); overlay Docs/captures/readability/20260930T1"
+      }
+    ]
+  },
+  "goldpath_gameover": {
+    "utc": "2026-10-03T06:56:29Z",
+    "passed": true,
+    "status": "pass",
+    "criterion": "A13 game over -> flying again",
+    "stage": "cloudgate",
+    "mode": "campaign",
+    "seed": 1,
+    "death_at_s": 0,
+    "forced_via": "__game.forceGameOver()",
+    "restart_via": "keyboard Enter",
+    "confirm_to_play_s": 0.817,
+    "press_to_play_s": 1.583,
+    "wall_s": 201.73,
+    "limit_s": 2,
+    "failures": [],
+    "captures": [
+      "Docs/progress/goldpath/20261003T065254Z_gameover.png",
+      "Docs/progress/goldpath/20261003T065254Z_retry_play.png"
+    ]
+  }
+}

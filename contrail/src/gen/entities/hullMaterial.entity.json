@@ -1,0 +1,28 @@
+{
+  "name": "hullMaterial",
+  "seed": 0,
+  "params": [
+    "HullLook (DEFAULT_HULL_LOOK)"
+  ],
+  "triangles": 0,
+  "drawCalls": 0,
+  "boundsMetres": [
+    0,
+    0,
+    0
+  ],
+  "tokensUsed": [
+    "canopyBlue",
+    "spaceDeep",
+    "accentOrange",
+    "exhaustCore",
+    "armourDark",
+    "emblemBlack",
+    "hitFlash",
+    "shading.seamWidth",
+    "shading.seamDarkness",
+    "shading.specular",
+    "shading.outline"
+  ],
+  "notes": "ShaderMaterial on lightUniforms+GLSL_LIGHTING+GLSL_STD_VERTEX (string-injected; local fallback if its anchor changes). Seams from baked metric edge distances (HullBuilder). Uniforms uHitFlash, uSilhouette. Reusable by other lanes via HullBuilder + createHullMaterials."
+}

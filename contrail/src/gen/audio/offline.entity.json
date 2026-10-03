@@ -1,0 +1,34 @@
+{
+  "name": "Offline audio check + spectrograms",
+  "seed": 1,
+  "params": {
+    "sr": 48000,
+    "stft": [
+      1024,
+      256
+    ],
+    "freq": [
+      30,
+      16000
+    ],
+    "preRollS": 0.3
+  },
+  "tokensUsed": [
+    "spaceDeep",
+    "hudLine",
+    "hudText",
+    "burstYellow",
+    "burstWhite",
+    "hudValue",
+    "hudDim",
+    "shieldRed"
+  ],
+  "notes": "renderForCheck() + checkMixer(); board lab/index.html?board=audio",
+  "triangles": 0,
+  "drawCalls": 0,
+  "boundsMetres": [
+    0,
+    0,
+    0
+  ]
+}

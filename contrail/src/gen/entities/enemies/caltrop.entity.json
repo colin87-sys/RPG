@@ -1,0 +1,27 @@
+{
+  "name": "caltrop",
+  "seed": 3,
+  "params": [
+    "ENEMY_VARIANTS.A",
+    "ENEMY_VARIANTS.B",
+    "ENEMY_VARIANTS.C"
+  ],
+  "triangles": 114,
+  "drawCalls": "1 (CaltropSwarm, all instances; +1 with outline in B/C)",
+  "boundsMetres": [
+    1.37,
+    1.37,
+    0.63
+  ],
+  "tokensUsed": [
+    "caltropRed",
+    "enemyBody",
+    "enemyPanel",
+    "enemyMarker",
+    "hostileHalo",
+    "enemyRim",
+    "hitFlash",
+    "hazardBlack"
+  ],
+  "notes": "Four-point red star with ridge-creased points, dark hub, red sensor eye on the -Z face, dark secondary points behind. Spin around local Z is done in the vertex shader (per-instance phase). API: buildCaltrop(params,seed), new CaltropSwarm(capacity,params?,seed?).set(i,pos,quat,scale,flash)/setCount/update(time)."
+}

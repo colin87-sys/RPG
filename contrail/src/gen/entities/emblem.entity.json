@@ -1,0 +1,20 @@
+{
+  "name": "emblem",
+  "seed": 0,
+  "params": [
+    "EmblemOptions {disc, ink, accent}"
+  ],
+  "triangles": 0,
+  "drawCalls": 0,
+  "boundsMetres": [
+    1.04,
+    0,
+    1.04
+  ],
+  "tokensUsed": [
+    "emblemBlack",
+    "armourLight",
+    "accentOrange"
+  ],
+  "notes": "Original stooping-kestrel mark on a black disc; getEmblemTexture() cached 256x256 CanvasTexture; decal r=0.52 m on each wing top."
+}

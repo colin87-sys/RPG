@@ -1,0 +1,125 @@
+{
+  "board": "hero",
+  "variant": "C",
+  "seed": 7,
+  "params": {
+    "noseStretch": 1.3,
+    "bodyWidth": 1,
+    "wingSweep": 44,
+    "wingTipX": 4.25,
+    "tipChord": 1.2,
+    "rootTE": 4.2,
+    "dihedral": 0,
+    "finHeight": 1,
+    "finCant": 30,
+    "ventralHeight": 0.45,
+    "ventralCant": 32,
+    "insertGlow": 1,
+    "panelJitter": 0.05,
+    "seamWidth": 0.012,
+    "seamDarkness": 0.65,
+    "rim": 1.2,
+    "specular": 0.35,
+    "outlineWidth": 0.035,
+    "exhaust": {},
+    "name": "C Longbow",
+    "note": "longer nose, wider delta (less sweep), shorter fins canted wider, flat wings, no outline",
+    "livery": {
+      "primary": "armourLight",
+      "secondary": "armourSteel",
+      "under": "armourDark",
+      "accent": "accentOrange",
+      "glass": "canopyBlue"
+    },
+    "accentAmount": 0.5,
+    "outline": false
+  },
+  "chaseCamera": {
+    "back": 20,
+    "up": 5,
+    "fov": 68
+  },
+  "stats": {
+    "hullTriangles": 1037,
+    "outlineTriangles": 847,
+    "exhaustTriangles": 580,
+    "triangles": {
+      "hull": 1037,
+      "outline": 847,
+      "exhaust": 580,
+      "total": 1617
+    },
+    "drawCalls": 2,
+    "bounds": [
+      9.54,
+      1.64,
+      12.89
+    ],
+    "radius": 7.54,
+    "measuredRender": {
+      "calls": 2,
+      "triangles": 1617
+    },
+    "pilotTriangles": 294
+  },
+  "ports": {
+    "exhaust": [
+      [
+        0.6,
+        0.008,
+        5.35
+      ],
+      [
+        -0.599,
+        -0.008,
+        5.35
+      ]
+    ],
+    "wingtips": [
+      [
+        4.25,
+        0.087,
+        2.487
+      ],
+      [
+        -4.249,
+        -0.027,
+        2.487
+      ]
+    ],
+    "missiles": [
+      [
+        1.738,
+        0.349,
+        1.327
+      ],
+      [
+        -1.746,
+        0.303,
+        1.327
+      ],
+      [
+        1.738,
+        0.316,
+        2.115
+      ],
+      [
+        -1.745,
+        0.27,
+        2.115
+      ]
+    ],
+    "muzzles": [
+      [
+        0.453,
+        -0.036,
+        -5.15
+      ],
+      [
+        -0.451,
+        -0.049,
+        -5.15
+      ]
+    ]
+  }
+}

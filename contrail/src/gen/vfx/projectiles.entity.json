@@ -1,0 +1,10 @@
+{
+  "name": "HostileBullets + PlayerShots",
+  "seed": 0,
+  "params": ["HOSTILE_VARIANTS.A/B/C", "PLAYER_SHOT_VARIANTS.A/B/C"],
+  "triangles": 1024,
+  "drawCalls": 2,
+  "boundsMetres": [1.8, 1.8, 3.5],
+  "tokensUsed": ["vfx.hostileBullet.core", "vfx.hostileBullet.halo", "vfx.hostileBullet.outline", "vfx.hostileBullet.minFrameHeightFrac", "palette.fireOrange", "vfx.playerShot.core", "vfx.playerShot.halo"],
+  "notes": "256 + 256 capacity, one draw call each (2 tris per instance). Hostile core never below 1.8% of frame height (disc ~3.7%). Measured on vfx-bullets board (80 hostile + 60 player, full post, variant A): median CIE76 deltaE vs local background Cloudgate 31, Violet Tide 50, Wreckfield 66. renderOrder: player 35 < hostile 40."
+}

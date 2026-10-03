@@ -1,0 +1,36 @@
+{
+  "name": "contrail",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "CONTRAIL: a procedural arcade rail shooter (GAME_FORGE procedural mode)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "capture": "node tools/capture.mjs",
+    "lab:capture": "node tools/labcapture.mjs",
+    "contact": "node tools/contact.mjs",
+    "goldpath": "node tools/goldpath.mjs",
+    "perf": "node tools/perf.mjs",
+    "netcheck": "node tools/netcheck.mjs",
+    "refcheck": "node tools/refcheck.mjs",
+    "audiocheck": "node tools/audiocheck.mjs",
+    "readability": "node tools/readability.mjs",
+    "timelapse": "node tools/timelapse.mjs",
+    "acceptance": "node tools/acceptance.mjs",
+    "prepush": "node tools/prepush.mjs",
+    "webpage": "node tools/webpage.mjs"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/three": "^0.186.0",
+    "playwright": "1.56.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}

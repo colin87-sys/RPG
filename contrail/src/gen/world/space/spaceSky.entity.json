@@ -1,0 +1,12 @@
+{
+  "name": "spaceSky",
+  "module": "src/gen/world/space/spaceSky.ts",
+  "seed": 7,
+  "params": "SPACE_SKY_DEFAULTS; variants via WRECK_VARIANTS A/B/C (src/gen/world/space/wreckfield.ts)",
+  "triangles": 1280,
+  "points": { "A": 5200, "B": 6200, "C": 4200 },
+  "drawCalls": 2,
+  "boundsMetres": ["infinite (far plane, camera-relative)", "", ""],
+  "tokensUsed": ["stages.wreckfield.sky", "stages.wreckfield.key.dir", "spaceDeep", "spaceNebula", "skyHorizon", "debrisRim", "debrisDark", "planetYellow", "sunCore", "smokeLit", "canopyBlue"],
+  "notes": "Dome drawn at the far plane (z=w, depthTest off, renderOrder -1000); stars are gaussian point sprites (sigma >= 0.7 px, energy-conserving) depth-tested at the far plane so geometry hides them. Planet centred on the stage key-light direction; terminator, bands, rim and halo analytic. No textures."
+}

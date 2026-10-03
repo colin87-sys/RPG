@@ -1,0 +1,31 @@
+{
+  "name": "bulwark",
+  "seed": 13,
+  "params": [
+    "ENEMY_VARIANTS.A",
+    "ENEMY_VARIANTS.B",
+    "ENEMY_VARIANTS.C"
+  ],
+  "triangles": 6336,
+  "drawCalls": "3 (hull, instanced vents, engine plumes; +1 outline in B/C)",
+  "boundsMetres": [
+    220,
+    77,
+    188
+  ],
+  "tokensUsed": [
+    "bossBody",
+    "bossVent",
+    "burstWhite",
+    "burstYellow",
+    "enemyPanel",
+    "emblemBlack",
+    "enemyMarker",
+    "accentOrange",
+    "armourDark",
+    "enemyRim",
+    "hitFlash",
+    "hazardBlack"
+  ],
+  "notes": "Silhouette pass (P1 detail later). 220 m flying fortress: hull + stepped citadel, swept wings with a stacked lower plate, downward talon blades, 4 under-wing emitter pylons plus a chin emitter, and 460 instanced vents (wing undersides, flanks, stern, step faces) with a travelling-wave glow. Totals: hull 5417 triangles + vents 920 (instanced quads); well under the 45k budget. beamEmittersLocal has 5 entries; weakPointsLocal has 3 (2 belly reactors + engine core)."
+}

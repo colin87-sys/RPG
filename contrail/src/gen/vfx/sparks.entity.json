@@ -1,0 +1,11 @@
+{
+  "name": "Sparks (velocity-aligned streaks)",
+  "seed": 7,
+  "params": ["SPARK_DEFAULT"],
+  "triangles": "2 per live spark (default capacity 1024 = 2048)",
+  "drawCalls": 1,
+  "instanceCapacity": 1024,
+  "boundsMetres": ["speed-dependent", "", ""],
+  "tokensUsed": ["caller token (e.g. burstYellow)", "fireOrange", "burstWhite"],
+  "notes": "Additive, unsorted; colour-over-life hot token -> fireOrange; drag exp(-3.2 t), no gravity."
+}

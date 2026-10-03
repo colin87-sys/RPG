@@ -1,0 +1,25 @@
+{
+  "board": "screens",
+  "variant": {
+    "id": "B",
+    "lineMul": 0.75,
+    "backingAlpha": 0.2,
+    "chamfer": 8,
+    "glyph": {
+      "stroke": 0.105,
+      "slant": 0,
+      "chamfer": 0.7,
+      "aspect": 0.88,
+      "gap": 1.8
+    },
+    "outlineAlpha": 0.65
+  },
+  "cells": [
+    "TITLE / MENU",
+    "RESULTS",
+    "STAGE CARD + NEW UPGRADE",
+    "SIGNAL LOST",
+    "PAUSE",
+    "TITLE / PRESS START"
+  ]
+}

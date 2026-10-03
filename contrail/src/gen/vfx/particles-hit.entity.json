@@ -1,0 +1,11 @@
+{
+  "name": "HitPops (hit-confirmation star bursts)",
+  "seed": 11,
+  "params": ["HIT_POP_DEFAULT"],
+  "triangles": "2 per live pop (capacity 64 = 128)",
+  "drawCalls": 1,
+  "instanceCapacity": 64,
+  "boundsMetres": [2.6, 2.6, 0],
+  "tokensUsed": ["hitFlash", "burstYellow (default ray colour; any token via opts.color)"],
+  "notes": "Life 0.08-0.15 s; 4+4 rays, core, expanding ring; min on-screen size 3.5% of frame height so pops stay readable at range."
+}

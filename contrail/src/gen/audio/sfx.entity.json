@@ -1,0 +1,37 @@
+{
+  "name": "SFX recipes",
+  "seed": 1,
+  "params": {
+    "variants": [
+      "cannon",
+      "lockTone",
+      "missileLaunch",
+      "missileImpact",
+      "explosionSmall",
+      "explosionBig",
+      "parry",
+      "rollWhoosh",
+      "driftWhine",
+      "wingtrail",
+      "shieldRefill",
+      "hitTaken",
+      "warning",
+      "uiMove",
+      "uiConfirm",
+      "bossBeamCharge",
+      "laserTelegraph",
+      "pickup",
+      "stageClear",
+      "gameOver"
+    ]
+  },
+  "tokensUsed": [],
+  "notes": "20 recipes (ctx,out,t0,params)=>SfxVoice; seeded variation; all pass offline check. Pending owner review.",
+  "triangles": 0,
+  "drawCalls": 0,
+  "boundsMetres": [
+    0,
+    0,
+    0
+  ]
+}

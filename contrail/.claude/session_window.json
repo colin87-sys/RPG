@@ -1,0 +1,1 @@
+{"until": "2026-10-01T05:00:00Z", "note": "24h run window (GAME_FORGE B.10). Stop guard blocks stopping until then unless .claude/ALLOW_STOP exists; applies when Claude Code is started inside contrail/."}
