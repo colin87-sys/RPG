@@ -12,7 +12,7 @@ An original, fully procedural arcade rail shooter in the browser (Three.js + Vit
 | Three stages: **Cloudgate** (bright cloud corridor with a dark hull mass and gate arches), **Violet Tide** (dark sunset over a cloud sea), **Wreckfield** (debris field, banded planet) | implemented, agent-verified (goldpath clears all three) | `src/game/stages.ts`, `src/gen/world/` |
 | Hero craft **KESTREL** (original design, hull shader with seams, emissive inserts, original emblem), visored pilot (no faces) | implemented, agent-verified (boards), pending owner review | `src/gen/entities/kestrel.ts`, `pilot.ts` |
 | WARDEN enemies: caltrop drones, dart fighters, laser snipers, strider walkers, **BULWARK** capital boss (3 phases, weak points, beam walls, drone waves) | implemented, agent-verified | `src/gen/entities/enemies/`, `src/game/enemies.ts` |
-| Mechanics: cannon, lock-on missile barrage (up to 8 locks), barrel-roll parry (3 charges), drift (exhaust damage, slow-mo), wingtrail shock ring, boost, brake, combo shield refill | implemented, agent-verified (goldpath asserts each fires) | `src/game/player.ts`, `game.ts` |
+| Mechanics (simplified 2026-10-03): auto-fire cannon, lock-on missile barrage (up to 8 locks), barrel-roll parry (3 charges, refunds a missile), wingtrail shock ring, combo shield refill. Drift, boost and brake were removed on owner request | implemented, agent-verified (goldpath asserts each fires) | `src/game/player.ts`, `game.ts` |
 | Modes: campaign (stage 1 -> 2 -> 3), **Caravan** 120 s score attack, quick retry (0.8 s relaunch) | implemented, agent-verified | `src/game/game.ts` |
 | Perimeter HUD with open centre, original angular font, title/results/game-over/stage cards | implemented, agent-verified (text contrast 5.76:1 over bright cloud) | `src/gen/ui/` |
 | VFX: thick missile smoke ropes, layered explosions, 3-band chromatic shock rings, readable hostile rounds (white core, warm halo, dark ring), telegraphed lasers and boss beams, speed streaks, analogue post stack | implemented, agent-verified | `src/gen/vfx/` |
@@ -26,14 +26,14 @@ Owner: "the plane feels slow and unresponsive and doesn't feel like it moves all
 - **Graphics** (implemented, pending owner review): displaced 3D cloud sea with rounded cumulus lumps, self-shadow and sky bounce (was a flat noise plane); cauliflower cumulus towers filling Cloudgate and rim-lit towers on the Violet Tide horizon; smooth asteroids with procedural rock relief and a nebula fill light; wingtip vapour trails that brighten with manoeuvres; clear-coat reflections on the Kestrel; larger caltrop drones with brighter eyes; BULWARK vent volley as a chevron wave instead of a wall. Live play scales the 3D resolution down on slow GPUs. Details: `Docs/DECISIONS.md` 13:40Z onward.
 
 ## Mobile and web link (2026-09-30)
-- **Touch controls** (implemented, agent-verified in an emulated phone; feel pending owner review): left-thumb stick, auto-fire cannon, MSL hold/release, roll, boost, brake, drift and wingtrail buttons, pause, tap to start/continue. Best in landscape.
+- **Touch controls** (implemented, agent-verified in an emulated phone; feel pending owner review): left-thumb stick, auto-fire cannon, three buttons (MSL hold/release, ROLL toward the stick, WING), pause, tap to start/continue. Best in landscape.
 - **Play in a browser**: https://claude.ai/artifact/2FV292XrHEo7CC3hkM2syM (private: open it while signed in to claude.ai; share it from the page's Share menu). Rebuild with `npm run build && npm run webpage`, then republish dist-web/.
 
 ## How to run
 ```
 cd contrail
 npm install
-npm run dev            # play at http://127.0.0.1:5173  (Enter to start; WASD/mouse steer, J/LMB cannon, K/RMB lock-on, Q/E roll, L drift, Space wingtrail, Shift boost, C brake, Esc pause)
+npm run dev            # play at http://127.0.0.1:5173  (Enter to start; WASD/arrows/mouse steer, guns auto-fire, K/J/left mouse hold for missiles, Space/right mouse roll (Q/R left/right), E/Shift wing, Esc pause; gamepad: LT/RT missiles, A/LB/RB roll, Y wing)
 npm run build && npm run preview   # static build in dist/, runs from any static server
 npm run acceptance     # all P0 checks
 ```

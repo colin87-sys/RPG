@@ -105,7 +105,7 @@ app.start({
     postStack.render(view.scene, view.camera, {
       time: renderTime,
       chroma: postTok.chroma.base + (postTok.chroma.ring - postTok.chroma.base) * ring + (postTok.chroma.hit - postTok.chroma.base) * view.chromaPulse,
-      speed01: game.state === 'play' ? (p.boost > 0 ? 1 : p.braking ? 0.2 : 0.62) : 0.25,
+      speed01: game.state === 'play' ? 0.62 : 0.25,
       vanish: view.vanishing(vanish),
       flash: view.flash,
       danger01: Math.max(0, Math.min(1, (40 - p.shield) / 40)),

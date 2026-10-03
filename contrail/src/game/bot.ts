@@ -13,23 +13,12 @@ const BEAM_REACT_SPREAD = 0.3;
 
 export class Bot {
   private lockHold = 0;
-  private driftHold = 0;
   private lastRoll = -10;
-  /** stage time of the last drift start (the bot drifts sparingly so drift does not swallow parry chances) */
-  private lastDrift = -100;
   /** a human-like bot: misses some parry timings (seeded, deterministic) */
   private rng = new Rng(97);
   private skipUntil = -1;
 
   constructor(private g: Game) {}
-
-  /** hostile rounds heading for the craft (within `ahead` m, `lateral` m sideways) */
-  private threats(ahead = 40, lateral = 8): number {
-    const p = this.g.player;
-    let n = 0;
-    for (const b of this.g.bullets) if (b.alive && !b.friendly && b.u > 0 && b.u < ahead && Math.hypot(b.x - p.x, b.y - p.y) < lateral) n++;
-    return n;
-  }
 
   frame = (): Partial<InputFrame> => {
     const g = this.g;
@@ -69,8 +58,6 @@ export class Bot {
       const ax = p.x + (aimX - p.x) * k, ay = p.y + (aimY - p.y) * k;
       f.moveX = Math.max(-1, Math.min(1, (ax - p.rx) * 0.4));
       f.moveY = Math.max(-1, Math.min(1, (ay - p.ry) * 0.4));
-      const tol = boss && aimU > 120 ? 2 : 1; // the boss is a big target: keep firing while repositioning
-      f.fire = Math.abs(ax - p.rx) < 5 * tol && Math.abs(ay - p.ry) < 4 * tol;
     } else {
       f.moveX = Math.max(-1, Math.min(1, -p.rx * 0.1));
       f.moveY = Math.max(-1, Math.min(1, -p.ry * 0.1));
@@ -90,7 +77,7 @@ export class Bot {
       const px = b.x + b.vx * tHit, py = b.y + b.vy * tHit;
       if (Math.hypot(px - p.x, py - p.y) < 2.6 && p.rollCharges > 0 && now - this.lastRoll > 0.5 && now > this.skipUntil) {
         if (this.rng.chance(0.4)) { this.skipUntil = now + 0.3; break; } // reaction missed
-        f.rollRight = true;
+        f.roll = true; f.rollDir = 1;
         this.lastRoll = now;
         break;
       }
@@ -111,19 +98,9 @@ export class Bot {
       f.moveY = Math.max(-1, Math.min(1, (ryT - p.ry) * 0.5));
       // still inside a beam that is about to fire / firing: roll through it (parry) if possible
       if (this.beamImminent && p.rollCharges > 0 && now - this.lastRoll > 0.5 && p.rolling <= 0) {
-        f.rollLeft = true;
+        f.roll = true; f.rollDir = -1;
         this.lastRoll = now;
       }
-    }
-    // drift when enemies are close
-    if (p.drift > 0) { if (this.driftHold === 0) this.lastDrift = now; f.drift = this.driftHold++ < 60; }
-    else {
-      // drift starts on a press edge and not mid-roll/spin: tap (2 on / 2 off) while it is wanted
-      this.driftHold = 0;
-      // only in a calm moment (no rounds inbound) so drift never swallows a volley the bot could parry
-      const ahead = g.enemies.some((e) => e.alive && e.u > 10 && e.u < 120);
-      const want = ahead && now - this.lastDrift > 25 && this.threats(60, 14) === 0 && p.driftCharge >= 1 && p.rolling <= 0 && p.wingtrail <= 0;
-      f.drift = want && g.frameCounter % 4 < 2;
     }
     // wingtrail when charged and there is a crowd or a big enemy
     f.wingtrail = p.wingCharge >= 1 && (near >= 2 || this.g.enemies.filter((e) => e.alive && e.u > 0 && e.u < 160).length >= 4 || (tgt?.big ?? false));

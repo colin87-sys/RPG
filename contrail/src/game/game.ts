@@ -14,7 +14,7 @@ import {
   makeBullet, makeEnemy, makeLaser, makeMissile, makePickup, makeShot, segDistSq,
   type Bullet, type Enemy, type Laser, type Missile, type Pickup, type Shot,
 } from './sim';
-import { approach, damageMul, makePlayer, parryOpen, speedMul, updatePlayer, type PlayerState } from './player';
+import { approach, makePlayer, parryOpen, updatePlayer, type PlayerState } from './player';
 import type { GameStateName, GameStateSnapshot } from '../debug/api';
 import * as THREE from 'three';
 
@@ -242,7 +242,7 @@ export class Game implements Combat {
     e.u = spec.u; e.x = spec.x; e.y = spec.y;
     e.vu = e.vx = e.vy = 0;
     e.yaw = 0; e.roll = 0; e.age = 0; e.flash = 0; e.locks = 0;
-    e.justDied = false; e.lastHitBy = ''; e.driftCd = 0; e.ringHit = -1; e.escaped = false;
+    e.justDied = false; e.lastHitBy = ''; e.ringHit = -1; e.escaped = false;
     const b = e.b;
     b.pattern = spec.pattern;
     b.index = spec.index ?? 0;
@@ -376,7 +376,7 @@ export class Game implements Combat {
 
   private edges() {
     const i = this.input;
-    return { rollL: i.pressed('rollLeft'), rollR: i.pressed('rollRight'), drift: i.pressed('drift'), wing: i.pressed('wingtrail'), boost: i.pressed('boost') };
+    return { roll: i.pressed('roll'), wing: i.pressed('wingtrail') };
   }
 
   private updatePlay(dt: number, inp: InputFrame): void {
@@ -386,7 +386,7 @@ export class Game implements Combat {
       this.hitStop -= dt;
       return;
     }
-    this.worldScale = p.drift > 0 ? T.drift.timeScale : p.wingtrail > 0 ? T.wingtrail.timeScale : 1;
+    this.worldScale = p.wingtrail > 0 ? T.wingtrail.timeScale : 1;
     const wdt = dt * this.worldScale;
     this.stageTime += wdt;
     this.playT += dt;
@@ -398,9 +398,6 @@ export class Game implements Combat {
     this.playerVX = p.vx;
     this.playerVY = p.vy;
     if (pev.rollStarted) this.events.emit('roll', { dir: p.rollDir, parried: false });
-    if (pev.driftStarted) { this.events.emit('drift', { active: true }); this.stat('driftStarted'); }
-    if (pev.driftEnded) this.events.emit('drift', { active: false });
-    if (pev.boostStarted) this.events.emit('boost', { active: true });
     if (pev.wingtrailStarted) {
       this.ring = { active: true, radius: 0, age: 0, id: this.ring.id + 1 };
       this.events.emit('wingtrail', { pos: scratchV.set(p.x, p.y, 0) });
@@ -408,8 +405,8 @@ export class Game implements Combat {
     }
 
     // --- rail advance ---
-    this.s += T.rail.speed * speedMul(p) * wdt;
-    this.cam.fovKick += ((p.boost > 0 ? T.camera.fovKickBoost : 0) - this.cam.fovKick) * approach(0.2, dt);
+    this.s += T.rail.speed * wdt;
+    this.cam.fovKick += (0 - this.cam.fovKick) * approach(0.2, dt);
 
     // --- stage script ---
     if (this.mode === 'caravan') {
@@ -433,7 +430,6 @@ export class Game implements Combat {
     this.updateEnemies(wdt);
     this.updateBullets(wdt);
     this.updateLasers(wdt, dt);
-    this.updateDrift(dt);
     this.updateRing(dt);
     this.updatePickups(wdt);
     this.updateCombo(wdt, dt);
@@ -488,7 +484,9 @@ export class Game implements Combat {
   private updateCannon(dt: number, inp: InputFrame): void {
     const p = this.player;
     p.fireCd -= dt;
-    if (!inp.fire || p.drift > 0 || p.wingtrail > 0) return;
+    // auto-fire (owner request: one less button); paused only during the wing spin
+    if (p.wingtrail > 0) return;
+    void inp;
     while (p.fireCd <= 0) {
       p.fireCd += 1 / T.cannon.rate;
       const s = this.shots.find((q) => !q.alive);
@@ -513,7 +511,7 @@ export class Game implements Combat {
 
   private updateLocks(dt: number, inp: InputFrame): void {
     const p = this.player;
-    if (inp.lock && p.drift <= 0 && p.wingtrail <= 0) {
+    if (inp.lock && p.wingtrail <= 0) {
       p.lockHeld = true;
       p.lockTimer += dt;
       while (p.lockTimer >= T.missiles.lockInterval) {
@@ -673,13 +671,12 @@ export class Game implements Combat {
         e.alive = false;
         continue;
       }
-      if (e.driftCd > 0) e.driftCd -= wdt;
       // contact with the player
       const r = e.radius * 0.8 + PLAYER_RADIUS;
       if (e.u > -3 && e.u < 3 + e.radius) {
         const d2 = e.u * e.u + (e.x - p.x) ** 2 + (e.y - p.y) ** 2;
         if (d2 < r * r && !(e.b.pattern === 'chain' && e.age < e.b.delay)) {
-          if (p.drift > 0 || p.wingtrail > 0) continue; // specials are invulnerable passes
+          if (p.wingtrail > 0) continue; // the wing spin is an invulnerable pass
           this.hurtPlayer(ENEMY_DEFS[e.kind].contactDamage, 'collision', null);
           if (!e.big) this.damageEnemy(e, 99, 'collision');
         }
@@ -712,10 +709,7 @@ export class Game implements Combat {
         if (d2 <= r * r) {
           if (parryOpen(p)) {
             this.parry(b);
-          } else if (p.boost > 0) {
-            b.alive = false; // boost deflects
-            this.stat('deflect');
-          } else if (p.drift > 0 || p.wingtrail > 0) {
+          } else if (p.wingtrail > 0) {
             b.alive = false;
           } else {
             b.alive = false;
@@ -787,7 +781,7 @@ export class Game implements Combat {
         const d2 = segDistSq(0, p.x, p.y, l.u0, l.x0, l.y0, l.du, l.dx, l.dy, l.length);
         if (d2 <= r * r) {
           if (parryOpen(p) || p.rollParried && p.rolling > 0) this.parry(null);
-          else if (p.drift > 0 || p.wingtrail > 0) { /* invulnerable pass */ }
+          else if (p.wingtrail > 0) { /* invulnerable pass */ }
           else this.hurtPlayer(l.damagePerS * Math.max(dt, 1 / 60) * 6, 'laser', null, true);
         }
         if (l.t >= l.fireS) { l.state = 'off'; l.t = 0; }
@@ -795,29 +789,6 @@ export class Game implements Combat {
         if (l.t > 0.25) l.alive = false;
       }
     }
-  }
-
-  private updateDrift(dt: number): void {
-    const p = this.player;
-    if (p.drift <= 0) return;
-    // exhaust capsule: from the craft along the exhaust direction (yaw swings it sideways/forward)
-    const yaw = p.yaw;
-    const eu = Math.cos(yaw + Math.PI) * -1; // exhaust points backward (u<0) at yaw 0, forward at yaw pi
-    const ex = Math.sin(yaw) * -1;
-    const du = -Math.cos(yaw), dx = -Math.sin(yaw) * 1;
-    void eu; void ex;
-    const len = T.drift.capsuleLength + 8; // [A] tuned: reach enemies slowed near the craft
-    const rad = T.drift.capsuleRadius;
-    for (const e of this.enemies) {
-      if (!e.alive || e.driftCd > 0) continue;
-      const d2 = segDistSq(e.u, e.x, e.y, 0, p.x, p.y, du, dx, 0, len);
-      const r = rad + e.radius;
-      if (d2 <= r * r) {
-        e.driftCd = 1 / T.drift.tickRate;
-        this.damageEnemy(e, T.drift.tickDamage, 'drift');
-      }
-    }
-    void dt;
   }
 
   private updateRing(dt: number): void {
@@ -854,8 +825,9 @@ export class Game implements Combat {
       q.age += wdt;
       q.u += q.vu * wdt;
       const d = Math.hypot(q.u, q.x - p.x, q.y - p.y);
-      if (p.braking && d < T.brake.magnetRadius) {
-        const k = Math.min(1, wdt * 4);
+      // pickups drift into the craft once close (replaces the removed brake magnet)
+      if (d < T.pickups.magnetRadius) {
+        const k = Math.min(1, wdt * 3);
         q.u += (0 - q.u) * k; q.x += (p.x - q.x) * k; q.y += (p.y - q.y) * k;
       }
       if (d < 3.2) {
@@ -960,7 +932,7 @@ export class Game implements Combat {
     if (this.invulnerable) return;
     if (p.invuln > 0 && !continuous) return;
     if (continuous && p.invuln > 0 && p.invuln < T.shield.invuln - 0.25) return;
-    const d = dmg * damageMul(p);
+    const d = dmg;
     p.shield -= d;
     p.damageTaken += d;
     if (!continuous || p.invuln <= 0) p.invuln = T.shield.invuln;
@@ -1050,7 +1022,7 @@ export class Game implements Combat {
       locks: p.lockTargets.length,
       player: {
         x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, bank: Math.round(p.bank * 1000) / 1000,
-        rolling: p.rolling > 0, drifting: p.drift > 0, wingtrail: p.wingtrail > 0, boosting: p.boost > 0, braking: p.braking,
+        rolling: p.rolling > 0, wingtrail: p.wingtrail > 0,
         invulnerable: this.invulnerable,
       },
       boss: this.bossSnapshot(),

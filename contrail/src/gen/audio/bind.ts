@@ -4,7 +4,7 @@
  * (no allocations) and setDanger(1 - shield/100) when the shield changes.
  */
 import type { EventBus } from '../../core/events';
-import type { AudioEngine, SfxHandle } from './engine';
+import type { AudioEngine } from './engine';
 import { clamp } from './dsp';
 import { MUSIC_STAGES, type MusicStage } from './music';
 import { lockPitch } from './sfx';
@@ -30,7 +30,6 @@ export interface BindOptions {
 export function bindGameAudio(engine: AudioEngine, bus: EventBus, opts: BindOptions = {}): GameAudioBinding {
   const pan = opts.panOf ?? (() => 0);
   let chain = 0, danger = 0, hitHeat = 0, boss = false, intensity = 0.3, lastSent = -1;
-  let drift: SfxHandle | null = null;
   const offs = [
     bus.on('cannonFire', (e) => engine.play('cannon', { pan: pan(e.pos) * 0.5, gain: 1 })),
     bus.on('lockAdded', (e) => engine.play('lockTone', { pitch: lockPitch(e.count - 1) })),
@@ -43,14 +42,6 @@ export function bindGameAudio(engine: AudioEngine, bus: EventBus, opts: BindOpti
     }),
     bus.on('parry', (e) => engine.play('parry', { pan: pan(e.pos) * 0.5 })),
     bus.on('roll', (e) => engine.play('rollWhoosh', { pan: e.dir * 0.4 })),
-    bus.on('boost', (e) => e.active && engine.play('rollWhoosh', { pitch: 0.75, gain: 0.8 })),
-    bus.on('drift', (e) => {
-      if (e.active && !drift) drift = engine.hold('driftWhine');
-      else if (!e.active && drift) {
-        drift.release();
-        drift = null;
-      }
-    }),
     bus.on('wingtrail', () => engine.play('wingtrail')),
     bus.on('shieldRefill', () => engine.play('shieldRefill')),
     bus.on('comboChanged', (e) => {
@@ -78,8 +69,6 @@ export function bindGameAudio(engine: AudioEngine, bus: EventBus, opts: BindOpti
     }),
     bus.on('playerDown', () => {
       engine.music.stop(0.3);
-      drift?.release();
-      drift = null;
       engine.play('gameOver');
     }),
   ];
@@ -101,7 +90,6 @@ export function bindGameAudio(engine: AudioEngine, bus: EventBus, opts: BindOpti
     },
     dispose() {
       for (const off of offs) off();
-      drift?.release();
     },
   };
 }

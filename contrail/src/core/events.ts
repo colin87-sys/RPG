@@ -14,10 +14,7 @@ export interface GameEvents {
   playerHit: { damage: number; source: string; pos: THREE.Vector3 };
   parry: { pos: THREE.Vector3 };
   roll: { dir: -1 | 1; parried: boolean };
-  drift: { active: boolean };
   wingtrail: { pos: THREE.Vector3 };
-  boost: { active: boolean };
-  brake: { active: boolean };
   comboChanged: { chain: number; refill: boolean };
   shieldRefill: { amount: number };
   laserTelegraph: { id: number };
@@ -33,7 +30,7 @@ export interface GameEvents {
   stateChanged: { from: string; to: string };
 }
 
-export type WeaponKind = 'cannon' | 'missile' | 'drift' | 'wingtrail' | 'parry' | 'collision';
+export type WeaponKind = 'cannon' | 'missile' | 'wingtrail' | 'parry' | 'collision';
 
 type Handler<T> = (payload: T) => void;
 

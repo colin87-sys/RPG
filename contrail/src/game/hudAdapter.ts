@@ -27,12 +27,9 @@ export class HudAdapter {
     s.missiles = p.missiles;
     s.missilesMax = T.missiles.ammo;
     s.locks = p.lockTargets.length;
-    s.specials[0].name = 'DRIFT';
-    s.specials[0].ready = p.driftCharge >= 1;
-    s.specials[0].charge = p.driftCharge;
-    s.specials[1].name = 'WING';
-    s.specials[1].ready = p.wingCharge >= 1;
-    s.specials[1].charge = p.wingCharge;
+    s.specials[0].name = 'WING';
+    s.specials[0].ready = p.wingCharge >= 1;
+    s.specials[0].charge = p.wingCharge;
     s.rolls = p.rollCharges;
     s.rollsMax = T.roll.charges;
     s.rollRecharge = p.rollCharges < T.roll.charges ? 1 - p.rollRecharge / T.roll.rechargeEach : 0;
@@ -71,7 +68,7 @@ export class HudAdapter {
     else { this.hazardT = 0; s.hazard.on = false; }
     s.danger = Math.max(0, Math.min(1, (40 - p.shield) / 40));
     s.combatText = g.combatText.map((c) => ({ text: c.text, kind: c.kind, age: c.age })) as HudState['combatText'];
-    s.speed = p.boost > 0 ? 0.95 : p.braking ? 0.2 : 0.55;
+    s.speed = 0.55;
     s.prompts = g.prompts.filter((pr) => pr.age < 4).map((pr) => ({ text: this.touchText ? touchPrompt(pr.text) : pr.text }));
     s.skyLuma = g.stage.id === 'wreckfield' ? 0 : g.stage.id === 'violetTide' ? 0.3 : 1;
     s.paused = g.paused;

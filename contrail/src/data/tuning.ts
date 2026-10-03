@@ -15,12 +15,9 @@ export const T = {
     lookAhead: 42, // m ahead the camera looks at
     shakeMax: 0.15, // m [A]
     shakeDecay: 0.35, // s [A]
-    fovKickBoost: 8, // deg added while boosting
   },
   rail: {
     speed: 45, // m/s baseline [A]
-    boostMul: 1.6,
-    brakeMul: 0.5,
     stageLength: 8100, // m (~180 s at baseline) [A]
   },
   move: {
@@ -60,8 +57,8 @@ export const T = {
     launchStagger: 0.06, // s between missiles in a salvo
     maxFlight: 4.5, // s before self-destruct
   },
-  boost: { duration: 0.7, exposed: 0.5, exposedDamageMul: 1.25, cooldown: 5, deflectCone: 0.6 },
-  brake: { magnetRadius: 35, damageMul: 1.3 },
+  /** pickups drift into the craft inside this radius (m); replaced the removed brake magnet */
+  pickups: { magnetRadius: 12 },
   roll: {
     duration: 0.45, // s [R/A]
     parryWindow: 0.2, // s from roll start [A]
@@ -72,16 +69,6 @@ export const T = {
     parryScore: 50,
     parryMissiles: 1, // missiles refunded per successful parry (owner request)
     lateralBurst: 14, // m/s sideways impulse during a roll
-  },
-  drift: {
-    maxDuration: 1.4, // s [A]
-    timeScale: 0.35, // world time scale while drifting [A]
-    steering: 0.35, // steering authority [A]
-    capsuleRadius: 3, // m exhaust hitbox [R/A]
-    capsuleLength: 14, // m
-    tickDamage: 4, // per tick [A]
-    tickRate: 15, // Hz
-    recharge: 9, // s [A]
   },
   wingtrail: {
     spin: 0.9, // s full 360 [R/A]

@@ -106,7 +106,6 @@ export function createHudState(): HudState {
     missilesMax: 6,
     locks: 0,
     specials: [
-      { name: 'DRIFT', ready: true, charge: 1 },
       { name: 'WING', ready: false, charge: 0 },
     ],
     rolls: 3,

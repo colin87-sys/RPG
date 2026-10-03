@@ -2,10 +2,10 @@
  * Touch controls (phones / tablets). Activated by the first touch; hidden for
  * mouse/keyboard play. DOM overlay above the canvases:
  *   left half  - floating thumb stick (appears where the thumb lands)
- *   right side - MSL (hold, sweep, release), ROLL < >, BOOST, BRAKE, DRIFT, WING
+ *   right side - MSL (hold, sweep, release), ROLL (toward the stick), WING
  *   top right  - pause
  *   elsewhere  - a tap is "confirm" (title, stage card, results, game over)
- * The cannon auto-fires in touch mode. Input.poll() merges touch() into the frame.
+ * The cannon auto-fires (all input modes). Input.poll() merges touch() into the frame.
  */
 import { palette } from '../style/tokens';
 
@@ -13,18 +13,14 @@ export interface TouchState {
   moveX: number;
   moveY: number;
   lock: boolean;
-  rollLeft: boolean;
-  rollRight: boolean;
-  boost: boolean;
-  brake: boolean;
-  drift: boolean;
+  roll: boolean;
   wingtrail: boolean;
   /** one-poll pulses */
   confirm: boolean;
   pause: boolean;
 }
 
-type ButtonKey = 'lock' | 'rollLeft' | 'rollRight' | 'boost' | 'brake' | 'drift' | 'wingtrail';
+type ButtonKey = 'lock' | 'roll' | 'wingtrail';
 
 const STICK_RADIUS_VMIN = 11;
 
@@ -130,12 +126,8 @@ export class TouchControls {
       root.append(el);
     };
     btn('lock', 'MSL', 4, 0, 20, true);
-    btn('rollLeft', 'ROLL<', 27, 0, 12);
-    btn('rollRight', 'ROLL>', 4, 22, 12);
-    btn('boost', 'BST', 25, 14, 10);
-    btn('drift', 'DRIFT', 41, 0, 10);
-    btn('wingtrail', 'WING', 18, 29, 10);
-    btn('brake', 'BRK', 38, 13, 9);
+    btn('roll', 'ROLL', 27, 0, 14);
+    btn('wingtrail', 'WING', 7, 23, 12);
 
     // pause
     const pause = document.createElement('div');
@@ -231,8 +223,7 @@ export class TouchControls {
     const held = (k: ButtonKey) => (this.buttons.get(k)?.pointers.size ?? 0) > 0;
     const s: TouchState = {
       moveX: this.stick.x, moveY: this.stick.y,
-      lock: held('lock'), rollLeft: held('rollLeft'), rollRight: held('rollRight'),
-      boost: held('boost'), brake: held('brake'), drift: held('drift'), wingtrail: held('wingtrail'),
+      lock: held('lock'), roll: held('roll'), wingtrail: held('wingtrail'),
       confirm: this.confirmPulse, pause: this.pausePulse,
     };
     this.confirmPulse = false;
@@ -245,10 +236,7 @@ export class TouchControls {
 export function touchPrompt(text: string): string {
   return text
     .replace('STEER: WASD / MOUSE', 'STEER: LEFT THUMB')
-    .replace('CANNON: HOLD J / LEFT MOUSE', 'CANNON: AUTO-FIRE')
-    .replace('HOLD K / RIGHT MOUSE', 'HOLD MSL')
-    .replace('ROLL Q / E', 'TAP ROLL')
-    .replace('DRIFT: L   WINGTRAIL: SPACE', 'DRIFT + WING: BUTTONS')
-    .replace(/\bSPACE\b/, 'WING')
-    .replace(/\bSHIFT\b/, 'BST');
+    .replace('HOLD K / LEFT MOUSE', 'HOLD MSL')
+    .replace('ROLL (SPACE)', 'TAP ROLL')
+    .replace('WING (E)', 'WING');
 }

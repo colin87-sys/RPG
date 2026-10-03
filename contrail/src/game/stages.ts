@@ -1,6 +1,6 @@
 /**
  * Stage scripts. Events are keyed to NOMINAL time (rail distance / base speed),
- * so boosting brings the next wave sooner and braking later; the level is a place.
+ * so the level is a place, not a timeline.
  * Cloudgate follows the DESIGN.md pacing template (~180 s). Violet Tide (~180 s)
  * leans on dart squadrons and sniper crossfire; Wreckfield (~200 s) on caltrop
  * nets and weaving chains, ending in BULWARK. Caravan re-times Cloudgate's waves.
@@ -74,14 +74,14 @@ export const CLOUDGATE: StageDef = {
   ],
   events: [
     { at: 0.5, prompt: 'STEER: WASD / MOUSE' },
-    { at: 2.5, spawn: chainSpecs(8, sweepRL(4), 5.0), prompt: 'CANNON: HOLD J / LEFT MOUSE' },
-    { at: 8, spawn: chainSpecs(8, sweepLR(2), 5.0), prompt: 'MISSILES: HOLD K / RIGHT MOUSE, SWEEP, RELEASE' },
+    { at: 2.5, spawn: chainSpecs(8, sweepRL(4), 5.0), prompt: 'GUNS FIRE AUTOMATICALLY' },
+    { at: 8, spawn: chainSpecs(8, sweepLR(2), 5.0), prompt: 'MISSILES: HOLD K / LEFT MOUSE, SWEEP, RELEASE' },
     { at: 13, spawn: chainSpecs(10, diveTop(-4), 4.8) },
-    { at: 16, spawn: dartPair(90, 10, 3), prompt: 'PARRY: ROLL Q / E AS FIRE ARRIVES' },
+    { at: 16, spawn: dartPair(90, 10, 3), prompt: 'PARRY: ROLL (SPACE) AS FIRE ARRIVES' },
     { at: 22, spawn: dartPair(80, 14, -2) },
     { at: 26, spawn: [sniper(150, 18, 7)], prompt: 'RED LINE = LASER. MOVE OR ROLL' },
     { at: 30, spawn: [...chainSpecs(12, sCurve(), 6.0), ...dartPair(95, 8, 5)] },
-    { at: 34, prompt: 'DRIFT: L   WINGTRAIL: SPACE' },
+    { at: 34, prompt: 'WING (E): SHOCKWAVE WHEN CHARGED' },
     { at: 36, spawn: [...dartPair(85, 12, 0), ...dartPair(110, 4, 8)] },
     { at: 42, spawn: [sniper(160, -20, 6), sniper(150, 20, -4), ...chainSpecs(10, riseLow(4), 5.0)] },
     { at: 48, spawn: chainSpecs(12, sweepRL(-2), 5.2) },

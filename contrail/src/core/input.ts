@@ -10,13 +10,12 @@ export interface InputFrame {
   moveY: number;
   /** absolute reticle target in NDC (-1..1) from the mouse; null when the mouse is idle */
   aim: { x: number; y: number } | null;
-  fire: boolean;
+  /** missiles: hold to lock, release to launch (the cannon auto-fires) */
   lock: boolean;
-  boost: boolean;
-  brake: boolean;
-  rollLeft: boolean;
-  rollRight: boolean;
-  drift: boolean;
+  /** roll / parry; direction from rollDir, else the stick */
+  roll: boolean;
+  /** -1 / +1 when a directional roll key was used (Q / E style), 0 = follow the stick */
+  rollDir: -1 | 0 | 1;
   wingtrail: boolean;
   pause: boolean;
   confirm: boolean;
@@ -26,8 +25,7 @@ export interface InputFrame {
 export function emptyFrame(): InputFrame {
   return {
     moveX: 0, moveY: 0, aim: null,
-    fire: false, lock: false, boost: false, brake: false,
-    rollLeft: false, rollRight: false, drift: false, wingtrail: false,
+    lock: false, roll: false, rollDir: 0, wingtrail: false,
     pause: false, confirm: false, back: false,
   };
 }
@@ -104,14 +102,12 @@ export class Input {
     // keyboard
     let mx = (k('KeyD') || k('ArrowRight') ? 1 : 0) - (k('KeyA') || k('ArrowLeft') ? 1 : 0);
     let my = (k('KeyW') || k('ArrowUp') ? 1 : 0) - (k('KeyS') || k('ArrowDown') ? 1 : 0);
-    f.fire = k('KeyJ') || this.mouseButtons.has(0);
-    f.lock = k('KeyK') || this.mouseButtons.has(2);
-    f.rollLeft = k('KeyQ');
-    f.rollRight = k('KeyE');
-    f.drift = k('KeyL');
-    f.wingtrail = k('Space');
-    f.boost = k('ShiftLeft') || k('ShiftRight');
-    f.brake = k('KeyC');
+    // MSL: K / J / left mouse (hold, sweep, release). ROLL: Space / right mouse (Q = left, R = right).
+    // WING: E / Shift.
+    f.lock = k('KeyK') || k('KeyJ') || this.mouseButtons.has(0);
+    f.roll = k('Space') || this.mouseButtons.has(2) || k('KeyQ') || k('KeyR');
+    f.rollDir = k('KeyQ') ? -1 : k('KeyR') ? 1 : 0;
+    f.wingtrail = k('KeyE') || k('ShiftLeft') || k('ShiftRight');
     f.pause = k('Escape') || k('KeyP');
     f.confirm = k('Enter') || k('Space') || k('KeyJ');
     f.back = k('Escape') || k('Backspace');
@@ -129,14 +125,11 @@ export class Input {
       if (sx !== 0 || sy !== 0 || p.buttons.some((x) => x.pressed)) this.usingGamepad = true;
       if (Math.abs(sx) > Math.abs(mx)) mx = sx;
       if (Math.abs(sy) > Math.abs(my)) my = sy;
-      f.fire ||= b(7); // RT
-      f.lock ||= b(6); // LT
-      f.rollLeft ||= b(4); // LB
-      f.rollRight ||= b(5); // RB
-      f.drift ||= b(2); // X
+      f.lock ||= b(6) || b(7); // LT / RT
+      f.roll ||= b(0) || b(4) || b(5) || b(2); // A / LB / RB / X
+      if (b(4)) f.rollDir = -1;
+      else if (b(5)) f.rollDir = 1;
       f.wingtrail ||= b(3); // Y
-      f.boost ||= b(0); // A
-      f.brake ||= b(1); // B
       f.pause ||= b(9); // Start
       f.confirm ||= b(0);
       f.back ||= b(1);
@@ -145,18 +138,13 @@ export class Input {
       if (b(14)) mx = -1;
       if (b(15)) mx = 1;
     }
-    // touch: stick + buttons; the cannon auto-fires
+    // touch: stick + MSL / ROLL / WING buttons
     if (this.touch?.active) {
       const t = this.touch.read();
       if (Math.abs(t.moveX) > Math.abs(mx)) mx = t.moveX;
       if (Math.abs(t.moveY) > Math.abs(my)) my = t.moveY;
-      f.fire = true;
       f.lock ||= t.lock;
-      f.rollLeft ||= t.rollLeft;
-      f.rollRight ||= t.rollRight;
-      f.boost ||= t.boost;
-      f.brake ||= t.brake;
-      f.drift ||= t.drift;
+      f.roll ||= t.roll;
       f.wingtrail ||= t.wingtrail;
       f.confirm ||= t.confirm;
       f.pause ||= t.pause;

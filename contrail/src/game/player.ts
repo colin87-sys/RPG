@@ -1,6 +1,8 @@
 /**
  * Player controller in rail space: reticle, craft offset with lag, bank/pitch,
- * and the special-move state machines (roll/parry, drift, wingtrail, boost, brake).
+ * and the special-move state machines (roll/parry, wingtrail).
+ * Controls were simplified on owner request: drift, boost and brake were removed; the
+ * cannon auto-fires; one ROLL input (direction from the stick).
  * Numbers: src/data/tuning.ts (DESIGN.md).
  */
 import { T } from '../data/tuning';
@@ -17,7 +19,7 @@ export interface PlayerState {
   vy: number;
   bank: number; // rad, + = right wing down
   pitch: number;
-  yaw: number; // drift yaw (rad)
+  yaw: number; // facing yaw (rad), eases back to 0
   spin: number; // wingtrail/roll spin angle (rad) added to bank
   shield: number;
   invuln: number; // s remaining
@@ -30,20 +32,10 @@ export interface PlayerState {
   rollAge: number; // s since roll start
   rollParried: boolean;
   rollRecovery: number; // s of lockout after a whiffed roll
-  // drift
-  drift: number; // s remaining (0 = inactive)
-  driftDir: -1 | 1; // side the craft swings to (fixed at drift start)
-  driftCharge: number; // 0..1
-  driftHeld: boolean;
   // wingtrail
   wingtrail: number; // s remaining of the spin
   wingCharge: number; // 0..1
   wingKills: number;
-  // boost / brake
-  boost: number; // s remaining of boost
-  boostExposed: number; // s remaining exposed window
-  boostCd: number;
-  braking: boolean;
   // cannon / missiles
   fireCd: number;
   missiles: number;
@@ -61,9 +53,7 @@ export function makePlayer(): PlayerState {
     rx: 0, ry: 0, x: 0, y: 0, vx: 0, vy: 0, bank: 0, pitch: 0, yaw: 0, spin: 0,
     shield: T.shield.max, invuln: 0, alive: true,
     rollCharges: T.roll.charges, rollRecharge: 0, rolling: 0, rollDir: 1, rollAge: 0, rollParried: false, rollRecovery: 0,
-    drift: 0, driftDir: 1, driftCharge: 1, driftHeld: false,
     wingtrail: 0, wingCharge: 0, wingKills: 0,
-    boost: 0, boostExposed: 0, boostCd: 0, braking: false,
     fireCd: 0, missiles: T.missiles.ammo, missileRegen: 0, lockHeld: false, lockTimer: 0, lockTargets: [],
     hitFlash: 0, damageTaken: 0,
   };
@@ -78,10 +68,7 @@ export function approach(tau: number, dt: number): number {
 
 export interface PlayerEvents {
   rollStarted: boolean;
-  driftStarted: boolean;
-  driftEnded: boolean;
   wingtrailStarted: boolean;
-  boostStarted: boolean;
 }
 
 /**
@@ -91,13 +78,12 @@ export interface PlayerEvents {
 export function updatePlayer(
   p: PlayerState,
   inp: InputFrame,
-  edges: { rollL: boolean; rollR: boolean; drift: boolean; wing: boolean; boost: boolean },
+  edges: { roll: boolean; wing: boolean },
   dt: number,
   aimToRail: ((ndcX: number, ndcY: number) => { x: number; y: number }) | null,
 ): PlayerEvents {
-  const ev: PlayerEvents = { rollStarted: false, driftStarted: false, driftEnded: false, wingtrailStarted: false, boostStarted: false };
+  const ev: PlayerEvents = { rollStarted: false, wingtrailStarted: false };
   const M = T.move;
-  const steer = p.drift > 0 ? T.drift.steering : 1;
 
   // --- direct craft control (owner feedback: old reticle-first steering felt slow) ---
   // Stick/keys set a target velocity; the craft reaches it in ~accelTime. The mouse sets a
@@ -114,8 +100,8 @@ export function updatePlayer(
     dvy = inp.moveY * M.maxLateralSpeed * M.verticalSpeedMul;
   }
   const accel = approach(M.accelTime, dt);
-  p.vx += (dvx * steer - p.vx) * accel;
-  p.vy += (dvy * steer - p.vy) * accel;
+  p.vx += (dvx - p.vx) * accel;
+  p.vy += (dvy - p.vy) * accel;
   // roll adds a sideways burst
   const burst = p.rolling > 0 ? p.rollDir * T.roll.lateralBurst * Math.sin((p.rollAge / T.roll.duration) * Math.PI) : 0;
   p.x += (p.vx + burst) * dt;
@@ -159,38 +145,18 @@ export function updatePlayer(
       p.spin = 0;
       if (!p.rollParried) p.rollRecovery = T.roll.missRecovery;
     }
-  } else if ((edges.rollL || edges.rollR) && p.rollCharges > 0 && p.rollRecovery <= 0 && p.drift <= 0 && p.wingtrail <= 0) {
+  } else if (edges.roll && p.rollCharges > 0 && p.rollRecovery <= 0 && p.wingtrail <= 0) {
     p.rolling = T.roll.duration;
     p.rollAge = 0;
-    p.rollDir = edges.rollL ? -1 : 1;
+    // one ROLL input: toward the held stick, else the way the craft is drifting, else right
+    p.rollDir = inp.rollDir !== 0 ? inp.rollDir : inp.moveX < -0.2 ? -1 : inp.moveX > 0.2 ? 1 : p.vx < -2 ? -1 : 1;
     p.rollParried = false;
     if (p.rollCharges === T.roll.charges) p.rollRecharge = T.roll.rechargeEach;
     p.rollCharges--;
     ev.rollStarted = true;
   }
 
-  // --- drift ---
-  if (p.drift > 0) {
-    p.drift -= dt;
-    const f = 1 - p.drift / T.drift.maxDuration;
-    // yaw swings the exhaust sideways/forward; fast ease in, held, eased out
-    const env = Math.min(1, f * 6) * Math.min(1, (p.drift / T.drift.maxDuration) * 5 + 0.15);
-    p.yaw = p.driftDir * env * 2.1;
-    if (p.drift <= 0 || !inp.drift) {
-      p.drift = 0;
-      p.yaw = 0;
-      p.driftCharge = 0;
-      ev.driftEnded = true;
-    }
-  } else {
-    p.yaw += (0 - p.yaw) * approach(0.1, dt);
-    p.driftCharge = Math.min(1, p.driftCharge + dt / T.drift.recharge);
-    if (edges.drift && p.driftCharge >= 1 && p.rolling <= 0 && p.wingtrail <= 0) {
-      p.drift = T.drift.maxDuration;
-      p.driftDir = p.vx >= 0 ? 1 : -1;
-      ev.driftStarted = true;
-    }
-  }
+  p.yaw += (0 - p.yaw) * approach(0.1, dt);
 
   // --- wingtrail ---
   if (p.wingtrail > 0) {
@@ -204,31 +170,13 @@ export function updatePlayer(
     }
   } else {
     p.wingCharge = Math.min(1, p.wingCharge + dt / T.wingtrail.timeToCharge);
-    if (edges.wing && p.wingCharge >= 1 && p.rolling <= 0 && p.drift <= 0) {
+    if (edges.wing && p.wingCharge >= 1 && p.rolling <= 0) {
       p.wingtrail = T.wingtrail.spin;
       p.wingCharge = 0;
       p.wingKills = 0;
       ev.wingtrailStarted = true;
     }
   }
-
-  // --- boost / brake ---
-  if (p.boost > 0) {
-    p.boost -= dt;
-    if (p.boost <= 0) {
-      p.boost = 0;
-      p.boostExposed = T.boost.exposed;
-    }
-  } else if (p.boostExposed > 0) {
-    p.boostExposed -= dt;
-  }
-  if (p.boostCd > 0) p.boostCd -= dt;
-  if (edges.boost && p.boostCd <= 0 && p.boost <= 0) {
-    p.boost = T.boost.duration;
-    p.boostCd = T.boost.cooldown;
-    ev.boostStarted = true;
-  }
-  p.braking = inp.brake && p.boost <= 0;
 
   // --- timers ---
   if (p.invuln > 0) p.invuln -= dt;
@@ -242,21 +190,6 @@ export function updatePlayer(
   } else p.missileRegen = 0;
 
   return ev;
-}
-
-/** Forward speed multiplier from boost/brake. */
-export function speedMul(p: PlayerState): number {
-  if (p.boost > 0) return T.rail.boostMul;
-  if (p.braking) return T.rail.brakeMul;
-  return 1;
-}
-
-/** Damage multiplier from exposure (after boost) and braking. */
-export function damageMul(p: PlayerState): number {
-  let m = 1;
-  if (p.boostExposed > 0) m *= T.boost.exposedDamageMul;
-  if (p.braking) m *= T.brake.damageMul;
-  return m;
 }
 
 /** True while the parry window of a roll is open. */

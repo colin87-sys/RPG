@@ -33,10 +33,7 @@ export interface GameStateSnapshot {
     y: number;
     bank: number;
     rolling: boolean;
-    drifting: boolean;
     wingtrail: boolean;
-    boosting: boolean;
-    braking: boolean;
     invulnerable: boolean;
   };
   boss: { name: string; phase: number; hp01: number } | null;

@@ -35,8 +35,6 @@ export interface Enemy {
   lastHitBy: string;
   /** big enemies show a health sliver */
   big: boolean;
-  /** drift tick cooldown */
-  driftCd: number;
   /** wingtrail ring already hit this enemy (per ring id) */
   ringHit: number;
   /** leaves the field without dying (counts as escaped) */
@@ -141,7 +139,7 @@ export function makeEnemy(id: number): Enemy {
     id, alive: false, kind: 'caltrop', hp: 0, maxHp: 0, u: 0, x: 0, y: 0, vu: 0, vx: 0, vy: 0,
     yaw: 0, roll: 0, age: 0, radius: 1, value: 0, flash: 0, locks: 0,
     b: { pattern: '', index: 0, delay: 0, p: new Array(16).fill(0), fireT: 0, phase: 0, phaseT: 0, ax: 0, ay: 0, au: 0, laserId: -1 },
-    justDied: false, lastHitBy: '', big: false, driftCd: 0, ringHit: -1, escaped: false,
+    justDied: false, lastHitBy: '', big: false, ringHit: -1, escaped: false,
   };
 }
 

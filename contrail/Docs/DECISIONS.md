@@ -141,3 +141,12 @@ Goldpath Cloudgate after the change: rank S, shield 72.
 
 ## 2026-10-03T02:55Z — Bot drift trigger settled (harness driver only)
 Iterations: hold-the-key drift never re-triggered after a roll; drifting on close enemies or incoming fire swallowed Wreckfield's few parryable rounds (parry 0). Final: the bot taps drift only in a calm moment (enemy within 120 m ahead, no rounds inbound within 60 m / 14 m) and at most every 25 s. Goldpath: Cloudgate PASS rank S shield 89 (parry 7, drift 8); Wreckfield PASS rank A shield 100 (parry 3, drift 10); all 7 mechanics on both. Game rules unchanged.
+
+## 2026-10-03T06:28Z — Controls simplified (owner: "get rid of things that don't meaningfully change the gameplay", fewer buttons)
+8 actions -> steer + 3 (MISSILES, ROLL, WING) + pause; phone overlay 7 buttons -> 3.
+- **Removed drift** (owner choice): its exhaust only hit enemies behind the craft, rare in a forward rail shooter; slow-mo + i-frames overlapped wing.
+- **Removed boost**: 0.7 s speed burst + round deflection overlapped roll/parry; the exposed +25% damage window made it a trap. **Removed brake**: half speed + pickup magnet + 30% more damage taken; the weakest action. Pickups now drift into the craft within 12 m automatically.
+- **Auto-fire everywhere** (owner choice; phones already did).
+- **One ROLL** instead of left/right: rolls toward the held stick, else along the craft's motion, else right. Q/R keep explicit left/right on keyboard, LB/RB on gamepad.
+- Bindings: MSL K/J/left mouse, LT/RT; ROLL Space/right mouse, A/LB/RB/X; WING E/Shift, Y. Tutorial prompts rewritten (GUNS FIRE AUTOMATICALLY; PARRY: ROLL (SPACE); WING (E): SHOCKWAVE WHEN CHARGED). HUD shows one special chip (WING); speed gauge constant.
+- Goldpath required mechanics: drift dropped (6 remain). Bot drift logic removed.

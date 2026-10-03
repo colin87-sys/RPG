@@ -17,7 +17,7 @@ const TOOL = 'goldpath';
 // Software GL (SwiftShader) drains queued frames before a screenshot; the heavier world (2026-09-30 graphics pass) needs > 30 s
 const SHOT_TIMEOUT_MS = 120000;
 const args = parseArgs(undefined, { booleans: ['dev', 'build', 'gameover'] });
-export const DEFAULT_MECHANICS = ['cannonFire', 'missileFire', 'enemyKilled:missile', 'parry', 'drift', 'wingtrail', 'shieldRefill'];
+export const DEFAULT_MECHANICS = ['cannonFire', 'missileFire', 'enemyKilled:missile', 'parry', 'wingtrail', 'shieldRefill'];
 
 runTool(TOOL, async () => {
   const stage = args.stage && args.stage !== true ? String(args.stage) : 'cloudgate';

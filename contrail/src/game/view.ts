@@ -175,7 +175,7 @@ export class View {
       if (e.big) this.chromaPulse = Math.max(this.chromaPulse, 0.7);
     });
     ev.on('enemyHit', (e) => {
-      if (e.weapon === 'cannon' || e.weapon === 'drift') this.pops.spawn(this.railToWorld(e.pos.z, e.pos.x, e.pos.y, new THREE.Vector3()), { scale: 0.8 });
+      if (e.weapon === 'cannon') this.pops.spawn(this.railToWorld(e.pos.z, e.pos.x, e.pos.y, new THREE.Vector3()), { scale: 0.8 });
     });
     ev.on('wingtrail', () => {
       const p = this.game.player;
@@ -253,7 +253,7 @@ export class View {
     craft.root.visible = g.state !== 'title' && p.alive;
     craft.update(dt, {
       time: this.time, bank: p.bank + p.spin, pitch: p.pitch,
-      throttle: p.boost > 0 ? 1.6 : p.braking ? 0.5 : 1, boost: p.boost > 0, drift: p.drift > 0,
+      throttle: 1, boost: false, drift: false,
       // cap the damage flash so the hull keeps its shading and livery (M2 round-6 D-1)
       hitFlash: Math.min(0.45, p.hitFlash * 0.45 + (p.invuln > 0 ? 0.15 * (Math.sin(this.time * 40) > 0 ? 1 : 0) : 0)),
     });
@@ -368,7 +368,7 @@ export class View {
     this.rings.update(dt, this.camera);
     this.smoke.update(dt, this.camera);
     this.exhaustTrail.update(dt, this.camera);
-    // wingtip vapour: brighter with lateral speed, bank, boost and rolls
+    // wingtip vapour: brighter with lateral speed, bank and rolls
     let tips: [THREE.Vector3, THREE.Vector3] | null = null;
     if (this.craft.root.visible && g.state === 'play') {
       this.craft.root.updateMatrixWorld();
@@ -378,7 +378,7 @@ export class View {
     }
     const pl = g.player;
     const lat = Math.hypot(pl.vx, pl.vy) / T.move.maxLateralSpeed;
-    const vk = Math.min(1, lat * 0.9 + Math.abs(pl.bank) * 0.6 + (pl.boost > 0 ? 0.5 : 0) + (pl.rolling > 0 ? 0.7 : 0));
+    const vk = Math.min(1, lat * 0.9 + Math.abs(pl.bank) * 0.6 + (pl.rolling > 0 ? 0.7 : 0));
     this.vapour.update(dt, tips, vk, this.camera);
     this.explosions.update(dt, this.camera);
     this.pops.update(dt, this.camera);
