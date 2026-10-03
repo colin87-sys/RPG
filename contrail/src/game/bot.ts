@@ -15,6 +15,8 @@ export class Bot {
   private lockHold = 0;
   private driftHold = 0;
   private lastRoll = -10;
+  /** stage time of the last drift start (the bot drifts sparingly so drift does not swallow parry chances) */
+  private lastDrift = -100;
   /** a human-like bot: misses some parry timings (seeded, deterministic) */
   private rng = new Rng(97);
   private skipUntil = -1;
@@ -114,13 +116,13 @@ export class Bot {
       }
     }
     // drift when enemies are close
-    if (p.drift > 0) { f.drift = this.driftHold++ < 60; }
+    if (p.drift > 0) { if (this.driftHold === 0) this.lastDrift = now; f.drift = this.driftHold++ < 60; }
     else {
       // drift starts on a press edge and not mid-roll/spin: tap (2 on / 2 off) while it is wanted
       this.driftHold = 0;
       // only in a calm moment (no rounds inbound) so drift never swallows a volley the bot could parry
       const ahead = g.enemies.some((e) => e.alive && e.u > 10 && e.u < 120);
-      const want = ahead && this.threats(60, 14) === 0 && p.driftCharge >= 1 && p.rolling <= 0 && p.wingtrail <= 0;
+      const want = ahead && now - this.lastDrift > 25 && this.threats(60, 14) === 0 && p.driftCharge >= 1 && p.rolling <= 0 && p.wingtrail <= 0;
       f.drift = want && g.frameCounter % 4 < 2;
     }
     // wingtrail when charged and there is a crowd or a big enemy
