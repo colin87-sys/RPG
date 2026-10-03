@@ -1,36 +1,36 @@
 {
-  "utc": "2026-10-03T02:43:03Z",
-  "commit": "c3bdc58",
+  "utc": "2026-10-03T02:55:41Z",
+  "commit": "7a82fbf",
   "milestone": "M2",
   "goldpath": {
-    "utc": "2026-10-03T02:43:03Z",
-    "passed": false,
-    "status": "fail",
+    "utc": "2026-10-03T02:55:41Z",
+    "passed": true,
+    "status": "pass",
     "stage": "wreckfield",
     "seed": 1,
-    "duration_s": 168,
-    "wall_s": 299.4,
+    "duration_s": 167,
+    "wall_s": 290.3,
     "final": {
       "state": "results",
       "results": {
-        "rank": "S",
-        "score": 99290,
-        "bestCombo": 54,
+        "rank": "A",
+        "score": 93210,
+        "bestCombo": 42,
         "shieldLeft": 100,
-        "timeS": 153.4,
+        "timeS": 154.7,
         "cleared": true
       },
-      "score": 93290,
+      "score": 87210,
       "shield": 100,
       "kills": 274,
-      "bestCombo": 54
+      "bestCombo": 42
     },
     "mechanics": {
-      "cannonFire": 2240,
-      "missileFire": 46,
-      "enemyKilled:missile": 49,
-      "parry": 0,
-      "drift": 20,
+      "cannonFire": 2215,
+      "missileFire": 47,
+      "enemyKilled:missile": 51,
+      "parry": 3,
+      "drift": 10,
       "wingtrail": 7,
       "shieldRefill": 0.5
     },
@@ -43,52 +43,50 @@
       "wingtrail",
       "shieldRefill"
     ],
-    "missing_mechanics": [
-      "parry"
-    ],
+    "missing_mechanics": [],
     "counts": {
       "stateChanged": 3,
       "stageStart": 1,
-      "cannonFire": 2240,
-      "lockAdded": 63,
-      "enemyHit": 946,
-      "comboChanged": 287,
+      "cannonFire": 2215,
+      "lockAdded": 62,
+      "enemyHit": 945,
+      "comboChanged": 292,
       "enemyKilled": 274,
-      "missileFire": 46,
-      "missileHit": 61,
-      "drift": 20,
+      "missileFire": 47,
+      "missileHit": 58,
+      "drift": 10,
       "wingtrail": 7,
       "laserTelegraph": 26,
-      "laserFire": 26,
+      "laserFire": 25,
       "warning": 8,
       "bossPhase": 3,
-      "roll": 3,
+      "roll": 5,
+      "parry": 3,
       "stageClear": 1,
-      "enemyKilled:cannon": 219,
+      "enemyKilled:cannon": 220,
       "killed:caltrop": 254,
-      "missilesFired": 63,
-      "refillReadyFull": 5684,
-      "enemyKilled:missile": 49,
-      "driftStarted": 10,
+      "missilesFired": 62,
+      "refillReadyFull": 5198,
+      "enemyKilled:missile": 51,
+      "driftStarted": 5,
       "killed:sniper": 11,
       "killed:dart": 8,
-      "bulletsFired": 112,
-      "enemyKilled:wingtrail": 6,
+      "bulletsFired": 126,
+      "enemyKilled:wingtrail": 3,
       "bossPhase1": 1,
-      "bossWeakHits": 303,
+      "bossWeakHits": 305,
       "bossPhase2": 1,
+      "parries": 3,
       "bossPhase3": 1,
       "bossKilled": 1,
       "killed:bulwark": 1,
       "shieldRefill": 0.5
     },
-    "failures": [
-      "mechanic(s) never fired: parry"
-    ],
+    "failures": [],
     "captures": [
-      "Docs/progress/goldpath/20261003T023802Z_p25.png",
-      "Docs/progress/goldpath/20261003T023802Z_p50.png",
-      "Docs/progress/goldpath/20261003T023802Z_results.png"
+      "Docs/progress/goldpath/20261003T025049Z_p25.png",
+      "Docs/progress/goldpath/20261003T025049Z_p50.png",
+      "Docs/progress/goldpath/20261003T025049Z_results.png"
     ],
     "steps": [
       {
@@ -157,8 +155,8 @@
       {
         "t": 30,
         "state": "play",
-        "stage_t": 24.9,
-        "progress": 0.105,
+        "stage_t": 25.6,
+        "progress": 0.108,
         "score": 11770,
         "shield": 100,
         "kills": 53
@@ -166,8 +164,8 @@
       {
         "t": 35,
         "state": "play",
-        "stage_t": 29.8,
-        "progress": 0.125,
+        "stage_t": 30.5,
+        "progress": 0.127,
         "score": 15220,
         "shield": 100,
         "kills": 63
@@ -175,243 +173,243 @@
       {
         "t": 40,
         "state": "play",
-        "stage_t": 33.7,
-        "progress": 0.14,
-        "score": 19950,
+        "stage_t": 34.9,
+        "progress": 0.145,
+        "score": 20620,
         "shield": 100,
-        "kills": 85
+        "kills": 87
       },
       {
         "t": 45,
         "state": "play",
-        "stage_t": 38.6,
-        "progress": 0.16,
-        "score": 25740,
+        "stage_t": 39.2,
+        "progress": 0.162,
+        "score": 26190,
         "shield": 100,
-        "kills": 97
+        "kills": 98
       },
       {
         "t": 50,
         "state": "play",
-        "stage_t": 43.2,
-        "progress": 0.178,
-        "score": 26690,
+        "stage_t": 44.1,
+        "progress": 0.182,
+        "score": 26840,
         "shield": 100,
-        "kills": 102
+        "kills": 103
       },
       {
         "t": 55,
         "state": "play",
-        "stage_t": 47.3,
-        "progress": 0.195,
-        "score": 29330,
+        "stage_t": 48.6,
+        "progress": 0.2,
+        "score": 30680,
         "shield": 100,
-        "kills": 112
+        "kills": 117
       },
       {
         "t": 60,
         "state": "play",
-        "stage_t": 52,
-        "progress": 0.213,
-        "score": 37140,
+        "stage_t": 53.4,
+        "progress": 0.219,
+        "score": 39580,
         "shield": 100,
-        "kills": 134
+        "kills": 139
       },
       {
         "t": 65,
         "state": "play",
-        "stage_t": 56.5,
-        "progress": 0.232,
-        "score": 41580,
+        "stage_t": 58.4,
+        "progress": 0.239,
+        "score": 41280,
         "shield": 100,
-        "kills": 141
+        "kills": 142
       },
       {
         "t": 70,
         "state": "play",
-        "stage_t": 61.5,
-        "progress": 0.251,
-        "score": 42500,
+        "stage_t": 63.4,
+        "progress": 0.259,
+        "score": 41720,
         "shield": 100,
         "kills": 143
       },
       {
         "t": 75,
         "state": "play",
-        "stage_t": 65.9,
-        "progress": 0.269,
-        "score": 42860,
+        "stage_t": 67.1,
+        "progress": 0.274,
+        "score": 42220,
         "shield": 100,
-        "kills": 146
+        "kills": 147
       },
       {
         "t": 80,
         "state": "play",
-        "stage_t": 70.2,
-        "progress": 0.286,
-        "score": 48610,
+        "stage_t": 72.1,
+        "progress": 0.294,
+        "score": 47830,
         "shield": 100,
         "kills": 169
       },
       {
         "t": 85,
         "state": "play",
-        "stage_t": 75.2,
-        "progress": 0.306,
-        "score": 49050,
+        "stage_t": 77,
+        "progress": 0.313,
+        "score": 49270,
         "shield": 100,
-        "kills": 170
+        "kills": 172
       },
       {
         "t": 90,
         "state": "play",
-        "stage_t": 80.2,
-        "progress": 0.326,
-        "score": 50160,
+        "stage_t": 81.5,
+        "progress": 0.331,
+        "score": 49770,
         "shield": 100,
-        "kills": 173
+        "kills": 176
       },
       {
         "t": 95,
         "state": "play",
-        "stage_t": 83.9,
-        "progress": 0.341,
-        "score": 53560,
+        "stage_t": 86.5,
+        "progress": 0.351,
+        "score": 54670,
         "shield": 100,
-        "kills": 190
+        "kills": 196
       },
       {
         "t": 100,
         "state": "play",
-        "stage_t": 88.9,
-        "progress": 0.361,
-        "score": 57610,
-        "shield": 100,
-        "kills": 199
-      },
-      {
-        "t": 105,
-        "state": "play",
-        "stage_t": 93.2,
-        "progress": 0.378,
-        "score": 59580,
+        "stage_t": 91.1,
+        "progress": 0.37,
+        "score": 61940,
         "shield": 100,
         "kills": 210
       },
       {
+        "t": 105,
+        "state": "play",
+        "stage_t": 95.4,
+        "progress": 0.387,
+        "score": 62050,
+        "shield": 100,
+        "kills": 211
+      },
+      {
         "t": 110,
         "state": "play",
-        "stage_t": 97.6,
-        "progress": 0.396,
-        "score": 62550,
+        "stage_t": 100.1,
+        "progress": 0.406,
+        "score": 65060,
         "shield": 100,
-        "kills": 221
+        "kills": 225
       },
       {
         "t": 115,
         "state": "play",
-        "stage_t": 102.6,
-        "progress": 0.416,
-        "score": 69160,
+        "stage_t": 105,
+        "progress": 0.425,
+        "score": 71540,
         "shield": 100,
-        "kills": 235
+        "kills": 252
       },
       {
         "t": 120,
         "state": "play",
-        "stage_t": 106.8,
-        "progress": 0.433,
-        "score": 78100,
+        "stage_t": 110,
+        "progress": 0.445,
+        "score": 71920,
         "shield": 100,
         "kills": 253
       },
       {
         "t": 125,
         "state": "play",
-        "stage_t": 111.8,
-        "progress": 0.453,
-        "score": 78210,
+        "stage_t": 114.8,
+        "progress": 0.465,
+        "score": 74070,
         "shield": 100,
-        "kills": 254
+        "kills": 264
       },
       {
         "t": 130,
         "state": "play",
-        "stage_t": 116.6,
-        "progress": 0.472,
-        "score": 81130,
+        "stage_t": 119.8,
+        "progress": 0.485,
+        "score": 74950,
         "shield": 100,
         "kills": 265
       },
       {
         "t": 135,
         "state": "play",
-        "stage_t": 121.6,
-        "progress": 0.492,
-        "score": 81130,
+        "stage_t": 124.8,
+        "progress": 0.505,
+        "score": 74950,
         "shield": 100,
         "kills": 265
       },
       {
         "t": 140,
         "state": "play",
-        "stage_t": 126.6,
-        "progress": 0.512,
-        "score": 81130,
+        "stage_t": 129.8,
+        "progress": 0.525,
+        "score": 74950,
         "shield": 100,
         "kills": 265
       },
       {
         "t": 145,
         "state": "play",
-        "stage_t": 131.6,
-        "progress": 0.532,
-        "score": 81130,
+        "stage_t": 133.7,
+        "progress": 0.54,
+        "score": 74950,
         "shield": 100,
         "kills": 265
       },
       {
         "t": 150,
         "state": "play",
-        "stage_t": 135.5,
-        "progress": 0.547,
-        "score": 82290,
+        "stage_t": 138.5,
+        "progress": 0.559,
+        "score": 76110,
         "shield": 100,
         "kills": 273
       },
       {
         "t": 155,
         "state": "play",
-        "stage_t": 140.5,
-        "progress": 0.567,
-        "score": 82290,
+        "stage_t": 143.5,
+        "progress": 0.579,
+        "score": 76210,
         "shield": 100,
         "kills": 273
       },
       {
         "t": 160,
         "state": "play",
-        "stage_t": 145.5,
-        "progress": 0.587,
-        "score": 82290,
+        "stage_t": 148.5,
+        "progress": 0.599,
+        "score": 76210,
         "shield": 100,
         "kills": 273
       },
       {
         "t": 165,
         "state": "play",
-        "stage_t": 150.4,
-        "progress": 0.607,
-        "score": 93290,
+        "stage_t": 153.4,
+        "progress": 0.619,
+        "score": 87210,
         "shield": 100,
         "kills": 274
       },
       {
-        "t": 168,
+        "t": 167,
         "state": "results",
-        "stage_t": 153.4,
-        "progress": 0.619,
-        "score": 93290,
+        "stage_t": 154.7,
+        "progress": 0.624,
+        "score": 87210,
         "shield": 100,
         "kills": 274
       }
@@ -471,7 +469,7 @@
         "missing_refs": 0
       },
       "goldpath": {
-        "utc": "2026-10-03T02:43:03Z",
+        "utc": "2026-10-03T02:55:41Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -872,13 +870,6 @@
     ]
   },
   "captures": [
-    "Docs/progress/gfx/20260930T131948Z_hero.png",
-    "Docs/progress/gfx/20260930T131948Z_vista.png",
-    "Docs/progress/gfx/20260930T131948Z_combat.png",
-    "Docs/progress/gfx/20260930T132045Z_vista.png",
-    "Docs/progress/gfx/20260930T132045Z_combat.png",
-    "Docs/progress/gfx/20260930T132111Z_vista.png",
-    "Docs/progress/gfx/20260930T132111Z_combat.png",
     "Docs/progress/gfx/20260930T132246Z_hero.png",
     "Docs/progress/gfx/20260930T132246Z_vista.png",
     "Docs/progress/gfx/20260930T132246Z_combat.png",
@@ -971,7 +962,14 @@
     "Docs/progress/goldpath/20261003T023032Z_results.png",
     "Docs/progress/goldpath/20261003T023802Z_p25.png",
     "Docs/progress/goldpath/20261003T023802Z_p50.png",
-    "Docs/progress/goldpath/20261003T023802Z_results.png"
+    "Docs/progress/goldpath/20261003T023802Z_results.png",
+    "Docs/progress/goldpath/20261003T024330Z_p25.png",
+    "Docs/progress/goldpath/20261003T024330Z_p50.png",
+    "Docs/progress/goldpath/20261003T024330Z_p75.png",
+    "Docs/progress/goldpath/20261003T024330Z_results.png",
+    "Docs/progress/goldpath/20261003T025049Z_p25.png",
+    "Docs/progress/goldpath/20261003T025049Z_p50.png",
+    "Docs/progress/goldpath/20261003T025049Z_results.png"
   ],
   "capture": {
     "utc": "2026-10-03T01:09:05Z",
