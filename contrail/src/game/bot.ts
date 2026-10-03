@@ -21,11 +21,11 @@ export class Bot {
 
   constructor(private g: Game) {}
 
-  /** hostile rounds about to reach the craft (within 40 m ahead, 8 m laterally) */
-  private threats(): number {
+  /** hostile rounds heading for the craft (within `ahead` m, `lateral` m sideways) */
+  private threats(ahead = 40, lateral = 8): number {
     const p = this.g.player;
     let n = 0;
-    for (const b of this.g.bullets) if (b.alive && !b.friendly && b.u > 0 && b.u < 40 && Math.hypot(b.x - p.x, b.y - p.y) < 8) n++;
+    for (const b of this.g.bullets) if (b.alive && !b.friendly && b.u > 0 && b.u < ahead && Math.hypot(b.x - p.x, b.y - p.y) < lateral) n++;
     return n;
   }
 
@@ -118,7 +118,9 @@ export class Bot {
     else {
       // drift starts on a press edge and not mid-roll/spin: tap (2 on / 2 off) while it is wanted
       this.driftHold = 0;
-      const want = (near >= 1 || (this.threats() >= 2 && p.rollCharges === 0)) && p.driftCharge >= 1 && p.rolling <= 0 && p.wingtrail <= 0;
+      // only in a calm moment (no rounds inbound) so drift never swallows a volley the bot could parry
+      const ahead = g.enemies.some((e) => e.alive && e.u > 10 && e.u < 120);
+      const want = ahead && this.threats(60, 14) === 0 && p.driftCharge >= 1 && p.rolling <= 0 && p.wingtrail <= 0;
       f.drift = want && g.frameCounter % 4 < 2;
     }
     // wingtrail when charged and there is a crowd or a big enemy
