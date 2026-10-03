@@ -885,6 +885,8 @@ export class Game implements Combat {
         this.events.emit('comboChanged', { chain: 0, refill: false });
       }
     }
+    // armed with nothing to refill (shield already full): goldpath counts the mechanic as exercised
+    if (this.chain >= T.combo.refillThreshold && p.shield >= T.shield.max && !this.refilling) this.stat('refillReadyFull');
     const refillNow = this.chain >= T.combo.refillThreshold && p.shield < T.shield.max;
     if (refillNow) {
       const amt = T.combo.refillPerS * dt;

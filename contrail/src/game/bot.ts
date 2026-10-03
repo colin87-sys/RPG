@@ -21,6 +21,14 @@ export class Bot {
 
   constructor(private g: Game) {}
 
+  /** hostile rounds about to reach the craft (within 40 m ahead, 8 m laterally) */
+  private threats(): number {
+    const p = this.g.player;
+    let n = 0;
+    for (const b of this.g.bullets) if (b.alive && !b.friendly && b.u > 0 && b.u < 40 && Math.hypot(b.x - p.x, b.y - p.y) < 8) n++;
+    return n;
+  }
+
   frame = (): Partial<InputFrame> => {
     const g = this.g;
     const f: Partial<InputFrame> = {};
@@ -107,9 +115,9 @@ export class Bot {
     }
     // drift when enemies are close
     if (p.drift > 0) { f.drift = this.driftHold++ < 60; }
-    else { this.driftHold = 0; f.drift = near >= 2 && p.driftCharge >= 1; }
+    else { this.driftHold = 0; f.drift = (near >= 2 || (near >= 1 && this.threats() >= 3)) && p.driftCharge >= 1; }
     // wingtrail when charged and there is a crowd or a big enemy
-    f.wingtrail = p.wingCharge >= 1 && (near >= 3 || (tgt?.big ?? false));
+    f.wingtrail = p.wingCharge >= 1 && (near >= 2 || this.g.enemies.filter((e) => e.alive && e.u > 0 && e.u < 160).length >= 4 || (tgt?.big ?? false));
     return f;
   };
 

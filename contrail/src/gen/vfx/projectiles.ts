@@ -234,6 +234,8 @@ export class HostileBullets {
     this.geo = geo;
     this.mat = new THREE.ShaderMaterial({
       ...premultiplied,
+      // danger is always visible: rounds draw over explosions, smoke and hull (no depth test)
+      depthTest: false,
       vertexShader: HB_VERT,
       fragmentShader: HB_FRAG,
       uniforms: {

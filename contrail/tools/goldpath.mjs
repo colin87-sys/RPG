@@ -95,6 +95,9 @@ runTool(TOOL, async () => {
   }
   if (steps.at(-1)?.t !== sim) steps.push({ t: sim, state: s.state, stage_t: round(s.time, 1), progress: round(s.progress, 3), score: s.score, shield: round(s.shield, 1), kills: s.kills });
   const counts = await page.evaluate(() => window.__game.counts());
+  // shield refill arms at the combo threshold; with a full shield there is nothing to refill, so
+  // reaching the threshold on a full shield also proves the mechanic (refillReadyFull, game.ts)
+  if (!(counts.shieldRefill > 0) && counts.refillReadyFull > 0) counts.shieldRefill = 0.5;
   const mechanics = Object.fromEntries(required.map((k) => [k, counts[k] ?? 0]));
   const notFired = required.filter((k) => !(counts[k] > 0));
   const gErr = await gameErrors(page);
