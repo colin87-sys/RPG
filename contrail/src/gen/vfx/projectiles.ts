@@ -139,7 +139,7 @@ export const HOSTILE_VARIANTS: Record<'A' | 'B' | 'C', HostileBulletParams> = {
   /** A: token spec, balanced core/halo */
   A: { radius: 0.9, minFrameHeightFrac: hb.minFrameHeightFrac, coreFrac: 0.5, outlineFrac: 0.12, minOutlinePx: 2.0, outlineAlpha: 0.9, coreIntensity: 2.6, haloIntensity: 1.1, glow: 0.3, glowExtent: 1.6, pulse: 0.1, pulseHz: 7 },
   /** B: bigger floor, heavier outline (max bright-sky separation) */
-  B: { radius: 0.95, minFrameHeightFrac: 0.02, coreFrac: 0.46, haloDeep: 0.15, outlineFrac: 0.17, minOutlinePx: 2.6, outlineAlpha: 1.0, coreIntensity: 2.6, haloIntensity: 1.0, glow: 0.1, glowExtent: 1.5, pulse: 0.08, pulseHz: 6 },
+  B: { radius: 0.95, minFrameHeightFrac: 0.008, coreFrac: 0.58, haloDeep: 0.15, outlineFrac: 0.12, minOutlinePx: 1.5, outlineAlpha: 1.0, coreIntensity: 2.6, haloIntensity: 1.0, glow: 0.1, glowExtent: 1.5, pulse: 0.08, pulseHz: 6 },
   /** C: hotter core, thinner outline, stronger glow (dark-stage bias) */
   C: { radius: 0.85, minFrameHeightFrac: hb.minFrameHeightFrac, coreFrac: 0.55, outlineFrac: 0.1, minOutlinePx: 1.6, outlineAlpha: 0.85, coreIntensity: 3.4, haloIntensity: 1.3, glow: 0.45, glowExtent: 1.8, pulse: 0.12, pulseHz: 8 },
 };
@@ -149,6 +149,7 @@ attribute vec4 aPosRad;   // world xyz, radius (m)
 attribute vec2 aAlphaSeed;
 uniform vec2 uViewport;
 uniform float uMinFrac;
+uniform float uMaxFrac;   // body diameter cap / frame height (near rounds do not balloon)
 uniform float uQuad;      // quad half-size in body radii
 varying vec2 vQ;
 varying float vRpx;
@@ -158,7 +159,7 @@ void main() {
   vec4 clip = projectionMatrix * modelViewMatrix * vec4(aPosRad.xyz, 1.0);
   if (aAlphaSeed.x <= 0.0 || clip.w <= 0.05) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   float f = projectionMatrix[1][1] * 0.5 * uViewport.y;
-  float rpx = max(aPosRad.w * f / clip.w, uMinFrac * uViewport.y * 0.5);
+  float rpx = min(max(aPosRad.w * f / clip.w, uMinFrac * uViewport.y * 0.5), uMaxFrac * uViewport.y * 0.5);
   vRpx = rpx;
   vQ = position.xy * uQuad;
   clip.xy += vQ * rpx / (0.5 * uViewport) * clip.w;
@@ -238,6 +239,7 @@ export class HostileBullets {
       uniforms: {
         uViewport: { value: new THREE.Vector2(1920, 1080) },
         uMinFrac: { value: 0.009 },
+        uMaxFrac: { value: 0.036 },
         uQuad: { value: 2 },
         uCore: { value: tvec(hb.core) },
         uHalo: { value: tvec(hb.halo) },

@@ -42,7 +42,7 @@ export const T = {
   },
   cannon: {
     rate: 14, // shots/s [A]
-    damage: 1,
+    damage: 1.5, // owner: guns felt weak (was 1)
     speed: 260, // m/s [A]
     range: 220, // m [A]
     radius: 0.35, // hit radius of a shot (m)
@@ -55,8 +55,8 @@ export const T = {
     speed: 110, // m/s [A]
     turnRate: (240 * Math.PI) / 180, // rad/s [A]
     damage: 6, // [A]
-    ammo: 6, // [A]
-    ammoRegen: 4, // s per missile [A] (was 12: barrages too rare; M2 review had 0/6 ammo in every frame)
+    ammo: 8, // [A] owner: too few missiles for the enemy count (was 6)
+    ammoRegen: 2.5, // s per missile [A] (was 12, then 4: owner said reload was too slow)
     launchStagger: 0.06, // s between missiles in a salvo
     maxFlight: 4.5, // s before self-destruct
   },
@@ -70,6 +70,7 @@ export const T = {
     missRecovery: 0.25, // s [A]
     parryShield: 1, // [A] T027: was 3 (parries alone refilled ~50 shield per run)
     parryScore: 50,
+    parryMissiles: 1, // missiles refunded per successful parry (owner request)
     lateralBurst: 14, // m/s sideways impulse during a roll
   },
   drift: {

@@ -747,8 +747,10 @@ export class Game implements Combat {
       p.rollParried = true;
       if (this.mode !== 'caravan') p.shield = Math.min(T.shield.max, p.shield + T.roll.parryShield);
       this.score += T.roll.parryScore;
+      const refund = Math.min(T.roll.parryMissiles, T.missiles.ammo - p.missiles);
+      if (refund > 0) p.missiles += refund;
       this.addChain(1);
-      this.combatText.push({ text: `PARRY +${T.roll.parryScore}`, kind: 'good', age: 0 });
+      this.combatText.push({ text: refund > 0 ? `PARRY +${T.roll.parryScore}  MSL +${refund}` : `PARRY +${T.roll.parryScore}`, kind: 'good', age: 0 });
     }
     this.events.emit('parry', { pos: scratchV.set(p.x, p.y, 0) });
     this.stat('parries');

@@ -139,7 +139,7 @@ export class View {
     }
     w.group.visible = true;
     // bright stage: thicker dark outline + deeper halo so rounds separate from cream cloud (A9)
-    this.hostile.params = id === 'cloudgate' ? { ...HOSTILE_VARIANTS.B, outlineFrac: 0.28, haloDeep: 0.45 } : { ...HOSTILE_VARIANTS.B };
+    this.hostile.params = id === 'cloudgate' ? { ...HOSTILE_VARIANTS.B, outlineFrac: 0.16, haloDeep: 0.45 } : { ...HOSTILE_VARIANTS.B };
     this.hostile.applyParams();
     // structures along the rail
     for (const g of this.structures) this.scene.remove(g);
@@ -325,7 +325,7 @@ export class View {
       // rounds that have passed the craft shrink and fade instead of filling the lens (M2 re-gate D-2)
       const past = b.u < 4 ? Math.max(0, Math.min(1, (b.u + 6) / 10)) : 1;
       if (past <= 0.02) continue;
-      this.hostile.setInstance(n++, this.railToWorld(b.u, b.x, b.y, V), b.radius * 1.4 * (0.5 + 0.5 * past), past);
+      this.hostile.setInstance(n++, this.railToWorld(b.u, b.x, b.y, V), b.radius * (0.5 + 0.5 * past), past); // drawn at hitbox size (was 1.4x: rounds walled off the screen)
     }
     this.shots.clear();
     n = 0;
@@ -448,7 +448,7 @@ export class View {
       const q = this.project(b.u, b.x, b.y, w, h);
       if (!q) continue;
       const dist = this.railToWorld(b.u, b.x, b.y, V).distanceTo(this.camera.position);
-      const r = Math.max(0.01 * h, ((b.radius * 1.4 * 0.46) / dist) * fy);
+      const r = Math.min(0.018 * h, Math.max(0.004 * h, ((b.radius * 0.58) / dist) * fy));
       g2.beginPath();
       g2.arc(q.x, q.y, r, 0, Math.PI * 2);
       g2.fill();

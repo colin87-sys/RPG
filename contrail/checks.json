@@ -1,6 +1,6 @@
 {
-  "utc": "2026-09-30T21:31:39Z",
-  "commit": "23c8232",
+  "utc": "2026-10-03T01:09:05Z",
+  "commit": "72a1f15",
   "milestone": "M2",
   "goldpath": {
     "utc": "2026-09-30T21:31:39Z",
@@ -497,7 +497,7 @@
         "missing_refs": 0
       },
       "capture": {
-        "utc": "2026-09-30T13:44:06Z",
+        "utc": "2026-10-03T01:09:05Z",
         "console": 0,
         "missing_refs": 0
       },
@@ -903,16 +903,6 @@
     ]
   },
   "captures": [
-    "Docs/progress/goldpath/20260930T115218Z_p50.png",
-    "Docs/progress/goldpath/20260930T115218Z_p75.png",
-    "Docs/progress/goldpath/20260930T115218Z_results.png",
-    "Docs/progress/goldpath/20260930T115410Z_gameover.png",
-    "Docs/progress/goldpath/20260930T115410Z_retry_play.png",
-    "Docs/captures/readability/20260930T115642Z_cloudgate_t150.png",
-    "Docs/captures/readability/20260930T115726Z_cloudgate_t150.png",
-    "Docs/captures/readability/20260930T115737Z_violetTide_t120.png",
-    "Docs/captures/readability/20260930T115753Z_wreckfield_t120.png",
-    "Docs/captures/readability/20260930T115823Z_cloudgate_t150.png",
     "Docs/captures/readability/20260930T115832Z_violetTide_t60.png",
     "Docs/captures/readability/20260930T115848Z_wreckfield_t150.png",
     "Docs/captures/readability/20260930T115919Z_cloudgate_t150.png",
@@ -1002,40 +992,40 @@
     "Docs/progress/goldpath/20260930T212540Z_p25.png",
     "Docs/progress/goldpath/20260930T212540Z_p50.png",
     "Docs/progress/goldpath/20260930T212540Z_p75.png",
-    "Docs/progress/goldpath/20260930T212540Z_results.png"
+    "Docs/progress/goldpath/20260930T212540Z_results.png",
+    "Docs/progress/bullets/20261003T010516Z_play.png",
+    "Docs/progress/bullets/20261003T010537Z_play.png",
+    "Docs/progress/bullets/20261003T010551Z_play.png",
+    "Docs/progress/bullets/20261003T010603Z_play.png",
+    "Docs/progress/bullets/20261003T010615Z_play.png",
+    "Docs/progress/bullets/20261003T010805Z_play.png",
+    "Docs/progress/bullets/20261003T010817Z_play.png",
+    "Docs/progress/bullets/20261003T010831Z_play.png",
+    "Docs/progress/bullets/20261003T010843Z_play.png",
+    "Docs/progress/bullets/20261003T010855Z_play.png"
   ],
   "capture": {
-    "utc": "2026-09-30T13:44:06Z",
+    "utc": "2026-10-03T01:09:05Z",
     "passed": true,
     "cams": [
-      "play",
-      "hero"
+      "play"
     ],
     "seed": 1,
-    "t": 90,
-    "stage": "violetTide",
+    "t": 170,
+    "stage": "wreckfield",
     "w": 1280,
     "h": 720,
-    "feature": "gfx",
+    "feature": "bullets",
     "files": [
-      "Docs/progress/gfx/20260930T134347Z_play.png",
-      "Docs/progress/gfx/20260930T134347Z_hero.png"
+      "Docs/progress/bullets/20261003T010855Z_play.png"
     ],
     "stats": {
       "play": {
-        "state": "play",
-        "time": 92.54,
-        "luma_mean": 60.9,
-        "luma_std": 33.6,
-        "colors": 452,
-        "size": "1280x720"
-      },
-      "hero": {
-        "state": "play",
-        "time": 92.54,
-        "luma_mean": 44.7,
-        "luma_std": 20.9,
-        "colors": 207,
+        "state": "results",
+        "time": 154.39,
+        "luma_mean": 33.9,
+        "luma_std": 27.4,
+        "colors": 70,
         "size": "1280x720"
       }
     },

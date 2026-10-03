@@ -47,3 +47,4 @@
 | T043 | P2 | Harness | readability: skip mask discs occluded by geometry (depth test) and sample several times per stage | open |
 | T044 | P1 | Director | Graphics pass 1-2 raised software-GL frame cost ~3x (displaced sea fragment shader, tower overdraw); adaptive 3D resolution added (floor 60%). Measure on a real GPU; if < 60 fps at 1080p, drop the sea self-shadow and fine octave first | open |
 | T045 | P2 | World | Violet Tide horizon towers read as mushrooms/bushes at distance; widen the base banks or flatten the crowns | open |
+| T046 | P1 | Gameplay | After the 2026-10-03 weapon buff (cannon 1.5, 8 missiles at 2.5 s, parry refund) the stages are easier still (T037); retune enemy HP / volley density once the owner has played it | open |

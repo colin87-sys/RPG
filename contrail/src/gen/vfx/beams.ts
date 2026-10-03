@@ -99,7 +99,7 @@ export const BEAM_VARIANTS: Record<'A' | 'B' | 'C', BeamParams> = {
   /** B: slimmer core, stronger halo, slower flicker (heavier threat read) */
   B: { ...baseBeam, coreFrac: 0.42, haloIntensity: 2.6, haloOcclusion: 0.8, flickerHz: [5, 14], telegraphOutlinePx: 2.5, bossScale: 3.4 },
   /** C: wider core, brighter flash, faster tip extension, livelier flow */
-  C: { ...baseBeam, coreFrac: 0.55, edgeFrac: 0.05, edgeMinPx: 2, haloIntensity: 2.8, haloOcclusion: 0.88, flashScale: 1.9, flashBoost: 1.6, extendS: 0.12, flowAmount: 0.3, telegraphWidth: 0.16, bossScale: 2.6 },
+  C: { ...baseBeam, coreFrac: 0.55, edgeFrac: 0.05, edgeMinPx: 2, haloIntensity: 2.8, haloOcclusion: 0.88, flashScale: 1.4, flashBoost: 1.6, extendS: 0.12, flowAmount: 0.3, telegraphWidth: 0.16, bossScale: 2.1 },
 };
 
 const VERT = /* glsl */ `
@@ -111,6 +111,7 @@ uniform vec2 uViewport;
 uniform float uMinW;
 uniform float uTeleMinPx;
 uniform float uTeleOutPx;
+uniform float uMaxHalfFrac; // fired-beam half width cap / frame height (a beam passing the lens never floods the screen)
 varying vec2 vAP;
 varying float vLen;
 varying float vInvW;
@@ -144,8 +145,9 @@ void main() {
   float extA, extB;
   if (aK.x > 0.5) {
     float g = 1.0 + aK.w;
-    extA = max(aW.x * f * wa, uMinW * 0.5) * g + 2.0;
-    extB = max(aW.x * f * wb, uMinW * 0.5) + 2.0;
+    float cap = uMaxHalfFrac * uViewport.y * (aK.y > 0.5 ? 1.0 : 0.45);
+    extA = min(max(aW.x * f * wa, uMinW * 0.5) * g, cap) + 2.0;
+    extB = min(max(aW.x * f * wb, uMinW * 0.5), cap) + 2.0;
   } else {
     extA = max(aW.y * f * wa, uTeleMinPx * 0.5) + uTeleOutPx * 1.6 + 2.0;
     extB = max(aW.y * f * wb, uTeleMinPx * 0.5) + uTeleOutPx * 1.6 + 2.0;
@@ -306,6 +308,7 @@ export class Beams {
         uHaloOcc: { value: 0.55 },
         uTeleMinPx: { value: 2.2 },
         uTeleOutPx: { value: 1.6 },
+        uMaxHalfFrac: { value: 0.045 },
         uTeleOutA: { value: 0.75 },
         uFlickHz: { value: new THREE.Vector2(7, 18) },
         uFlickDepth: { value: 0.55 },
